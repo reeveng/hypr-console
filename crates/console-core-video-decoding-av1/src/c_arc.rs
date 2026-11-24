@@ -109,6 +109,7 @@ impl<T: ?Sized> Copy for StableRef<T> {}
     reason = "the stable reference can move when the pointee permits shared access across threads"
   )
 )]
+// SAFETY: CArc retains the pinned allocation, and moving the pointer only transfers shared access to T.
 unsafe impl<T: Sync + ?Sized> Send for StableRef<T> {}
 
 #[cfg(feature = "c-ffi")]
@@ -126,6 +127,7 @@ unsafe impl<T: Sync + ?Sized> Send for StableRef<T> {}
     reason = "cloning the pointer lends only shared access and its pointee is Sync"
   )
 )]
+// SAFETY: The pinned allocation is accessed through shared references to a Sync pointee.
 unsafe impl<T: Sync + ?Sized> Sync for StableRef<T> {}
 
 #[cfg(feature = "c-ffi")]

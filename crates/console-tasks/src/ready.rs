@@ -1,10 +1,7 @@
 //! What must hold before a deploy, in the order it is asked.
 //!
-//! The retired-word and word proportion checks go first. Then the build,
-//! because the tests of a panel open its program
-//! and a stale one is a picture of yesterday. Then the tests, clippy, the
-//! feature checks here and the rules, each over only the crates a change since
-//! the last pass could reach.
+//! A deployment checks vocabulary, isolated tests, clippy and Explicit Rust.
+//! A test run uses the same effect and reply path without recording a deploy pass.
 //!
 //! A pass is written down only for a tree that was committed and still: a pass
 //! over files that were being edited is a pass over something that no longer
@@ -21,6 +18,7 @@ use console_core_state_machine::{EffectDependencies, Machine, Queue, Service, Tr
 use console_program_contract::{Effect, Event, Exit};
 
 use crate::reached::Scope;
+use crate::task::Suite;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Checkout {
@@ -75,7 +73,7 @@ pub enum State {
   Inspecting,
   FindingScope(Before),
   Checking {
-    before: Before,
+    completion: Completion,
     pending: Step,
     remaining: VecDeque<Step>,
   },
@@ -86,20 +84,45 @@ pub enum State {
 
 pub struct Ready;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Completion {
+  Finish,
+  Recheck(Before),
+}
+
+pub enum Run {
+  Deploy,
+  Tests(Vec<Suite>),
+  PanelTest(String),
+}
+
 impl Machine for Ready {
-  type Input = ();
+  type Input = Run;
   type State = State;
   type Request = Event<ReadyEvent>;
   type Effect = Effect<ReadyEffect>;
 
   fn initialize(
-    _input: &(),
+    input: &Run,
     _previous: Option<State>,
     effects: &mut Queue<Self::Effect>,
   ) -> Result<State, Never> {
-    let Ok(()) = effects.offer(Effect::Custom(ReadyEffect::Inspect));
+    let Ok(turn) = match input {
+      Run::Deploy => Transition::new(
+        State::Inspecting,
+        vec![Effect::Custom(ReadyEffect::Inspect)],
+      ),
+      Run::Tests(suites) => next_check(
+        Completion::Finish,
+        suites.iter().copied().map(Step::Test).collect(),
+      ),
+      Run::PanelTest(name) => next_check(
+        Completion::Finish,
+        VecDeque::from([Step::PanelTest(name.clone())]),
+      ),
+    };
 
-    Ok(State::Inspecting)
+    turn.offered(effects)
   }
 
   fn handle(
@@ -129,10 +152,10 @@ fn decide(state: State, event: Event<ReadyEvent>) -> Turn {
       let Ok(flags) = scope.flags();
       let Ok(checks) = steps(&scope);
       let notice = Effect::Print(format!(
-        "the tests, clippy and the rules are asked of: {}",
+        "clippy and the rules are asked of: {}",
         flags.join(" ")
       ));
-      let Ok(mut turn) = next_check(before, VecDeque::from(checks));
+      let Ok(mut turn) = next_check(Completion::Recheck(before), VecDeque::from(checks));
 
       turn.effects.insert(0, notice);
 
@@ -140,7 +163,7 @@ fn decide(state: State, event: Event<ReadyEvent>) -> Turn {
     }
     (
       State::Checking {
-        before,
+        completion,
         pending,
         remaining,
       },
@@ -150,10 +173,10 @@ fn decide(state: State, event: Event<ReadyEvent>) -> Turn {
         ::core::primitive::bool::then_some(step == pending, ()),
         result,
       ) {
-        (Some(()), Ok(())) => next_check(before, remaining),
+        (Some(()), Ok(())) => next_check(completion, remaining),
         (Some(()), Err(fault)) => stop(Exit::Failure(fault)),
         (None, _) => Transition::without_effects(State::Checking {
-          before,
+          completion,
           pending,
           remaining,
         }),
@@ -188,20 +211,23 @@ fn inspected(before: Before, last_pass: Option<&str>) -> Turn {
   }
 }
 
-fn next_check(before: Before, mut remaining: VecDeque<Step>) -> Turn {
+fn next_check(completion: Completion, mut remaining: VecDeque<Step>) -> Turn {
   match remaining.pop_front() {
     Some(step) => Transition::new(
       State::Checking {
-        before,
+        completion,
         pending: step.clone(),
         remaining,
       },
       vec![Effect::Custom(ReadyEffect::Check(step))],
     ),
-    None => Transition::new(
-      State::Rechecking(before),
-      vec![Effect::Custom(ReadyEffect::RecheckTree)],
-    ),
+    None => match completion {
+      Completion::Finish => stop(Exit::Success),
+      Completion::Recheck(before) => Transition::new(
+        State::Rechecking(before),
+        vec![Effect::Custom(ReadyEffect::RecheckTree)],
+      ),
+    },
   }
 }
 
@@ -241,22 +267,20 @@ fn stop(exit: Exit) -> Turn {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Step {
   RetiredWords,
-  WordsInProportion,
-  Build,
-  Tests(Scope),
+  Test(Suite),
+  PanelTest(String),
   Clippy(Scope),
-  Checks,
   Rules(Scope),
 }
 
 pub fn steps(scope: &Scope) -> Result<Vec<Step>, Never> {
   Ok(vec![
     Step::RetiredWords,
-    Step::WordsInProportion,
-    Step::Build,
-    Step::Tests(scope.clone()),
+    Step::Test(Suite::Unit),
+    Step::Test(Suite::Integration),
+    Step::Test(Suite::Panels),
+    Step::Test(Suite::Live),
     Step::Clippy(scope.clone()),
-    Step::Checks,
     Step::Rules(scope.clone()),
   ])
 }
@@ -337,7 +361,7 @@ mod tests {
   #[test]
   fn a_cached_pass_stops_before_asking_for_any_checks() {
     let Ok(inspected) = inspection(Some("tree-before\n"));
-    let Ok(trace) = run::<Ready>(&(), &[inspected]);
+    let Ok(trace) = run::<Ready>(&Run::Deploy, &[inspected]);
     let Ok(effects) = trace.effects();
 
     assert_eq!(trace.initialized, [Effect::Custom(ReadyEffect::Inspect)]);
@@ -360,7 +384,7 @@ mod tests {
         result: Ok(()),
       })
     }));
-    let Ok(checked) = run::<Ready>(&(), &replies);
+    let Ok(checked) = run::<Ready>(&Run::Deploy, &replies);
     let Ok(asked) = checked.effects();
 
     assert_eq!(
@@ -434,12 +458,12 @@ mod tests {
   fn only_a_reply_to_the_pending_check_can_advance_or_stop_the_gate() {
     let Ok(inspected) = inspection(None);
     let Ok(trace) = run::<Ready>(
-      &(),
+      &Run::Deploy,
       &[
         inspected,
         Event::Custom(ReadyEvent::ScopeFound(Scope::Workspace)),
         Event::Custom(ReadyEvent::Checked {
-          step: Step::Build,
+          step: Step::Test(Suite::Unit),
           result: Ok(()),
         }),
         Event::Custom(ReadyEvent::Checked {
@@ -499,12 +523,42 @@ mod tests {
   }
 
   #[test]
-  fn the_cheap_questions_are_asked_before_the_build_and_the_rules_last() {
+  fn deployment_checks_vocabulary_before_the_guest() {
     let Ok(asked) = steps(&Scope::Workspace);
 
     assert_eq!(asked.first(), Some(&Step::RetiredWords));
-    assert_eq!(asked.get(1), Some(&Step::WordsInProportion));
-    assert_eq!(asked.get(2), Some(&Step::Build));
+    assert_eq!(asked.get(1), Some(&Step::Test(Suite::Unit)));
+    assert!(asked.contains(&Step::Test(Suite::Panels)));
     assert_eq!(asked.last(), Some(&Step::Rules(Scope::Workspace)));
+  }
+
+  #[test]
+  fn testing_requests_each_suite_without_inspecting_or_recording_the_tree() {
+    let Ok(trace) = run::<Ready>(
+      &Run::Tests(vec![Suite::Unit, Suite::Integration]),
+      &[
+        Event::Custom(ReadyEvent::Checked {
+          step: Step::Test(Suite::Unit),
+          result: Ok(()),
+        }),
+        Event::Custom(ReadyEvent::Checked {
+          step: Step::Test(Suite::Integration),
+          result: Ok(()),
+        }),
+      ],
+    );
+    let Ok(asked) = trace.effects();
+
+    assert_eq!(
+      trace.initialized,
+      [Effect::Custom(ReadyEffect::Check(Step::Test(Suite::Unit)))]
+    );
+    assert_eq!(
+      asked,
+      [
+        Effect::Custom(ReadyEffect::Check(Step::Test(Suite::Integration))),
+        Effect::Stop(Exit::Success)
+      ]
+    );
   }
 }

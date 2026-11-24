@@ -373,18 +373,18 @@ fn sound_settings(readings: SoundReadings<'_>) -> Result<Vec<console_panel::page
   };
   let controls = SoundControls {
     select: (|explicit_argument_0| {
-      ({
+      {
         let Ok(explicit_value) = select_sound_output(explicit_argument_0);
         explicit_value
-      })
+      }
     }),
     mute: hush,
     volume: turn_to,
     reset: (|explicit_argument_0| {
-      ({
+      {
         let Ok(explicit_value) = reset_app_volumes(explicit_argument_0);
         explicit_value
-      })
+      }
     }),
     bypassed,
     leveling: set_app_leveling,

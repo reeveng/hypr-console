@@ -32,7 +32,6 @@ use std::ffi::c_int;
 use std::ffi::c_uint;
 
 use strum::FromRepr;
-use zerocopy::FromBytes;
 
 use crate::src::enum_map::DefaultValue;
 

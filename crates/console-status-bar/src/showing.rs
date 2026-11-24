@@ -533,7 +533,7 @@ pub fn along_with_applets(
   for applet in applets {
     let Ok(width) = advance(applet, fitting);
 
-    match ::core::primitive::bool::then_some({ width <= available }, ()) {
+    match ::core::primitive::bool::then_some(width <= available, ()) {
       ::core::option::Option::Some(()) => {
         additions.push(applet.clone());
         available = available.saturating_sub(width);
@@ -542,7 +542,7 @@ pub fn along_with_applets(
     }
   }
 
-  match ::core::primitive::bool::then_some({ !additions.is_empty() }, ()) {
+  match ::core::primitive::bool::then_some(!additions.is_empty(), ()) {
     ::core::option::Option::Some(()) => {
       additions.append(&mut bar_2.right);
       bar_2.right = additions;

@@ -13,7 +13,8 @@ rustPlatform.buildRustPackage {
   buildInputs = [ wayland ];
   buildFeatures = [ "console-application-browser/checks" ];
   cargoBuildFlags = [ "-p" "console-application-browser" ];
-  cargoTestFlags = [ "-p" "console-application-browser" "-p" "console-browser-renderer" "-p" "console-core-web-engine" ];
+  doCheck = false;
+  RUSTC_BOOTSTRAP = "console_core_path_rasterizer,console_operating_system_linux";
   CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS = "-C target-cpu=x86-64";
 
   postInstall = ''

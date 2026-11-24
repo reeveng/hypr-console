@@ -3723,9 +3723,10 @@ fn parse_tile_grp(
   let Ok(cols) = console_core_number_conversion::wrapped::<_, i32>(frame_hdr.tiling.cols);
   let Ok(rows) = console_core_number_conversion::wrapped::<_, i32>(frame_hdr.tiling.rows);
   let max_tiles = i32::wrapping_mul(cols, rows);
+  let starts_at_next_tile = hdr.start == state.n_tiles;
 
   match ::core::primitive::bool::then_some(
-    hdr.start > hdr.end || hdr.start != state.n_tiles || hdr.end >= max_tiles,
+    hdr.start > hdr.end || !starts_at_next_tile || hdr.end >= max_tiles,
     (),
   ) {
     ::core::option::Option::Some(()) => {

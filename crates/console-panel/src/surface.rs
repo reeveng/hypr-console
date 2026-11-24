@@ -8757,6 +8757,9 @@ mod tests {
     let wearing = sample_palette()?;
     let Ok(card) = card();
     let state = state_of(vec![page])?;
+    let Ok(initial) = drawn(&state, &card, &wearing);
+    let moving = initial.moving.ok_or("the looked-at picture has no layout")?;
+    let Ok(_ready) = crate::frames::current(&moving.of, moving.room);
     let Ok(patience) = console_waiting::Schedule::of(Duration::from_secs(20));
 
     let Ok(looked_at) = console_waiting::until_some(patience, || {
@@ -9846,9 +9849,10 @@ mod tests {
         | super::Shape::Clip(_) => None,
       })
       .ok_or("the bar has no rail")?;
+    let fill = wearing.pink;
     let filled = panelled.shapes.iter().any(|shape| match shape {
       super::Shape::Panel(panel) => {
-        panel.fill == wearing.pink
+        panel.fill == fill
           && panel.at.x == rail.at.x
           && panel.size.width == rail.size.width.saturating_div(4)
       }
@@ -10478,9 +10482,10 @@ mod tests {
         | super::Shape::Clip(_) => None,
       })
       .ok_or("the bar has no rail")?;
+    let fill = wearing.night;
     let filled = panelled.shapes.iter().any(|shape| match shape {
       super::Shape::Panel(panel) => {
-        panel.fill == wearing.night
+        panel.fill == fill
           && panel.at.x == rail.at.x
           && panel.size.width == rail.size.width.saturating_div(4)
       }

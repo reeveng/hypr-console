@@ -205,6 +205,7 @@ mod tests {
 
   #[test]
   fn only_the_release_tag_and_distinct_dots_are_accepted() {
+    assert!(matches!(Order::parse("console-v0.1.7\naidc\n"), Ok(_)));
     assert!(matches!(Order::parse("legion-go-v0.1.2\naidc\n"), Ok(_)));
 
     for request in [

@@ -75,7 +75,7 @@ type TransformMap = [[[[u8; 32]; 32]; 2]; 2];
 #[derive(Clone, Copy)]
 enum TransformSplitDepth {
   Root,
-  Child,
+  Subblock,
   Leaf,
 }
 
@@ -118,8 +118,8 @@ fn decomp_tx(
   let &[root, child] = masks;
   let split = match (&depth, size) {
     (TransformSplitDepth::Leaf, _) | (_, TxfmSize::S4x4) => None,
-    (TransformSplitDepth::Root, _) => Some((root, TransformSplitDepth::Child)),
-    (TransformSplitDepth::Child, _) => Some((child, TransformSplitDepth::Leaf)),
+    (TransformSplitDepth::Root, _) => Some((root, TransformSplitDepth::Subblock)),
+    (TransformSplitDepth::Subblock, _) => Some((child, TransformSplitDepth::Leaf)),
   };
   let bit = u32::from(offsets.y_off)
     .wrapping_mul(4)

@@ -76,6 +76,10 @@ impl Detached {
     self.child.wait()
   }
 
+  pub fn kill(&mut self) -> io::Result<()> {
+    self.child.kill()
+  }
+
   pub fn id(&self) -> Result<u32, Never> {
     Ok(self.child.id())
   }

@@ -336,9 +336,11 @@ fn append(
   span: Span,
 ) -> core::result::Result<(), console_core_never::Never> {
   {
-    let previous = spans
-      .last_mut()
-      .filter(|last| last.activity == span.activity && last.end == span.start);
+    let previous = spans.last_mut().filter(|last| {
+      let adjacent = last.end == span.start;
+
+      adjacent && last.activity == span.activity
+    });
 
     match previous {
       Some(last) => last.end = span.end,

@@ -1,0 +1,87 @@
+name: Console release
+
+on:
+  push:
+    tags:
+      - 'console-v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    env:
+      RUSTUP_TOOLCHAIN: nightly-2026-05-28
+    permissions:
+      contents: write
+    steps:
+      - name: Fetch source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init --quiet .
+          git fetch --quiet --depth 1 "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" "$GITHUB_REF"
+          git checkout --quiet --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "$GITHUB_SHA^{commit}")"
+
+      - name: Verify release tags
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          set -euo pipefail
+          component='(0|[1-9][0-9]*)'
+          [[ "$GITHUB_REF_NAME" =~ ^console-v$component\.$component\.$component$ ]]
+          if [[ "$GITHUB_REF_NAME" == console-v0.1.7 ]]; then
+            bridge=legion-go-v0.1.7
+            git fetch --quiet --depth 1 "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" "refs/tags/$bridge"
+            test "$(git rev-parse HEAD)" = "$(git rev-parse 'FETCH_HEAD^{commit}')"
+            printf 'CONSOLE_MIGRATION_TAG=%s\n' "$bridge" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build Legion Go binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p target
+          docker run --rm --volume "$PWD:/build" --workdir /build \
+            --env CARGO_BUILD_JOBS=4 --env RUSTUP_TOOLCHAIN archlinux:base-devel bash -euc '
+              pacman -Syu --needed --noconfirm git libxcrypt pam rustup wayland
+              pacman -Scc --noconfirm
+              rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
+              git config --global --add safe.directory /build
+              rustc --edition=2024 -O tools/console-bundle.rs -o target/console-bundle
+              target/console-bundle /build/console-x86_64.tar.gz
+            '
+
+      - name: Publish the bundle
+        if: github.ref_type == 'tag'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          publish() {
+            local tag=$1 latest=$2 archive=$3 draft
+            shift 3
+            if draft=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft); then
+              if [[ "$draft" == false ]]; then
+                return 0
+              fi
+              gh release upload "$tag" "$archive" --repo "$GITHUB_REPOSITORY" --clobber
+            else
+              gh release create "$tag" "$archive" \
+                --repo "$GITHUB_REPOSITORY" --verify-tag --draft "$@"
+            fi
+            gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false --latest="$latest"
+          }
+
+          if [[ -n "${CONSOLE_MIGRATION_TAG:-}" ]]; then
+            publish "$GITHUB_REF_NAME" false console-x86_64.tar.gz --generate-notes
+            cp console-x86_64.tar.gz legion-go-x86_64.tar.gz
+            publish "$CONSOLE_MIGRATION_TAG" true legion-go-x86_64.tar.gz \
+              --notes "One-time updater migration. This is the same build as [$GITHUB_REF_NAME]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME)."
+          else
+            publish "$GITHUB_REF_NAME" true console-x86_64.tar.gz --generate-notes
+          fi

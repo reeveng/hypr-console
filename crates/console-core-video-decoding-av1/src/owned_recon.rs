@@ -59,9 +59,9 @@ use core::cmp::Ordering;
 use console_core_api_compatibility::{NativeOffset, NativeSize};
 use console_core_geometry::{Point, Rectangle, Size};
 use console_core_never::Never;
-use console_core_number_conversion::{
-  checked_index, fixed_index, fixed_offset, index, indices, wrapped_offset,
-};
+use console_core_number_conversion::{checked_index, fixed_index, fixed_offset, index, indices};
+#[cfg(any(target_arch = "aarch64", target_arch = "wasm32"))]
+use console_core_number_conversion::wrapped_offset;
 
 use crate::include::common::bitdepth::BitDepth;
 use crate::include::dav1d::picture::{PicOffset, Rav1dPictureDataComponent};

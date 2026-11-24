@@ -1142,6 +1142,7 @@ pub struct ITUTT35PayloadPtr(*const u8);
     reason = "moving the C view preserves the lifetime and location of the immutable allocation retained with it"
   )
 )]
+// SAFETY: Moving the view preserves the address of the immutable payload owned by the frame.
 unsafe impl Send for ITUTT35PayloadPtr {}
 
 #[cfg(feature = "c-ffi")]
@@ -1159,6 +1160,7 @@ unsafe impl Send for ITUTT35PayloadPtr {}
     reason = "the C view only lends shared access to immutable boxed bytes"
   )
 )]
+// SAFETY: Shared access only exposes a raw pointer to the immutable payload retained by the frame.
 unsafe impl Sync for ITUTT35PayloadPtr {}
 
 #[cfg(feature = "c-ffi")]

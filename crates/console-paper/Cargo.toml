@@ -5,6 +5,10 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[[bin]]
+name = "console-paper"
+path = "src/main.rs"
+
 [dependencies]
 console-compositor.workspace = true
 console-core-bounded-reads.workspace = true

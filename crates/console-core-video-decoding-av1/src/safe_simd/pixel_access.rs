@@ -185,7 +185,12 @@ macro_rules! loadu_256 {
     }
     #[cfg(feature = "unchecked")]
     {
-      #[allow(unsafe_code)]
+      #[allow(
+        unsafe_code,
+        reason = "the unchecked x86 SIMD path uses a raw pointer for the intrinsic"
+      )]
+      // SAFETY: The caller enables the required SIMD features and provides at least
+      // 32 bytes valid for this unaligned read.
       unsafe {
         core::arch::x86_64::_mm256_loadu_si256(core::ptr::from_ref($src).cast())
       }
@@ -201,7 +206,12 @@ macro_rules! loadu_256 {
     {
       let __s = $slice;
       debug_assert!(core::mem::size_of_val(__s) >= 32);
-      #[allow(unsafe_code)]
+      #[allow(
+        unsafe_code,
+        reason = "the unchecked x86 SIMD path uses a raw pointer for the intrinsic"
+      )]
+      // SAFETY: The caller enables the required SIMD features and provides at least
+      // 32 bytes valid for this unaligned read.
       unsafe {
         core::arch::x86_64::_mm256_loadu_si256(__s.as_ptr().cast())
       }
@@ -227,7 +237,12 @@ macro_rules! storeu_256 {
     }
     #[cfg(feature = "unchecked")]
     {
-      #[allow(unsafe_code)]
+      #[allow(
+        unsafe_code,
+        reason = "the unchecked x86 SIMD path uses a raw pointer for the intrinsic"
+      )]
+      // SAFETY: The caller enables the required SIMD features and provides at least
+      // 32 bytes valid for this unaligned write.
       unsafe {
         core::arch::x86_64::_mm256_storeu_si256(core::ptr::from_mut($dst).cast(), $val)
       }
@@ -243,7 +258,12 @@ macro_rules! storeu_256 {
     {
       let __s = $slice;
       debug_assert!(core::mem::size_of_val(__s) >= 32);
-      #[allow(unsafe_code)]
+      #[allow(
+        unsafe_code,
+        reason = "the unchecked x86 SIMD path uses a raw pointer for the intrinsic"
+      )]
+      // SAFETY: The caller enables the required SIMD features and provides at least
+      // 32 bytes valid for this unaligned write.
       unsafe {
         core::arch::x86_64::_mm256_storeu_si256(__s.as_mut_ptr().cast(), $val)
       }
@@ -269,7 +289,12 @@ macro_rules! loadu_512 {
     }
     #[cfg(feature = "unchecked")]
     {
-      #[allow(unsafe_code)]
+      #[allow(
+        unsafe_code,
+        reason = "the unchecked x86 SIMD path uses a raw pointer for the intrinsic"
+      )]
+      // SAFETY: The caller enables the required SIMD features and provides at least
+      // 64 bytes valid for this unaligned read.
       unsafe {
         core::arch::x86_64::_mm512_loadu_si512(core::ptr::from_ref($src).cast())
       }
@@ -285,7 +310,12 @@ macro_rules! loadu_512 {
     {
       let __s = $slice;
       debug_assert!(core::mem::size_of_val(__s) >= 64);
-      #[allow(unsafe_code)]
+      #[allow(
+        unsafe_code,
+        reason = "the unchecked x86 SIMD path uses a raw pointer for the intrinsic"
+      )]
+      // SAFETY: The caller enables the required SIMD features and provides at least
+      // 64 bytes valid for this unaligned read.
       unsafe {
         core::arch::x86_64::_mm512_loadu_si512(__s.as_ptr().cast())
       }
@@ -311,7 +341,12 @@ macro_rules! storeu_512 {
     }
     #[cfg(feature = "unchecked")]
     {
-      #[allow(unsafe_code)]
+      #[allow(
+        unsafe_code,
+        reason = "the unchecked x86 SIMD path uses a raw pointer for the intrinsic"
+      )]
+      // SAFETY: The caller enables the required SIMD features and provides at least
+      // 64 bytes valid for this unaligned write.
       unsafe {
         core::arch::x86_64::_mm512_storeu_si512(core::ptr::from_mut($dst).cast(), $val)
       }
@@ -327,7 +362,12 @@ macro_rules! storeu_512 {
     {
       let __s = $slice;
       debug_assert!(core::mem::size_of_val(__s) >= 64);
-      #[allow(unsafe_code)]
+      #[allow(
+        unsafe_code,
+        reason = "the unchecked x86 SIMD path uses a raw pointer for the intrinsic"
+      )]
+      // SAFETY: The caller enables the required SIMD features and provides at least
+      // 64 bytes valid for this unaligned write.
       unsafe {
         core::arch::x86_64::_mm512_storeu_si512(__s.as_mut_ptr().cast(), $val)
       }
@@ -353,7 +393,12 @@ macro_rules! loadu_128 {
     }
     #[cfg(feature = "unchecked")]
     {
-      #[allow(unsafe_code)]
+      #[allow(
+        unsafe_code,
+        reason = "the unchecked x86 SIMD path uses a raw pointer for the intrinsic"
+      )]
+      // SAFETY: The caller enables the required SIMD features and provides at least
+      // 16 bytes valid for this unaligned read.
       unsafe {
         core::arch::x86_64::_mm_loadu_si128(core::ptr::from_ref($src).cast())
       }
@@ -369,7 +414,12 @@ macro_rules! loadu_128 {
     {
       let __s = $slice;
       debug_assert!(core::mem::size_of_val(__s) >= 16);
-      #[allow(unsafe_code)]
+      #[allow(
+        unsafe_code,
+        reason = "the unchecked x86 SIMD path uses a raw pointer for the intrinsic"
+      )]
+      // SAFETY: The caller enables the required SIMD features and provides at least
+      // 16 bytes valid for this unaligned read.
       unsafe {
         core::arch::x86_64::_mm_loadu_si128(__s.as_ptr().cast())
       }
@@ -395,7 +445,12 @@ macro_rules! loadu_64 {
     }
     #[cfg(feature = "unchecked")]
     {
-      #[allow(unsafe_code)]
+      #[allow(
+        unsafe_code,
+        reason = "the unchecked x86 SIMD path uses a raw pointer for the intrinsic"
+      )]
+      // SAFETY: The caller enables the required SIMD features and provides at least
+      // 8 bytes valid for this unaligned read.
       unsafe {
         core::arch::x86_64::_mm_loadu_si64(core::ptr::from_ref($src).cast())
       }
@@ -421,7 +476,12 @@ macro_rules! storeu_128 {
     }
     #[cfg(feature = "unchecked")]
     {
-      #[allow(unsafe_code)]
+      #[allow(
+        unsafe_code,
+        reason = "the unchecked x86 SIMD path uses a raw pointer for the intrinsic"
+      )]
+      // SAFETY: The caller enables the required SIMD features and provides at least
+      // 16 bytes valid for this unaligned write.
       unsafe {
         core::arch::x86_64::_mm_storeu_si128(core::ptr::from_mut($dst).cast(), $val)
       }
@@ -437,7 +497,12 @@ macro_rules! storeu_128 {
     {
       let __s = $slice;
       debug_assert!(core::mem::size_of_val(__s) >= 16);
-      #[allow(unsafe_code)]
+      #[allow(
+        unsafe_code,
+        reason = "the unchecked x86 SIMD path uses a raw pointer for the intrinsic"
+      )]
+      // SAFETY: The caller enables the required SIMD features and provides at least
+      // 16 bytes valid for this unaligned write.
       unsafe {
         core::arch::x86_64::_mm_storeu_si128(__s.as_mut_ptr().cast(), $val)
       }

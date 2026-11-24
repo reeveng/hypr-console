@@ -867,18 +867,18 @@ mod tests {
     let Ok(dialog_handle) = dialog.handle(Input::Touch(Touch::Up));
     assert!(matches!(dialog_handle, Choice::Continue));
     assert!(matches!(
-      ({
+      {
         let Ok(explicit_value) = dialog.handle(Input::Pad(ButtonPress::Back));
         explicit_value
-      }),
+      },
       Choice::Continue
     ));
     assert_eq!(tap(Point { x: 478, y: 38 }), Some(Input::Close));
     assert!(matches!(
-      ({
+      {
         let Ok(explicit_value) = dialog.handle(Input::Close);
         explicit_value
-      }),
+      },
       Choice::Close
     ));
     Ok(())

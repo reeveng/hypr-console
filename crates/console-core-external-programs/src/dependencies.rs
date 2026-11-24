@@ -1,12 +1,13 @@
 //! Registered executables, exact deployment paths and additional build inputs.
 
 use std::ffi::{OsStr, OsString};
-use std::io;
+use std::io::{self, Write};
 use std::path::Path;
 use std::process::{ExitCode, Stdio};
 
-use console_core_external_programs::{EVERY, Installed, Origin, Program, provide};
 use console_core_never::Never;
+
+use super::{EVERY, Installed, Origin, Program, provide};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Profile {
@@ -23,6 +24,15 @@ impl Profile {
       Self::Handheld => "handheld",
       Self::Development => "development",
       Self::Optional => "optional",
+    })
+  }
+
+  fn about(self) -> Result<&'static str, Never> {
+    Ok(match self {
+      Self::Desktop => "Arch/CachyOS desktop programs, device files, and runtime data (default)",
+      Self::Handheld => "CachyOS Steam and Gamescope session switching, and boot helpers",
+      Self::Development => "build and test tools, native library metadata, and QEMU firmware",
+      Self::Optional => "OBS, Nix, fingerprint service registration, and WPE WebKit libraries",
     })
   }
 
@@ -127,77 +137,138 @@ const PROFILES: &[(Profile, &[(Kind, &str)])] = &[
   (Profile::Optional, OPTIONAL),
 ];
 
-const USAGE: &str = "\
-Usage: console-dependencies [--report-only] [desktop|handheld|development|optional|all]
-       console-dependencies [--report-only] executable NAME...
-       console-dependencies [--report-only] path PATH...
-       console-dependencies [--report-only] pkg-config MODULE...
+#[derive(Clone, Copy)]
+pub enum Invocation {
+  Standalone,
+  Doctor,
+}
 
-The default profile is desktop (Arch/CachyOS). Each check is read-only.
-Use --report-only to report unavailable dependencies and exit successfully.
-Otherwise, exit status 1 means a dependency is missing or could not be checked.";
+impl Invocation {
+  fn usage(self, output: &mut impl Write) -> io::Result<()> {
+    let command = match self {
+      Self::Standalone => "console-dependencies",
+      Self::Doctor => "console doctor",
+    };
+    writeln!(
+      output,
+      "\
+Usage: {command} [--report-only] [PROFILE]
+       {command} [--report-only] executable NAME...
+       {command} [--report-only] path PATH...
+       {command} [--report-only] pkg-config MODULE...
+
+Profiles:"
+    )?;
+
+    for &(profile, _) in PROFILES {
+      let Ok(name) = profile.name();
+      let Ok(about) = profile.about();
+      writeln!(output, "  {name:<13} {about}")?;
+    }
+
+    writeln!(
+      output,
+      "  all           Run every profile, including optional integrations
+
+Individual checks:
+  executable    Check a name on PATH or an exact executable path
+  path          Check that a file, directory, device, or symlink target exists
+  pkg-config    Check a module, optionally with a version constraint
+
+Options:
+  -h, --help    Show this help
+  --report-only  Exit successfully when checks find unavailable dependencies
+
+Examples:
+  {command} development
+  {command} --report-only all
+  {command} pkg-config 'wpe-webkit-2.0 >= 2.54'
+
+The checks are read-only and use the current account's environment.
+Exit status 1 means a dependency is missing or could not be checked.
+Exit status 2 means the arguments are invalid."
+    )
+  }
+}
 
 enum OnUnavailable {
   Report,
   Fail,
 }
 
-pub(super) fn run() -> Result<ExitCode, Never> {
-  let arguments: Vec<_> = std::env::args_os().skip(1).collect();
-  let report_only = OsString::from("--report-only");
-  let (mode, requested) = match arguments.strip_prefix(std::slice::from_ref(&report_only)) {
-    Some(rest) => (OnUnavailable::Report, rest),
-    None => (OnUnavailable::Fail, arguments.as_slice()),
+pub fn run(
+  invocation: Invocation,
+  arguments: &[OsString],
+  output: &mut impl Write,
+  errors: &mut impl Write,
+) -> io::Result<ExitCode> {
+  let (mode, requested) = match arguments
+    .split_first()
+    .filter(|(flag, _)| *flag == "--report-only")
+  {
+    Some((_, rest)) => (OnUnavailable::Report, rest),
+    None => (OnUnavailable::Fail, arguments),
   };
 
   match requested {
-    [] => profiles(mode, [Profile::Desktop]),
-    [profile] => match profile.to_str() {
+    [] => profiles(invocation, mode, [Profile::Desktop], output),
+    [argument] => match argument.to_str() {
       Some("-h" | "--help") => {
-        println!("{USAGE}");
+        invocation.usage(output)?;
         Ok(ExitCode::SUCCESS)
       }
-      Some("desktop") => profiles(mode, [Profile::Desktop]),
-      Some("handheld") => profiles(mode, [Profile::Handheld]),
-      Some("development") => profiles(mode, [Profile::Development]),
-      Some("optional") => profiles(mode, [Profile::Optional]),
-      Some("all") => profiles(mode, PROFILES.iter().map(|&(included, _)| included)),
-      Some(_) | None => usage_error(),
+      Some("all") => profiles(invocation, mode, PROFILES.iter().map(|&(p, _)| p), output),
+      Some(name) => {
+        let selected = PROFILES
+          .iter()
+          .find(|&&(candidate, _)| candidate.name() == Ok(name));
+
+        match selected {
+          Some(&(profile, _)) => profiles(invocation, mode, [profile], output),
+          None => usage_error(invocation, errors),
+        }
+      }
+      None => usage_error(invocation, errors),
     },
     [command, names @ ..] => {
       let kind = match command.to_str() {
         Some("executable") => Executable,
         Some("path") => Resource,
         Some("pkg-config") => PkgConfig,
-        Some(_) | None => return usage_error(),
+        Some(_) | None => return usage_error(invocation, errors),
       };
 
       report(
+        invocation,
         mode,
         names.iter().map(|name| (kind, name.as_os_str(), None)),
+        output,
       )
     }
   }
 }
 
-fn usage_error() -> Result<ExitCode, Never> {
-  eprintln!("{USAGE}");
+fn usage_error(invocation: Invocation, errors: &mut impl Write) -> io::Result<ExitCode> {
+  invocation.usage(errors)?;
   Ok(ExitCode::from(2))
 }
 
 fn profiles(
+  invocation: Invocation,
   mode: OnUnavailable,
   selection: impl IntoIterator<Item = Profile>,
-) -> Result<ExitCode, Never> {
+  output: &mut impl Write,
+) -> io::Result<ExitCode> {
   let selected: Vec<_> = selection.into_iter().collect();
   let programs = EVERY.iter().filter_map(|program| {
     let Ok(origin) = program.origin();
     let Ok(profile) = Profile::of(origin);
     let Ok(name) = program.name();
-    let Ok(label) = profile.name();
     let source = match origin {
-      Origin::Package(package) => package,
-      Origin::Arch | Origin::Handheld | Origin::Developing | Origin::Optional => label,
+      Origin::Package(package) => Source::ArchPackage(package),
+      Origin::Arch | Origin::Handheld | Origin::Developing | Origin::Optional => {
+        Source::Profile(profile)
+      }
     };
 
     selected
@@ -208,26 +279,39 @@ fn profiles(
     .iter()
     .filter(|(profile, _)| selected.contains(profile))
     .flat_map(|(profile, checks)| {
-      let Ok(label) = profile.name();
       checks
         .iter()
-        .map(move |&(kind, name)| (kind, OsStr::new(name), Some(label)))
+        .map(move |&(kind, name)| (kind, OsStr::new(name), Some(Source::Profile(*profile))))
     });
 
-  report(mode, programs.chain(extra))
+  report(invocation, mode, programs.chain(extra), output)
+}
+
+enum Source {
+  ArchPackage(&'static str),
+  Profile(Profile),
 }
 
 fn report<'a>(
+  invocation: Invocation,
   mode: OnUnavailable,
-  checks: impl IntoIterator<Item = (Kind, &'a OsStr, Option<&'a str>)>,
-) -> Result<ExitCode, Never> {
+  checks: impl IntoIterator<Item = (Kind, &'a OsStr, Option<Source>)>,
+  output: &mut impl Write,
+) -> io::Result<ExitCode> {
   let mut missing = 0_u64;
   let mut unchecked = 0_u64;
 
   for (kind, name, origin) in checks {
-    let source = match origin {
-      Some(label) => format!(" ({label})"),
-      None => String::new(),
+    let source = match (invocation, origin) {
+      (Invocation::Doctor, Some(Source::ArchPackage(package))) => {
+        format!(" (Arch package {package})")
+      }
+      (Invocation::Standalone, Some(Source::ArchPackage(package))) => format!(" ({package})"),
+      (_, Some(Source::Profile(profile))) => {
+        let Ok(label) = profile.name();
+        format!(" ({label})")
+      }
+      (_, None) => String::new(),
     };
     let label = match kind {
       Executable => "executable",
@@ -240,30 +324,38 @@ fn report<'a>(
     };
 
     match check(kind, name) {
-      Ok(Installed::Yes) => println!("present  {label} {name_for_display}{source}"),
+      Ok(Installed::Yes) => writeln!(output, "present  {label} {name_for_display}{source}")?,
       Ok(Installed::No) => {
-        println!("missing  {label} {name_for_display}{source}");
+        writeln!(output, "missing  {label} {name_for_display}{source}")?;
         missing = missing.saturating_add(1);
       }
       Err(error) => {
-        println!("could not check {label} {name_for_display}{source} — {error}");
+        writeln!(
+          output,
+          "could not check {label} {name_for_display}{source} — {error}"
+        )?;
         unchecked = unchecked.saturating_add(1);
       }
     }
   }
 
-  match (missing, unchecked) {
-    (0, 0) => println!("\nAll selected dependencies are available."),
-    (1, 0) => println!("\nOne selected dependency is missing."),
-    (count, 0) => println!("\n{count} selected dependencies are missing."),
-    (0, 1) => println!("\nOne selected dependency could not be checked."),
-    (0, count) => println!("\n{count} selected dependencies could not be checked."),
+  let summary = match (missing, unchecked) {
+    (0, 0) => writeln!(output, "\nAll selected dependencies are available."),
+    (1, 0) => writeln!(output, "\nOne selected dependency is missing."),
+    (count, 0) => writeln!(output, "\n{count} selected dependencies are missing."),
+    (0, 1) => writeln!(output, "\nOne selected dependency could not be checked."),
+    (0, count) => writeln!(
+      output,
+      "\n{count} selected dependencies could not be checked."
+    ),
     (absent, unconfirmed) => {
-      println!(
+      writeln!(
+        output,
         "\nSome dependencies are unavailable ({absent} missing, {unconfirmed} unchecked)."
-      );
+      )
     }
-  }
+  };
+  summary?;
 
   Ok(match (missing, unchecked, mode) {
     (0, 0, OnUnavailable::Fail) | (_, _, OnUnavailable::Report) => ExitCode::SUCCESS,

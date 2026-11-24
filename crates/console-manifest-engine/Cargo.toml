@@ -46,7 +46,7 @@ console-input-bindings.workspace = true
 console-input-gamepad.workspace = true
 console-core-atomic-writes.workspace = true
 console-boot-entries.workspace = true
-console-package-manager-pacman = { path = "../console-package-manager-pacman" }
+console-package-manager = { workspace = true, features = ["system"] }
 
 [dev-dependencies]
 console-core-fonts.workspace = true

@@ -44,7 +44,6 @@ use crate::src::thread_task::rav1d_worker_task;
 use crate::src::thread_task::{FRAME_ERROR, advance_completed_frame};
 use console_core_parallel_execution::{Worker, Workers};
 use console_core_synchronization::nonpoison::{Mutex, wait_while};
-use std::cmp;
 #[cfg(feature = "c-ffi")]
 use std::ffi::CStr;
 use std::mem;

@@ -23,7 +23,7 @@ them, and `just` is a line apiece in front of them.
 
 ## Legion Go releases
 
-The [release guide](docs/legion-go-releases.md) covers publishing a tagged build,
+The [release guide](docs/console-releases.md) covers publishing a tagged build,
 installing it on a first-generation Legion Go, and enabling update notifications.
 
 ## The tree

@@ -359,12 +359,14 @@ impl View {
         move_rows
       }
       (_, 0, Keysym::Page_Down, _) => {
-        let Ok(move_rows) = self.move_rows({ self.page_rows()? });
+        let page_rows = self.page_rows()?;
+        let Ok(move_rows) = self.move_rows(page_rows);
 
         move_rows
       }
       (_, 0, Keysym::Page_Up, _) => {
-        let Ok(move_rows) = self.move_rows(({ self.page_rows()? }).wrapping_neg());
+        let page_rows = self.page_rows()?;
+        let Ok(move_rows) = self.move_rows(page_rows.wrapping_neg());
 
         move_rows
       }

@@ -125,6 +125,10 @@ console-login-session = { path = "crates/console-login-session" }
 console-login-window = { path = "crates/console-login-window" }
 console-manifest-engine = { path = "crates/console-manifest-engine" }
 console-manifest-migrations = { path = "crates/console-manifest-migrations" }
+console-package-manager = { path = "crates/console-package-manager" }
+console-package-manager-mise = { path = "crates/console-package-manager-mise" }
+console-package-manager-nix = { path = "crates/console-package-manager-nix" }
+console-package-manager-pacman = { path = "crates/console-package-manager-pacman" }
 console-application-music = { path = "crates/console-application-music" }
 console-music-player = { path = "crates/console-music-player" }
 console-test-desktop = { path = "crates/console-test-desktop" }

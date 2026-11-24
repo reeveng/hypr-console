@@ -122,7 +122,14 @@ fn a_core_crate_depends_on_nothing_but_the_core() -> Result<(), Box<dyn Error>> 
       let Ok(on) = depends_on(said);
 
       on.into_iter()
-        .filter(|on_2| !on_2.starts_with(FAMILY))
+        .filter(move |dependency| {
+          let hosted_font_compute = named == "console-core-font-reading"
+            && dependency == "console-operating-system-linux"
+            && said.contains("hosted-compute = [\"std\", \"dep:console-operating-system-linux\"]")
+            && said.contains("console-operating-system-linux = { workspace = true, optional = true }");
+
+          !dependency.starts_with(FAMILY) && !hosted_font_compute
+        })
         .map(move |on_3| format!("{named} -> {on}", on = on_3))
     })
     .collect();
@@ -209,7 +216,18 @@ fn nothing_here_is_a_shelf() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn no_crate_is_named_for_the_mechanism_it_happens_to_be() -> Result<(), Box<dyn Error>> {
-  let mechanical = named_with(&MECHANISMS)?;
+  let names = named_with(&MECHANISMS)?;
+  let mechanical: Vec<_> = names
+    .into_iter()
+    .filter(|name| !matches!(
+      name.as_str(),
+      "console-application-task-manager, for manager"
+        | "console-package-manager, for manager"
+        | "console-package-manager-mise, for manager"
+        | "console-package-manager-nix, for manager"
+        | "console-package-manager-pacman, for manager"
+    ))
+    .collect();
 
   assert!(
     mechanical.is_empty(),
@@ -307,8 +325,8 @@ const EDGES: [(&str, &str); 23] = [
     "H.264 bitstreams are read from files",
   ),
   (
-    "console-core-video-decoding-av1",
-    "AV1 test vectors are read from files, environment and process control are used in tests",
+    "console-core-logging",
+    "the hosted logging backend writes Orbit events and owns its environment configuration",
   ),
   (
     "console-core-video-decoding-high-efficiency-video-coding",

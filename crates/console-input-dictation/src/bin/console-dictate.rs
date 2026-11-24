@@ -247,7 +247,8 @@ fn listen(note_at: &Path) -> io::Result<()> {
   let Ok(into) = recording_path(press);
 
   let mut child = record_wav(RECORDING_FORMAT, &into)?;
-  let saved = save_recorder(&child, press, note_at);
+  let Ok(recorder) = child.id();
+  let saved = save_recorder(Note { recorder, press }, note_at);
 
   match saved {
     Ok(()) => {}
@@ -272,14 +273,13 @@ fn listen(note_at: &Path) -> io::Result<()> {
   Ok(())
 }
 
-fn save_recorder(child: &std::process::Child, press: u32, at: &Path) -> io::Result<()> {
-  let process = pidfd_open(Pid::from_child(child), PidfdFlags::empty())?;
+fn save_recorder(note: Note, at: &Path) -> io::Result<()> {
+  let raw = i32::try_from(note.recorder).map_err(io::Error::other)?;
+  let pid = Pid::from_raw(raw).ok_or_else(|| io::Error::other("the recorder has no process ID"))?;
+  let process = pidfd_open(pid, PidfdFlags::empty())?;
   let named = fstat(&process)?;
-  let Ok(note) = serialize_note(Note {
-    recorder: child.id(),
-    press,
-  });
-  let identified = format!("{note} {}", named.st_ino);
+  let Ok(record) = serialize_note(note);
+  let identified = format!("{record} {}", named.st_ino);
 
   console_core_atomic_writes::whole(at, identified.as_bytes()).map_err(io::Error::other)
 }

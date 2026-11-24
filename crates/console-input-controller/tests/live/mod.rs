@@ -464,16 +464,13 @@ impl Drop for Running {
   }
 }
 
-pub fn or_skip() -> Result<Option<Running>, Failure> {
-  match std::fs::File::open("/dev/uinput") {
-    Ok(_) => {}
-    Err(_no_way_in) => {
-      eprintln!("skipped: no way in to /dev/uinput; see the emulator.md note in Orbit");
-
-      return Ok(None);
-    }
-  }
-
+pub fn required() -> Result<Running, Failure> {
+  let _ = std::fs::metadata("/etc/console-test-vm").map_err(|fault| {
+    std::io::Error::new(
+      fault.kind(),
+      "virtual input requires a test VM. Run just test e2e-live",
+    )
+  })?;
   let running = Running::new()?;
   let Ok(said) = running.said();
 
@@ -482,5 +479,5 @@ pub fn or_skip() -> Result<Option<Running>, Failure> {
     "the daemon never published a device: {said}"
   );
 
-  Ok(Some(running))
+  Ok(running)
 }

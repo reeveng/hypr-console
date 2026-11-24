@@ -972,11 +972,9 @@ dependencies = [
  "console-draw-surface",
  "console-gio",
  "console-input-text",
+ "console-package-manager",
  "console-program-lifetime",
  "console-waiting",
- "rustix",
- "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -3697,7 +3695,7 @@ dependencies = [
  "console-manifest-migrations",
  "console-notifications",
  "console-operating-system-linux",
- "console-package-manager-pacman",
+ "console-package-manager",
  "console-repository",
  "console-response-times",
  "console-screen",
@@ -3855,6 +3853,36 @@ dependencies = [
  "console-draw-surface",
  "console-onscreen",
  "console-response-times",
+]
+
+[[package]]
+name = "console-package-manager"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+ "console-package-manager-mise",
+ "console-package-manager-nix",
+ "console-package-manager-pacman",
+ "console-repository",
+]
+
+[[package]]
+name = "console-package-manager-mise"
+version = "0.1.0"
+dependencies = [
+ "console-core-external-programs",
+]
+
+[[package]]
+name = "console-package-manager-nix"
+version = "0.1.0"
+dependencies = [
+ "console-core-external-programs",
+ "console-core-never",
+ "console-core-number-conversion",
+ "rustix",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -4137,6 +4165,7 @@ name = "console-resume"
 version = "0.1.0"
 dependencies = [
  "console-applications",
+ "console-bus",
  "console-compositor",
  "console-core-arguments",
  "console-core-atomic-writes",
@@ -4393,6 +4422,7 @@ dependencies = [
  "console-core-temporary-directories",
  "console-core-words",
  "console-operating-system-linux",
+ "console-package-manager-nix",
  "console-program-contract",
  "console-repository",
  "console-waiting",

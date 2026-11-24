@@ -24,8 +24,10 @@ use console_program_contract::{Event, Exit};
 use console_tasks::reached::{
   self, Affected, Change, Dependency, Kind, LOCK, MANIFEST, Member, Package, Scope,
 };
-use console_tasks::ready::{Before, Checkout, Ready, ReadyEffect, ReadyEvent, Step, Tree};
-use console_tasks::task::{self, Task};
+use console_tasks::ready::{Before, Checkout, Ready, ReadyEffect, ReadyEvent, Run, Step, Tree};
+use console_tasks::task::{self, Suite, Task};
+
+mod guest;
 
 const MOST: &str = "MemoryHigh=32G";
 
@@ -57,6 +59,7 @@ enum TaskError {
   NoRoot(String),
   Unwritten(String),
   Ready(String),
+  Test(String),
   NoToolchain,
 }
 
@@ -71,7 +74,7 @@ impl fmt::Display for TaskError {
       }
       TaskError::NoRoot(why) => write!(to, "not inside this tree: {why}"),
       TaskError::Unwritten(why) => write!(to, "the pass could not be written down: {why}"),
-      TaskError::Ready(why) => to.write_str(why),
+      TaskError::Ready(why) | TaskError::Test(why) => to.write_str(why),
       TaskError::NoToolchain => write!(
         to,
         "rustup is not on PATH, and the lint suite asks it which toolchain it is"
@@ -109,7 +112,6 @@ fn run(line: &CommandLine<Task>) -> Result<(), TaskError> {
     Some(task) => task,
     None => Task::Help,
   };
-  let root = console_repository::root().map_err(|why| TaskError::NoRoot(why.to_string()))?;
 
   match found {
     Task::Help => {
@@ -119,9 +121,21 @@ fn run(line: &CommandLine<Task>) -> Result<(), TaskError> {
 
       Ok(())
     }
-    Task::Test => test(),
-    Task::Ready => ready(&root),
+    Task::Test => {
+      let root = workspace_root()?;
+      let run = test_run(rest)?;
+
+      ready(&root, &run)
+    }
+    Task::GuestTest => guest::run(rest).map_err(|fault| TaskError::Test(fault.to_string())),
+    Task::GuestWorkspace => guest::link(rest).map_err(|fault| TaskError::Test(fault.to_string())),
+    Task::Ready => {
+      let root = workspace_root()?;
+
+      ready(&root, &Run::Deploy)
+    }
     Task::Reached => {
+      let root = workspace_root()?;
       let since = rest.first().cloned();
       let scope = reached_since(&root, since)?;
       let Ok(flags) = scope.flags();
@@ -130,7 +144,11 @@ fn run(line: &CommandLine<Task>) -> Result<(), TaskError> {
 
       Ok(())
     }
-    Task::Map => map(&root),
+    Task::Map => {
+      let root = workspace_root()?;
+
+      map(&root)
+    }
     Task::Rules => match ::core::primitive::bool::then_some(rest.is_empty(), ()) {
       ::core::option::Option::Some(()) => {
         let Ok(flags) = Scope::Workspace.flags();
@@ -141,6 +159,10 @@ fn run(line: &CommandLine<Task>) -> Result<(), TaskError> {
     },
     Task::Alone => alone(rest, &[]),
   }
+}
+
+fn workspace_root() -> Result<PathBuf, TaskError> {
+  console_repository::root().map_err(|why| TaskError::NoRoot(why.to_string()))
 }
 
 fn alone(words: &[String], environment: &[(&str, &str)]) -> Result<(), TaskError> {
@@ -261,23 +283,53 @@ fn asked(program: Program, arguments: &[&str]) -> Result<Reply, TaskError> {
   )
 }
 
-fn test() -> Result<(), TaskError> {
-  cargo(&["build", "--quiet", "--workspace", "--all-features"])?;
-  cargo_over(
-    &["nextest", "run", "--cargo-quiet"],
-    &Scope::Workspace,
-    &NEXTEST,
-  )
+fn test_run(arguments: &[String]) -> Result<Run, TaskError> {
+  let suites = match arguments {
+    [] => task::QUICK.to_vec(),
+    [suite, name] => {
+      let Ok(panel) = Suite::Panels.word();
+
+      return match (suite == panel).then_some(()) {
+        Some(()) => match name.is_empty().then_some(()) {
+          Some(()) => Ok(Run::Tests(vec![Suite::Panels])),
+          None => Ok(Run::PanelTest(name.clone())),
+        },
+        None => invalid_test_selection(),
+      };
+    }
+    [name] => match name.as_str() {
+      "quick" => task::QUICK.to_vec(),
+      "e2e" => task::E2E.to_vec(),
+      "all" => task::QUICK.into_iter().chain(task::E2E).collect(),
+      word => {
+        let Ok(selected) = Suite::from_word(word);
+
+        match selected {
+          Some(suite) => vec![suite],
+          None => return invalid_test_selection(),
+        }
+      }
+    },
+    _ => return invalid_test_selection(),
+  };
+
+  Ok(Run::Tests(suites))
 }
 
-const NEXTEST: [&str; 6] = [
-  "--all-features",
-  "--no-tests=warn",
-  "--status-level",
-  "fail",
-  "--final-status-level",
-  "fail",
-];
+fn invalid_test_selection<T>() -> Result<T, TaskError> {
+  let choices: Vec<&str> = Suite::VARIANTS
+    .iter()
+    .map(|suite| {
+      let Ok(word) = suite.word();
+      word
+    })
+    .collect();
+
+  Err(TaskError::Test(format!(
+    "expected quick, all, e2e, or one of {}",
+    choices.join(", ")
+  )))
+}
 
 fn tree_state() -> Result<Checkout, TaskError> {
   let now = answer(Program::Git, &["rev-parse", "HEAD^{tree}"])?;
@@ -299,9 +351,9 @@ fn passed_at() -> Result<PathBuf, TaskError> {
   Ok(Path::new(common.trim()).join(PASSED))
 }
 
-fn ready(root: &Path) -> Result<(), TaskError> {
+fn ready(root: &Path, run: &Run) -> Result<(), TaskError> {
   let completed =
-    program_runtime::execute::<Ready, _>("cargo x", &(), &mut ReadyInterpreter { root })
+    program_runtime::execute::<Ready, _>("cargo x", run, &mut ReadyInterpreter { root })
       .map_err(|fault| TaskError::Ready(fault.to_string()))?;
 
   match completed.exit {
@@ -342,7 +394,7 @@ impl ReadyInterpreter<'_> {
       }
       ReadyEffect::Check(step) => Ok(ReadyEvent::Checked {
         step: step.clone(),
-        result: ask(step).map_err(|fault| fault.to_string()),
+        result: ask(self.root, step).map_err(|fault| fault.to_string()),
       }),
       ReadyEffect::RecheckTree => tree_state().map(ReadyEvent::TreeRechecked),
       ReadyEffect::RecordPass { path, tree_id } => {
@@ -376,7 +428,7 @@ fn inspect_ready() -> Result<ReadyEvent, TaskError> {
   })
 }
 
-fn ask(step: &Step) -> Result<(), TaskError> {
+fn ask(root: &Path, step: &Step) -> Result<(), TaskError> {
   match step {
     Step::RetiredWords => cargo(&[
       "run",
@@ -387,39 +439,32 @@ fn ask(step: &Step) -> Result<(), TaskError> {
       "--",
       "check",
     ]),
-    Step::WordsInProportion => cargo(&[
-      "test",
-      "--quiet",
-      "--locked",
-      "-p",
-      "console-vocabulary",
-      "--test",
-      "the_words",
-    ]),
-    Step::Build => cargo(&[
-      "build",
-      "--quiet",
-      "--locked",
-      "--workspace",
-      "--all-features",
-    ]),
-    Step::Tests(scope) => cargo_over(
-      &["nextest", "run", "--cargo-quiet", "--locked"],
-      scope,
-      &NEXTEST,
-    ),
+    Step::Test(suite) => nix_test(root, *suite, None),
+    Step::PanelTest(name) => nix_test(root, Suite::Panels, Some(name)),
     Step::Clippy(scope) => cargo_over(
       &["clippy", "--quiet", "--locked"],
       scope,
       &["--all-targets", "--all-features", "--", "-D", "warnings"],
     ),
-    Step::Checks => cargo(&["run", "--quiet", "--bin", "console-check"]),
     Step::Rules(scope) => {
       let Ok(flags) = scope.flags();
 
       rules(&flags)
     }
   }
+}
+
+fn nix_test(root: &Path, suite: Suite, panel: Option<&str>) -> Result<(), TaskError> {
+  let Ok(name) = suite.word();
+  let file = root.join("nix/test-checks.nix");
+  let Ok(mut command) =
+    console_package_manager_nix::build_test(console_package_manager_nix::TestBuild {
+      file: &file,
+      attribute: name,
+      panel_filter: panel,
+    });
+
+  guest::checked(&mut command).map_err(|fault| TaskError::Test(fault.to_string()))
 }
 
 fn toolchain() -> Result<(), TaskError> {

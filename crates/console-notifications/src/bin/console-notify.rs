@@ -470,7 +470,7 @@ fn turned<'a>(
   let Ok(owns_keyboard) = running.surface.keyboard_focus();
   let Ok(()) = running.selection.observe(owns_keyboard, Instant::now());
 
-  match ::core::primitive::bool::then_some({ focus_request == Some(focus::Request::Release) }, ())
+  match ::core::primitive::bool::then_some(focus_request == Some(focus::Request::Release), ())
   {
     ::core::option::Option::Some(()) => {
       running.selection = Selection::Idle;
@@ -499,7 +499,7 @@ fn turned<'a>(
     asked.saying,
   );
 
-  match ::core::primitive::bool::then_some({ focus_request == Some(focus::Request::Take) }, ()) {
+  match ::core::primitive::bool::then_some(focus_request == Some(focus::Request::Take), ()) {
     ::core::option::Option::Some(()) => {
       let Ok(()) = running.selection.enter(&actions, Instant::now());
       let Ok(focused_target) = running.selection.target();

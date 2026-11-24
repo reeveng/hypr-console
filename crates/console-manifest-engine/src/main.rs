@@ -2,6 +2,7 @@
 //!
 //!     console list      what the desktop is made of
 //!     console check     where the machine has drifted from it
+//!     console doctor    whether the host provides the dependencies
 //!     console apply     bring the machine back to it
 //!     console room      whether there is room on the disk for the next apply
 //!     console save      take a file edited in place back into the source
@@ -37,6 +38,8 @@ mod units;
 mod up_to_date;
 
 use console_manifest_engine::{machines, manifest, modes, unapplied};
+use std::ffi::OsString;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -47,13 +50,14 @@ use console_core_arguments::{
 };
 use console_core_atomic_writes::Stored;
 use console_core_external_programs::Program;
+use console_core_external_programs::dependencies::{self, Invocation};
 use console_core_iteration::Step;
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
 use console_core_words::Words;
 use console_how_far::Progress;
 use console_manifest_migrations::done::Outstanding;
-use console_package_manager_pacman::{self as pacman, PacmanOutput};
+use console_package_manager::system::{self, InstallOutput};
 use laying::{Deploy, Put};
 use machine::Ran;
 use manifest::{Manifest, Section};
@@ -80,6 +84,11 @@ enum Action {
     about = "where the machine has drifted from it, which is what no word does"
   )]
   Check,
+  #[words(
+    word = "doctor",
+    about = "check host dependencies (see console doctor --help)"
+  )]
+  Doctor,
   #[words(word = "apply", about = "bring the machine back to it")]
   Apply,
   #[words(
@@ -211,6 +220,13 @@ fn asked(words: &[String]) -> Result<Arguments, ValidationError> {
   };
 
   match action {
+    Action::Doctor => {
+      let Ok(refusal) = line.refusal(Reason::InvalidValue {
+        of: "a manifest subcommand (run console doctor directly)",
+        value: "doctor".to_owned(),
+      });
+      return Err(refusal);
+    }
     Action::Save => {}
     Action::List
     | Action::Check
@@ -240,21 +256,68 @@ fn asked(words: &[String]) -> Result<Arguments, ValidationError> {
 }
 
 fn main() -> ExitCode {
-  let words: Vec<String> = std::env::args().skip(1).collect();
+  let mut arguments = std::env::args_os().skip(1);
+  let first = arguments.next();
+  let Ok(doctor_name) = Action::Doctor.word();
 
-  let Ok(direct) = device_command::dispatch(&words);
-
-  match direct {
-    Some(code) => return code,
+  match first.as_deref().filter(|word| *word == doctor_name) {
+    Some(_) => {
+      let Ok(status) = doctor(&arguments.collect::<Vec<_>>());
+      return status;
+    }
     None => {}
   }
 
-  let asked = match asked(&words) {
+  let read = first
+    .into_iter()
+    .chain(arguments)
+    .map(OsString::into_string)
+    .collect::<Result<Vec<_>, _>>();
+
+  let words = match read {
+    Ok(utf8) => utf8,
+    Err(argument) => {
+      eprintln!("console: argument {argument:?} must be UTF-8");
+      return ExitCode::from(2);
+    }
+  };
+  let Ok(status) = manifest_command(&words);
+  status
+}
+
+#[must_use]
+fn doctor(arguments: &[OsString]) -> Result<ExitCode, Never> {
+  let result = dependencies::run(
+    Invocation::Doctor,
+    arguments,
+    &mut io::stdout().lock(),
+    &mut io::stderr().lock(),
+  );
+
+  Ok(match result {
+    Ok(status) => status,
+    Err(fault) => {
+      eprintln!("console doctor: {fault}");
+      ExitCode::FAILURE
+    }
+  })
+}
+
+#[must_use]
+fn manifest_command(words: &[String]) -> Result<ExitCode, Never> {
+  let Ok(direct) = device_command::dispatch(words);
+
+  match direct {
+    Some(code) => return Ok(code),
+    None => {}
+  }
+
+  let asked = match asked(words) {
     Ok(asked) => asked,
     Err(refusal) => {
       let Ok(code) = refusal.print();
 
-      return ExitCode::from(code);
+      return Ok(ExitCode::from(code));
     }
   };
 
@@ -264,6 +327,7 @@ fn main() -> ExitCode {
     Action::BootFailed => Some(boots::Event::Failed),
     Action::List
     | Action::Check
+    | Action::Doctor
     | Action::Apply
     | Action::Room
     | Action::Buttons
@@ -276,7 +340,7 @@ fn main() -> ExitCode {
     Some(boot_2) => {
       let Ok(said) = report(recorded(boot_2));
 
-      return said;
+      return Ok(said);
     }
     None => {}
   }
@@ -290,7 +354,7 @@ fn main() -> ExitCode {
     Ok(manifest) => manifest,
     Err(fault) => {
       eprintln!("{fault}");
-      return ExitCode::FAILURE;
+      return Ok(ExitCode::FAILURE);
     }
   };
 
@@ -301,7 +365,7 @@ fn main() -> ExitCode {
     Action::Check => {
       let Ok(said) = check(&root, &manifest);
 
-      return said;
+      return Ok(said);
     }
     Action::Apply => {
       let Ok(said) = report(apply(Apply {
@@ -311,37 +375,37 @@ fn main() -> ExitCode {
         switch_from: asked.switch_from.as_deref(),
       }));
 
-      return said;
+      return Ok(said);
     }
     Action::Room => {
       let Ok(said) = room(&root);
 
-      return said;
+      return Ok(said);
     }
     Action::Buttons => {
       let Ok(said) = report(rebuttoned(&root, &manifest));
 
-      return said;
+      return Ok(said);
     }
     Action::Health => {
       let Ok(said) = health(&root, &manifest);
 
-      return said;
+      return Ok(said);
     }
     Action::Save => {
       let Ok(said) = report(save(&root, &manifest, &asked.paths));
 
-      return said;
+      return Ok(said);
     }
     Action::Migrate => {
       let Ok(said) = report(migrate(asked.pending));
 
-      return said;
+      return Ok(said);
     }
-    Action::BootStarted | Action::BootComplete | Action::BootFailed => {}
+    Action::Doctor | Action::BootStarted | Action::BootComplete | Action::BootFailed => {}
   }
 
-  ExitCode::SUCCESS
+  Ok(ExitCode::SUCCESS)
 }
 
 fn read(root: &Path) -> Result<Manifest, Unapplied> {
@@ -425,12 +489,12 @@ fn check(root: &Path, manifest: &Manifest) -> Result<ExitCode, Never> {
   let source = root.join("files");
   let Ok(whoever) = machine::whoever();
   let Ok(have) = confirmation::to("reading packages", || {
-    let Ok(have) = pacman::installed();
+    let Ok(have) = system::installed();
 
     have
   });
   let Ok(asked_for) = confirmation::to("reading wanted", || {
-    let Ok(asked_for) = pacman::explicit();
+    let Ok(asked_for) = system::explicit();
 
     asked_for
   });
@@ -1608,12 +1672,12 @@ fn enough_to_apply(root: &Path) -> Result<(), Unapplied> {
 fn packages_held(going: &mut going::Going, manifest: &Manifest) -> Result<(), Unapplied> {
   let Ok(named) = manifest.of(Section::Packages);
   let Ok(have) = going.through(going::READING, || {
-    let Ok(have) = pacman::installed();
+    let Ok(have) = system::installed();
 
     have
   });
   let Ok(asked_for) = going.through(going::WANTED, || {
-    let Ok(asked_for) = pacman::explicit();
+    let Ok(asked_for) = system::explicit();
 
     asked_for
   });
@@ -1628,11 +1692,11 @@ fn packages_held(going: &mut going::Going, manifest: &Manifest) -> Result<(), Un
     let Ok(()) = moving.say(&format!("{YELLOW}installing{OFF} {}", missing.join(" ")));
 
     let mut fetching = Fetching { moving, done: 0 };
-    let installed = pacman::install_with(missing, &mut fetching, |progress, line, said| {
+    let installed = system::install_with(missing, &mut fetching, |progress, line, said| {
       let Ok(()) = progress.moving.say(line);
 
       match said {
-        PacmanOutput::Downloading(name) => {
+        InstallOutput::Downloading(name) => {
           progress.done = progress.done.saturating_add(1);
 
           let Ok(far) = installing::fetched(Progress {
@@ -1644,7 +1708,7 @@ fn packages_held(going: &mut going::Going, manifest: &Manifest) -> Result<(), Un
             .far(going::StageFraction(far), &format!("fetching {name}"));
         }
 
-        PacmanOutput::Installing {
+        InstallOutput::Installing {
           done,
           many: many_2,
           name,
@@ -1656,7 +1720,7 @@ fn packages_held(going: &mut going::Going, manifest: &Manifest) -> Result<(), Un
             .far(going::StageFraction(far), &format!("{counted} {name}"));
         }
 
-        PacmanOutput::Other => {}
+        InstallOutput::Other => {}
       }
 
       Ok(())
@@ -1679,7 +1743,7 @@ fn packages_held(going: &mut going::Going, manifest: &Manifest) -> Result<(), Un
 
     println!("{YELLOW}keeping{OFF} {}", borrowed.join(" "));
 
-    pacman::mark_explicit(borrowed).is_ok_and(|status| status.success())
+    system::mark_explicit(borrowed).is_ok_and(|status| status.success())
   });
 
   match ::core::primitive::bool::then_some(kept, ()) {

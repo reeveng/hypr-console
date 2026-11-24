@@ -391,7 +391,7 @@ fn read_mv_residual(
 #[derive(Clone, Copy)]
 enum TransformDepth {
   Root,
-  Child,
+  Subblock,
   Leaf,
 }
 
@@ -399,7 +399,7 @@ impl TransformDepth {
   fn split_level(self) -> Result<Option<u8>, console_core_never::Never> {
     Ok(match self {
       Self::Root => Some(0),
-      Self::Child => Some(1),
+      Self::Subblock => Some(1),
       Self::Leaf => None,
     })
   }
@@ -526,8 +526,8 @@ fn subdivide_transform(
 ) -> Rav1dResult<[Option<TransformNode>; 4]> {
   let sub = transform_info(dimensions.sub)?;
   let depth = match parent.depth {
-    TransformDepth::Root => TransformDepth::Child,
-    TransformDepth::Child => TransformDepth::Leaf,
+    TransformDepth::Root => TransformDepth::Subblock,
+    TransformDepth::Subblock => TransformDepth::Leaf,
     TransformDepth::Leaf => return Err(EINVAL),
   };
   let left = parent.mask_position.x.wrapping_mul(2);
@@ -609,7 +609,7 @@ fn visit_transform_node(
       let [root_mask, child_mask] = masks;
       let mask = match node.depth {
         TransformDepth::Root => root_mask,
-        TransformDepth::Child => child_mask,
+        TransformDepth::Subblock => child_mask,
         TransformDepth::Leaf => return Err(EINVAL),
       };
       let shift = u32::from(node.mask_position.y)
@@ -8242,7 +8242,7 @@ fn read_restoration_info(
   let references = ts.lr_ref.try_read().ok_or(EINVAL)?;
   let &reference = references.get(plane_index).ok_or(EINVAL)?;
   drop(references);
-  let Rav1dTileStateContext { msac, cdf, .. } = &mut *context;
+  let Rav1dTileStateContext { msac, cdf } = &mut *context;
 
   lr.r#type = match frame_type {
     Rav1dRestorationType::Switchable => {

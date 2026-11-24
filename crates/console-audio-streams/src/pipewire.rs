@@ -3,11 +3,12 @@
 use std::fs::File;
 use std::io;
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use console_core_external_programs::Program;
 use console_core_state_machine::Never;
+use console_program_lifetime::{Detached, let_go};
 
 use crate::{Pcm, Sample};
 
@@ -90,10 +91,10 @@ fn playback(format: Pcm, output: Output<'_>) -> Result<Command, Never> {
   Ok(command)
 }
 
-pub fn record_wav(format: Pcm, output: &Path) -> io::Result<Child> {
+pub fn record_wav(format: Pcm, output: &Path) -> io::Result<Detached> {
   let Ok(mut command) = recording(format, output);
 
-  command.spawn()
+  let_go(&mut command)
 }
 
 fn recording(format: Pcm, output: &Path) -> Result<Command, Never> {

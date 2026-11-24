@@ -13,7 +13,6 @@
       webkitWorker = pkgs.callPackage ./nix/browser-webkit-worker.nix { inherit wpewebkit; src = self; };
       chromiumWorker = pkgs.callPackage ./nix/browser-chromium-worker.nix { src = self; };
       browser = pkgs.callPackage ./nix/browser.nix { inherit chromiumWorker webkitWorker; src = self; };
-      chromiumBrowser = pkgs.callPackage ./nix/browser.nix { inherit chromiumWorker; src = self; };
       manifest = import ./nix/manifest.nix ./desktop.conf;
       nativeGeneration = import ./nix/native-generation.nix {
         inherit pkgs;
@@ -29,13 +28,9 @@
         inherit browser wpewebkit;
         console-browser-renderer-chromium = chromiumWorker;
       };
-      checks.${system} = {
-        browser = import ./nix/browser-test.nix { inherit pkgs browser; };
-        browser-chromium = import ./nix/browser-test.nix {
-          inherit pkgs;
-          browser = chromiumBrowser;
-          webkit = false;
-        };
+      checks.${system} = import ./nix/test-checks.nix {
+        inherit nixpkgs pkgs;
+        src = self;
       };
       devShells.${system}.default = pkgs.mkShell {
         inputsFrom = [ console ];

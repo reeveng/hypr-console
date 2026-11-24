@@ -77,7 +77,7 @@ pub fn name_to_chars(name: &str) -> impl Iterator<Item = char> + '_ {
       }) {
         Some(single) => CharIter::Single(single),
         None => match {
-          let Ok(explicit_value) = uni_to_unicode(name_3, { u64::MAX });
+          let Ok(explicit_value) = uni_to_unicode(name_3, u64::MAX);
           explicit_value
         } {
           Some(iter) => iter,

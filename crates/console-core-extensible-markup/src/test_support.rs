@@ -1,10 +1,21 @@
-#[derive(Debug)]
 pub(crate) enum Failure {
   Xml(crate::Error),
   Assertion { line: u32 },
   MissingValue { line: u32 },
   UnexpectedError { line: u32 },
   UnexpectedValue { line: u32 },
+}
+
+impl core::fmt::Debug for Failure {
+  fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    match self {
+      Self::Xml(error) => formatter.debug_tuple("Xml").field(error).finish(),
+      Self::Assertion { line } => formatter.debug_struct("Assertion").field("line", line).finish(),
+      Self::MissingValue { line } => formatter.debug_struct("MissingValue").field("line", line).finish(),
+      Self::UnexpectedError { line } => formatter.debug_struct("UnexpectedError").field("line", line).finish(),
+      Self::UnexpectedValue { line } => formatter.debug_struct("UnexpectedValue").field("line", line).finish(),
+    }
+  }
 }
 
 impl From<crate::Error> for Failure {

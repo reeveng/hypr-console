@@ -24,10 +24,8 @@ console-draw-painting.workspace = true
 console-draw-surface.workspace = true
 console-gio.workspace = true
 console-input-text.workspace = true
+console-package-manager = { workspace = true, features = ["user"] }
 console-program-lifetime.workspace = true
-rustix.workspace = true
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
 
 [dev-dependencies]
 console-core-atomic-writes.workspace = true

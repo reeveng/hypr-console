@@ -930,7 +930,7 @@ impl Scene<'_> {
       Lines(1),
     );
     let description = match item.description.is_empty().then_some(()) {
-      Some(()) => &item.attribute,
+      Some(()) => &item.installable.attribute,
       None => &item.description,
     };
     let Ok(()) = self.text(
@@ -1017,9 +1017,9 @@ impl Scene<'_> {
         Overlay::Package(item) => {
           let Ok(()) = self.text(heading, &item.title, 26, Face::Bold, c.text, Lines(1));
           let version = match bool::then_some(item.version.is_empty(), ()) {
-            Some(()) => item.attribute.clone(),
+            Some(()) => item.installable.attribute.clone(),
             None => {
-              format!("{}  ·  Version {}", item.attribute, item.version)
+              format!("{}  ·  Version {}", item.installable.attribute, item.version)
             }
           };
           let Ok(()) = self.text(
@@ -1778,7 +1778,7 @@ impl Scene<'_> {
     let mut count = 0_i32;
 
     for (index, item) in rows.iter().enumerate() {
-      match (view, self.app.category, item.attribute.as_str()) {
+      match (view, self.app.category, item.installable.attribute.as_str()) {
         (StoreView::Browse, Category::All, "obs-studio") => continue,
         _ => {}
       }

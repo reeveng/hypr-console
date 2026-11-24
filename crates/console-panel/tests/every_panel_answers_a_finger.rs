@@ -38,51 +38,61 @@ fn held_to_the_contract(program: &str, arguments: &[&str]) -> Result<(), Error> 
 }
 
 #[test]
+#[ignore = "run just test e2e-panels in a disposable NixOS VM"]
 fn the_files() -> Result<(), Error> {
   held_to_the_contract("console-application-files", &[])
 }
 
 #[test]
+#[ignore = "run just test e2e-panels in a disposable NixOS VM"]
 fn the_settings() -> Result<(), Error> {
   held_to_the_contract("settings-panel", &[])
 }
 
 #[test]
+#[ignore = "run just test e2e-panels in a disposable NixOS VM"]
 fn the_menu() -> Result<(), Error> {
   held_to_the_contract("launcher", &[])
 }
 
 #[test]
+#[ignore = "run just test e2e-panels in a disposable NixOS VM"]
 fn the_music() -> Result<(), Error> {
   held_to_the_contract("music-panel", &[])
 }
 
 #[test]
+#[ignore = "run just test e2e-panels in a disposable NixOS VM"]
 fn the_music_library() -> Result<(), Error> {
   held_to_the_contract("console-application-music", &[])
 }
 
 #[test]
+#[ignore = "run just test e2e-panels in a disposable NixOS VM"]
 fn the_notifications() -> Result<(), Error> {
   held_to_the_contract("notifications-panel", &[])
 }
 
 #[test]
+#[ignore = "run just test e2e-panels in a disposable NixOS VM"]
 fn the_downloads() -> Result<(), Error> {
   held_to_the_contract("console-application-downloads", &[])
 }
 
 #[test]
+#[ignore = "run just test e2e-panels in a disposable NixOS VM"]
 fn the_calculator() -> Result<(), Error> {
   held_to_the_contract("console-application-calculator", &[])
 }
 
 #[test]
+#[ignore = "run just test e2e-panels in a disposable NixOS VM"]
 fn the_calendar() -> Result<(), Error> {
   held_to_the_contract("calendar-panel", &[])
 }
 
 #[test]
+#[ignore = "run just test e2e-panels in a disposable NixOS VM"]
 fn the_guide() -> Result<(), Error> {
   held_to_the_contract("mapping-panel", &[])
 }

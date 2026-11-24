@@ -808,7 +808,7 @@ impl App {
         let Ok(across) = fitted::<i32, u32>(at_2.x.max(0));
 
         let action = match ::core::primitive::bool::then_some(
-          { across >= room.width.saturating_div(2) },
+          across >= room.width.saturating_div(2),
           (),
         ) {
           ::core::option::Option::Some(()) => PageAction::ToggleDiagrams,

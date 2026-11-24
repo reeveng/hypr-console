@@ -28,6 +28,8 @@ const OWNERS: &[(&str, &[Program])] = &[
     &[Program::Hyprctl, Program::Hyprland, Program::StartHyprland],
   ),
   ("console-package-manager-pacman", &[Program::Pacman]),
+  ("console-package-manager-nix", &[Program::Nix]),
+  ("console-package-manager-mise", &[Program::Mise]),
   (
     "console-session-cachyos",
     &[

@@ -24,7 +24,6 @@ use core::arch::x86_64::*;
 #[cfg(target_arch = "x86_64")]
 use archmage::X64V4xToken;
 use archmage::{Desktop64, Server64, arcane};
-use std::ffi::c_int;
 
 #[cfg(target_arch = "x86_64")]
 use super::partial_simd;

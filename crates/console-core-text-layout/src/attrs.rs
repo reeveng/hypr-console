@@ -731,7 +731,9 @@ impl AttrsList {
   ) -> Result<(), console_core_never::Never> {
     match self.spans.last_mut() {
       Some((previous, previous_attrs)) => {
-        match (previous.end == range.start && *previous_attrs == attrs).then_some(()) {
+        let adjacent = previous.end == range.start;
+
+        match (adjacent && *previous_attrs == attrs).then_some(()) {
           Some(()) => {
             previous.end = range.end;
             return Ok(());

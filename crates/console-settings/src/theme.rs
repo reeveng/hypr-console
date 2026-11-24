@@ -102,7 +102,7 @@ fn color_row(
     let restart_2 = restart.clone();
     let Ok(respond) = crate::rows::answer(move |showing_2, entered| match color_input(entered) {
       Ok(color) => {
-        ({
+        {
           let Ok(explicit_value) = update(
             showing_2,
             &restart_2,
@@ -110,7 +110,7 @@ fn color_row(
             |settings| settings.set_color(role, color),
           );
           explicit_value
-        })
+        }
       }
       Err(_invalid_color) => showing_2.note("Enter six hex digits or leave blank to reset"),
     });
@@ -152,10 +152,10 @@ pub fn rows() -> Result<Vec<Row>, Never> {
     };
     let restart_3 = restart_2.clone();
     let Ok(choose) = Handler::and_stay(move |showing| {
-      ({
+      {
         let Ok(explicit_value) = choose_base(showing, theme, &restart_3);
         explicit_value
-      })
+      }
     });
     let Ok(name) = theme.name();
     let Ok(row) = Row::new(name, Aside(aside), choose);
@@ -174,10 +174,10 @@ pub fn rows() -> Result<Vec<Row>, Never> {
     let Ok(respond) =
       crate::rows::answer(move |showing_2, entered| match Theme::custom(entered) {
         Ok(theme) => {
-          ({
+          {
             let Ok(explicit_value) = choose_base(showing_2, theme, &restart_4);
             explicit_value
-          })
+          }
         }
         Err(_invalid_base) => showing_2.note("Enter a six-digit hex color, e.g. #6AABCF"),
       });

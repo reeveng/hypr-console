@@ -55,6 +55,7 @@ fn last(every: &[Description]) -> Result<&Description, Box<dyn Error>> {
 }
 
 #[test]
+#[ignore = "run just test e2e-panels in a disposable NixOS VM"]
 fn it_opens_saying_which_month_it_is_showing() -> Result<(), Box<dyn Error>> {
   let every = describe_after(&[])?;
   let card = first(&every)?;
@@ -73,6 +74,7 @@ fn it_opens_saying_which_month_it_is_showing() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
+#[ignore = "run just test e2e-panels in a disposable NixOS VM"]
 fn the_dpad_walks_to_the_month_after_this_one() -> Result<(), Box<dyn Error>> {
   let every = describe_after(&["Right"])?;
   let card = first(&every)?;
@@ -86,6 +88,7 @@ fn the_dpad_walks_to_the_month_after_this_one() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
+#[ignore = "run just test e2e-panels in a disposable NixOS VM"]
 fn the_keyboard_is_held_before_the_first_press() -> Result<(), Box<dyn Error>> {
   let every = describe_after(&["Right"])?;
   let listening = every
@@ -101,6 +104,7 @@ fn the_keyboard_is_held_before_the_first_press() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
+#[ignore = "run just test e2e-panels in a disposable NixOS VM"]
 fn walking_back_comes_back() -> Result<(), Box<dyn Error>> {
   let every = describe_after(&["Right", "Left"])?;
   let card = first(&every)?;

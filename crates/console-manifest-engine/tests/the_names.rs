@@ -22,12 +22,9 @@
 //! something crosses it against what the tree says today, and a rename that
 //! moves the other half is exactly how it stops being.
 //!
-//! What counts as still used is deliberately wide: a crate, a binary the
-//! manifest builds, or a package it installs. All three are names someone can
-//! look up, and a rule that demanded only crates would rename
-//! `console-buttons.desktop` -- which names the binary a person types -- into
-//! something no one has ever called it. The rule is that the name exists, not
-//! that it came from one place.
+//! An entry can retain its filename when a crate or binary is renamed. The
+//! entry's main executable must then resolve to a program the manifest builds
+//! or installs. The machine overlays also carry their own entries and programs.
 //!
 //! The mime list is read for this desktop's own entries only. It also names
 //! `librewolf.desktop`, which a package installs and this tree has no copy of,
@@ -37,7 +34,9 @@
 mod reading;
 
 use std::collections::BTreeSet;
+use std::path::Path;
 
+use console_manifest_engine::machines;
 use reading::{Failure, Section, read, root, section};
 
 fn crates() -> Result<Vec<String>, Failure> {
@@ -88,33 +87,68 @@ fn entries() -> Result<Vec<String>, Failure> {
 
 fn known() -> Result<BTreeSet<String>, Failure> {
   let held = read("desktop.conf")?;
-  let built = section(&held, Section::Build)?;
-  let packages = section(&held, Section::Packages)?;
   let crates = crates()?;
   let mut names: BTreeSet<String> = crates.into_iter().collect();
+  let build = installed(Section::Build)?;
+  let packages = section(&held, Section::Packages)?;
 
-  names.extend(built);
+  names.extend(build);
   names.extend(packages.iter().map(|name| format!("console-{name}")));
   names.extend(packages);
 
   Ok(names)
 }
 
+fn installed(kind: Section) -> Result<BTreeSet<String>, Failure> {
+  let desktop = read("desktop.conf")?;
+  let overlays = read("machines.conf")?;
+  let mut installed: BTreeSet<String> = section(&desktop, kind)?.into_iter().collect();
+  let machines = machines::every(&overlays)?;
+
+  for machine in machines {
+    let Ok(manifest) = machines::of(&overlays, machines::Named(&machine.named));
+    let entries = section(&manifest, kind)?;
+    installed.extend(entries);
+  }
+
+  Ok(installed)
+}
+
+fn executable(entry: &str) -> Result<Option<String>, Failure> {
+  let desktop = read(&format!("files/usr/share/applications/{entry}.desktop"))?;
+  let program = desktop
+    .lines()
+    .find_map(|line| line.strip_prefix("Exec="))
+    .and_then(|command| command.split_whitespace().next())
+    .and_then(|command| Path::new(command).file_name())
+    .and_then(|name| name.to_str());
+
+  Ok(program.map(str::to_owned))
+}
+
 #[test]
 fn every_desktop_entry_is_named_for_something_this_tree_still_uses() -> Result<(), Failure> {
   let known = known()?;
   let entries = entries()?;
-  let stale: Vec<String> = entries
-    .into_iter()
-    .filter(|name| !known.contains(name))
-    .collect();
+  let mut stale = Vec::new();
+
+  for name in entries {
+    match known.contains(&name).then_some(()) {
+      Some(()) => continue,
+      None => {}
+    }
+
+    let program = executable(&name)?;
+
+    match program.is_some_and(|command| known.contains(&command)).then_some(()) {
+      Some(()) => {}
+      None => stale.push(name),
+    }
+  }
 
   assert!(
     stale.is_empty(),
-    "these name nothing on the machine: {stale:?}\n\
-         a desktop entry's filename is what mimeapps.list and the menu point at, \
-         so rename it to a crate, a built binary or a package -- and sweep the old \
-         path in a migration, because an apply installs a name and never removes one",
+    "these entries have neither a known desktop ID nor a known executable: {stale:?}",
   );
 
   Ok(())
@@ -144,9 +178,7 @@ fn every_entry_the_mime_list_points_at_is_one_this_tree_installs() -> Result<(),
 
 #[test]
 fn the_manifest_installs_every_entry_that_is_in_the_tree() -> Result<(), Failure> {
-  let held = read("desktop.conf")?;
-  let files = section(&held, Section::Files)?;
-  let installed: BTreeSet<String> = files.into_iter().collect();
+  let installed = installed(Section::Files)?;
 
   let entries = entries()?;
   let unnamed: Vec<String> = entries

@@ -72,6 +72,7 @@ pub struct Unique<T: ?Sized> {
     reason = "the unique pointer transfers or shares only the access permitted by the pointee bound"
   )
 )]
+// SAFETY: Moving the unique pointer transfers exclusive access to its Send pointee.
 unsafe impl<T: Send + ?Sized> Send for Unique<T> {}
 
 #[cfg(feature = "c-ffi")]
@@ -89,6 +90,7 @@ unsafe impl<T: Send + ?Sized> Send for Unique<T> {}
     reason = "the unique pointer transfers or shares only the access permitted by the pointee bound"
   )
 )]
+// SAFETY: Shared access to the unique pointer only lends shared access to its Sync pointee.
 unsafe impl<T: Sync + ?Sized> Sync for Unique<T> {}
 
 #[derive(Debug)]

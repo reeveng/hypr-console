@@ -1,5 +1,7 @@
 //! A small desktop-first catalogue alongside Nixpkgs search.
 
+use console_package_manager::user::Installable;
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Category {
   #[default]
@@ -53,9 +55,9 @@ pub struct Featured {
 impl Featured {
   #[must_use]
   fn package(self) -> core::result::Result<Package, core::convert::Infallible> {
+    let Ok(installable) = Installable::nixpkgs(self.attribute);
     Ok(Package {
-      attribute: self.attribute.to_owned(),
-      installable: format!("nixpkgs#{}", self.attribute),
+      installable,
       title: self.title.to_owned(),
       description: self.description.to_owned(),
       category: self.category,
@@ -141,8 +143,7 @@ const FEATURED: &[Featured] = &[
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Package {
-  pub attribute: String,
-  pub installable: String,
+  pub installable: Installable,
   pub title: String,
   pub description: String,
   pub category: Category,
@@ -176,7 +177,7 @@ pub fn suggested(query: &str) -> core::result::Result<Vec<Package>, core::conver
     .into_iter()
     .filter(|item| {
       let searchable =
-        format!("{} {} {}", item.attribute, item.title, item.description).to_lowercase();
+        format!("{} {} {}", item.installable.attribute, item.title, item.description).to_lowercase();
       terms.iter().all(|word| searchable.contains(word))
     })
     .collect(),
@@ -191,14 +192,16 @@ pub fn package(attribute: &str) -> core::result::Result<Package, core::convert::
         let Ok(explicit_value) = row.package();
         explicit_value
       }
-      None => Package {
-        attribute: attribute.to_owned(),
-        installable: format!("nixpkgs#{attribute}"),
-        title: attribute.to_owned(),
-        description: String::new(),
-        category: Category::All,
-        version: String::new(),
-      },
+      None => {
+        let Ok(installable) = Installable::nixpkgs(attribute);
+        Package {
+          installable,
+          title: attribute.to_owned(),
+          description: String::new(),
+          category: Category::All,
+          version: String::new(),
+        }
+      }
     },
   )
 }

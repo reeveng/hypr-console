@@ -295,12 +295,12 @@ pub fn holds(one: &KeyBinding, held: &[console_compositor::BoundKey]) -> Result<
   let mut outdated = false;
 
   for there in held.iter().filter(|there| there.held == one.held) {
-    match ::core::primitive::bool::then_some({ there.about == description }, ()) {
+    match ::core::primitive::bool::then_some(there.about == description, ()) {
       ::core::option::Option::Some(()) => {
         current = current.saturating_add(1);
       }
       ::core::option::Option::None => {
-        match ::core::primitive::bool::then_some({ there.about == one.about }, ()) {
+        match ::core::primitive::bool::then_some(there.about == one.about, ()) {
           ::core::option::Option::Some(()) => {
             outdated = true;
           }

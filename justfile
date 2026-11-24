@@ -17,6 +17,11 @@ default:
 dependencies *arguments:
     @cargo run --locked --quiet --bin console-dependencies -- --report-only "$@"
 
+# Inspect, install, or update the checkout's mise-managed tools.
+[positional-arguments]
+dev-tools *arguments:
+    @cargo run --locked --quiet -p console-package-manager --features tools --bin console-dev-tools -- "$@"
+
 # format the Rust workspace
 format:
     cargo fmt
@@ -112,29 +117,10 @@ theme:
 sky:
     cargo run --quiet --release --bin wallpaper-render
 
-# `--all-features` because the keyboard's Rust port is behind one. It is off by
-# default so the device does not compile the rasterizer and text engine for a program it does
-# not run, and on here so that being unfinished is not the same as being
-# untested.
-#
-# The build is not a convenience in front of the tests, it is part of what they
-# need. `cargo test` builds every crate's *test* targets; the program at
-# `target/debug/launcher` it only relinks for a crate that has a `tests/`
-# directory of its own, and the panel crates mostly do not. The panel tier
-# opens those programs in a nested desktop, so without this it holds today's
-# rules against whichever build happened to be lying there -- which is why it
-# refuses to run at all when it finds one, and why the answer is to build
-# rather than to make the check quieter.
-#
-# The run is nextest's rather than `cargo test`'s. `cargo test` walks the test
-# binaries one after another, and with a crate per job that is most of the
-# wait; nextest runs every test in a process of its own, all binaries at once.
-# The one thing it does not run is a doctest, and this tree has none, since a
-# doc comment is a comment.
-
-# every test that can run on this machine
-test:
-    @cargo x test
+# Run unit and integration tests, or select an end-to-end suite.
+[positional-arguments]
+test suite="quick" *arguments:
+    @cargo x test "$@"
 
 # The tree's own accent, printed rather than enforced.
 #
@@ -164,66 +150,8 @@ literals:
         | grep 'default numeric fallback' \
         | awk -F/ '{print $2}' | sort | uniq -c | sort -rn
 
-# What a deploy runs before it sends anything, and the only place the list
-# lives.
-#
-#   the programs    because `cargo test` does not leave them built. Only a
-#                   crate with a `tests/` directory of its own gets its program
-#                   relinked, and the panel tier opens those programs; without
-#                   this the tier stops and says to run the build by hand,
-#                   which would make this list no longer the whole list.
-#   the tests       what the desktop promises about itself
-#   clippy          denied rather than printed, because a warning no one is
-#                   made to read is a warning no one reads
-#   --locked        the device builds with it. A Cargo.lock that is behind
-#                   would fail there instead, halfway through an apply, on a
-#                   handheld: the same answer, found in the worse place.
-#
-#   the checks      the features, pressed against the emulator rather than
-#                   read about. A fraction of a second each, because no machine
-#                   takes part: the real profiles, the real pad, and the daemon
-#                   running in this process.
-#
-#   the rules       the EXPLICIT_* rules the workspace already keeps. Only the
-#                   ones nothing breaks, so this holds today and goes on
-#                   holding; `just explicit` is where the rest of the distance
-#                   is. It wants the lint suite's nightly, which is the one
-#                   thing in this list that is not already on the machine, and
-#                   it says so rather than passing quietly if it is missing.
-#
-#   the map         collected again and held against the one committed, because
-#                   what a program does is in its code and only the lint suite's
-#                   nightly can ask the compiler for it. The picture is left out
-#                   of the comparison: Graphviz lays it out differently from one
-#                   version to the next, and the source is the thing drawn.
-#
-# `just emulate` is deliberately not here. That one runs the features against a
-# nested desktop of its own, which is minutes and a compositor, and a gate
-# someone starts dreading is a gate someone starts going around. The device
-# tier is not here either, for a better reason: it is someone's machine, and
-# it belongs at the end of a deploy rather than before one.
-#
-# Because the checks above have already run, the device tier asks the machine
-# only what nothing here can answer and says of the rest where it was answered.
-# `--all` is the whole tier when the question is about the hardware.
-#
-# A pass is written down against the tree it passed on, and the same tree is
-# not asked again: a second `just deploy` with nothing changed goes straight to
-# the device instead of spending the minutes a second time. The tree is git's
-# own hash of every tracked file, so one changed byte is a tree nothing has
-# passed on, and a checkout with anything uncommitted or untracked in it is
-# never written down and never skipped, because that is not a tree at all.
-# The mark lives beside the deploy lock in the git directory, so writing it
-# does not dirty what it describes.
-#
-# The rename check and the word count go first: they are the ones a
-# change most often breaks, and each answers in seconds where the tests take
-# minutes, so a red one is heard before the long wait rather than after it.
-#
-# The tests, clippy and the rules are asked only of the crates the change since
-# the last passed tree can reach -- `cargo x reached` says which and why. The
-# build and the checks stay whole: the build is cargo's own to keep small, and
-# the checks are seconds.
+# Deployment requires the vocabulary check, test VMs, Clippy and Explicit Rust.
+# Clippy and Explicit Rust use the crates reached since the last recorded pass.
 
 # everything that must hold before a deploy
 ready:
@@ -409,7 +337,7 @@ kernel cpu="qemu64" memory="256M": kernel-image
     timeout 60 qemu-system-x86_64 -machine q35 -cpu "$1" -m "$2" -bios /usr/share/edk2/x64/OVMF.4m.fd \
         -drive if=none,id=preview,format=raw,file=fat:target/kernel/esp,readonly=on \
         -device qemu-xhci -device usb-storage,drive=preview,removable=on,bootindex=1 \
-        -display none -serial stdio \
+        -nic none -display none -serial stdio \
         -device isa-debug-exit,iobase=0xf4,iosize=0x04 -no-reboot \
         | sed 's/\x1b\[[0-9;]*[A-Za-z]//g' | tr -d '\r' \
         | awk '/^console-kernel/ { print; fflush() } \
@@ -528,9 +456,8 @@ browser-pad-wasm:
     rustc +1.98.0 --edition=2024 --crate-type=cdylib --target=wasm32-unknown-unknown -C opt-level=z -C lto -C panic=abort -C strip=symbols crates/console-browser-extension/wasm/pad.rs -o target/browser-pad/pad.wasm
     install -m644 target/browser-pad/pad.wasm crates/console-browser-extension/web/pad.wasm
 
-# the tier that makes real input devices, if it can
-live:
-    cargo test --quiet -p console-input-controller --test really_running -- --nocapture
+# Exercise the controller through virtual input devices inside a VM.
+live: (test "e2e-live")
 
 # `--features` because the emulator reads the profiles, and reading one is
 # behind `console-input-gamepad/read` -- off by default so the handheld does not
@@ -541,31 +468,14 @@ live:
 emulate:
     @just alone cargo run --quiet --features console-input-gamepad/read --bin console-emulate
 
-# every feature, tried again, here
-checks:
-    @just alone cargo run --quiet --bin console-check
+# Exercise component interactions and the controller emulator.
+checks: (test "integration")
 
-# Minutes rather than a fraction of a second, because each of these is a whole
-# compositor of its own. The build is first, and it is the whole workspace on
-# purpose: the nested session stages whatever is in target/debug and rebuilds
-# only itself, so a program no one built is a picture in which nothing was
-# pressed, taken by a check that then says the feature is broken.
+# Run the desktop scenarios against a compositor inside a VM.
+desktop-checks: (test "e2e-desktop")
 
-# the checks written for a screen, pressed against a nested desktop
-desktop-checks:
-    @just alone cargo build --quiet --workspace
-    @just alone cargo run --quiet --bin console-check -- --stage desktop
-
-# one panel, opened alone, held to what the buttons promise a hand
-#
-# A name after it runs one panel, which is the whole point of the tier: a change
-# to the files panel is tried against the files panel in about fifteen seconds.
-#
-#   just panel-checks the_files
-panel-checks name="":
-    @just alone cargo build --quiet --workspace
-    @just alone cargo test --quiet -p console-panel --test every_panel_answers_a_finger -- {{name}}
-    @just alone cargo test --quiet -p console-application-media-viewer --test a_finger -- {{name}}
+# Run the panel scenarios inside a VM, optionally by test-name substring.
+panel-checks name="": (test "e2e-panels" name)
 
 # Measure the browser toolbar, drawing, launcher search, Files and Calculator.
 [positional-arguments]
@@ -587,10 +497,8 @@ browser *arguments:
     cargo build --quiet --locked -p console-application-browser -p console-browser-renderer-chromium
     CONSOLE_BROWSER_SERVO_WORKER="${CONSOLE_SERVO_TARGET_DIR:-crates/console-browser-renderer-servo/target}/debug/console-browser-renderer-servo" "${CARGO_TARGET_DIR:-target}/debug/console-application-browser" "$@"
 
-# load a local website and reopen it in a fresh Chromium context
-browser-check:
-    cargo build --quiet --locked -p console-application-browser -p console-browser-renderer-chromium --features console-application-browser/checks
-    "${CARGO_TARGET_DIR:-target}/debug/console-browser-check" "${CARGO_TARGET_DIR:-target}/debug/console-application-browser"
+# Run the Chromium browser fixture inside a VM.
+browser-check: (test "browser-chromium")
 
 [private]
 browser-servo-build:
@@ -600,7 +508,8 @@ browser-servo-build:
 browser-servo *arguments: browser-servo-build
     cargo run --quiet --locked -p console-application-browser -- --servo-worker "${CONSOLE_SERVO_TARGET_DIR:-crates/console-browser-renderer-servo/target}/debug/console-browser-renderer-servo" "$@"
 
-browser-servo-check: browser-servo-build
+# Run the experimental Servo fixture in the current graphical session.
+browser-servo-check-local: browser-servo-build
     cargo build --quiet --locked -p console-application-browser -p console-browser-renderer-chromium --features console-application-browser/checks
     "${CARGO_TARGET_DIR:-target}/debug/console-browser-check" "${CARGO_TARGET_DIR:-target}/debug/console-application-browser" "${CONSOLE_SERVO_TARGET_DIR:-crates/console-browser-renderer-servo/target}/debug/console-browser-renderer-servo"
 
@@ -608,9 +517,8 @@ browser-servo-check: browser-servo-build
 browser-webkit *arguments:
     nix run .#browser -- "$@"
 
-# Run the browser unit tests and renderer switch in a pinned NixOS VM.
-browser-webkit-check:
-    nix build --no-link --print-build-logs .#checks.x86_64-linux.browser
+# Run the Chromium and WebKit renderer switch inside a VM.
+browser-webkit-check: (test "browser")
 
 # the device's desktop here, in a window
 desktop:

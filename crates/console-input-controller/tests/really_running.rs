@@ -1,11 +1,7 @@
 //! The same daemon, against devices the kernel really made.
 //!
-//! These need to be able to make an input device, which means /dev/uinput. They
-//! say so and stop where that is not open, rather than failing, because
-//! everything they prove about what the daemon decides is proved in the fast
-//! tier too. What only these can prove is that the emulator's devices are the
-//! ones the daemon goes looking for, and that what it writes is a real pointer
-//! moving.
+//! The test VM supplies its own writable /dev/uinput. These checks fail when
+//! the daemon cannot find the emulated devices or publish its virtual pointer.
 
 mod live;
 
@@ -15,15 +11,12 @@ use console_core_geometry::Point;
 use console_input_event_devices::{AbsoluteAxisCode, EventType, KeyCode, RelativeAxisCode};
 use console_input_gamepad::go::DragSeconds;
 
-use live::{Failure, READS, or_skip};
+use live::{Failure, READS, required};
 
 #[test]
+#[ignore = "run just test e2e-live in a disposable NixOS VM"]
 fn the_daemon_finds_all_three_devices() -> Result<(), Failure> {
-  let found = or_skip()?;
-  let running = match found {
-    Some(running) => running,
-    None => return Ok(()),
-  };
+  let running = required()?;
   let Ok(said) = running.said();
 
   for wanted in READS {
@@ -37,12 +30,9 @@ fn the_daemon_finds_all_three_devices() -> Result<(), Failure> {
 }
 
 #[test]
+#[ignore = "run just test e2e-live in a disposable NixOS VM"]
 fn the_right_stick_really_turns_a_wheel() -> Result<(), Failure> {
-  let found = or_skip()?;
-  let mut running = match found {
-    Some(running) => running,
-    None => return Ok(()),
-  };
+  let mut running = required()?;
 
   let Ok(go) = running.go();
   go.thumbstick("right-stick", Point { x: 0.0, y: -1.0 })?;
@@ -60,12 +50,9 @@ fn the_right_stick_really_turns_a_wheel() -> Result<(), Failure> {
 }
 
 #[test]
+#[ignore = "run just test e2e-live in a disposable NixOS VM"]
 fn a_finger_on_the_pad_really_moves_a_pointer() -> Result<(), Failure> {
-  let found = or_skip()?;
-  let mut running = match found {
-    Some(running) => running,
-    None => return Ok(()),
-  };
+  let mut running = required()?;
   let Ok(go) = running.go();
   let Ok(()) = go.drag(
     Point { x: 200, y: 300 },
@@ -96,12 +83,9 @@ fn a_finger_on_the_pad_really_moves_a_pointer() -> Result<(), Failure> {
 }
 
 #[test]
+#[ignore = "run just test e2e-live in a disposable NixOS VM"]
 fn a_tap_is_really_a_click() -> Result<(), Failure> {
-  let found = or_skip()?;
-  let mut running = match found {
-    Some(running) => running,
-    None => return Ok(()),
-  };
+  let mut running = required()?;
   let Ok(go) = running.go();
   let Ok(()) = go.tap(Point { x: 500, y: 500 });
   let events = running.events(Duration::from_millis(400))?;
@@ -120,12 +104,9 @@ fn a_tap_is_really_a_click() -> Result<(), Failure> {
 }
 
 #[test]
+#[ignore = "run just test e2e-live in a disposable NixOS VM"]
 fn a_shoulder_really_reaches_the_compositor() -> Result<(), Failure> {
-  let found = or_skip()?;
-  let mut running = match found {
-    Some(running) => running,
-    None => return Ok(()),
-  };
+  let mut running = required()?;
 
   let Ok(go) = running.go();
   go.press("r1")?;
@@ -140,12 +121,9 @@ fn a_shoulder_really_reaches_the_compositor() -> Result<(), Failure> {
 }
 
 #[test]
+#[ignore = "run just test e2e-live in a disposable NixOS VM"]
 fn a_paddle_really_opens_the_menu() -> Result<(), Failure> {
-  let found = or_skip()?;
-  let mut running = match found {
-    Some(running) => running,
-    None => return Ok(()),
-  };
+  let mut running = required()?;
 
   let Ok(go) = running.go();
   go.press("left-paddle-top")?;
@@ -157,12 +135,9 @@ fn a_paddle_really_opens_the_menu() -> Result<(), Failure> {
 }
 
 #[test]
+#[ignore = "run just test e2e-live in a disposable NixOS VM"]
 fn the_emulator_publishes_what_the_capture_says() -> Result<(), Failure> {
-  let found = or_skip()?;
-  let running = match found {
-    Some(running) => running,
-    None => return Ok(()),
-  };
+  let running = required()?;
   let Ok(every) = console_input_event_devices::Device::every();
   let pad = every
     .into_iter()

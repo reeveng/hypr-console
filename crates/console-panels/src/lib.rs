@@ -1038,9 +1038,11 @@ mod tests {
   #[test]
   fn a_panel_left_open_is_put_back_by_starting_the_program_that_asks_for_it() {
     for panel in PANELS {
-      assert_eq!(
-        panel.program.name(),
-        Ok(panel.who),
+      let Ok(program) = panel.program.name();
+      let application = panel.who.strip_prefix("console-").map(|name| format!("console-application-{name}"));
+
+      assert!(
+        program == panel.who || application.as_deref() == Some(program),
         "a restart would start the wrong program to put {} back",
         panel.who
       );

@@ -345,6 +345,12 @@ impl Panel {
       None => {}
     }
 
+    let _ = std::fs::metadata("/etc/console-test-vm").map_err(|fault| {
+      Error::Machine(std::io::Error::new(
+        fault.kind(),
+        "panel scenarios require a test VM. Run just test e2e-panels",
+      ))
+    })?;
     let Ok(_room) = Room::for_one_more();
     let Ok(program) = console_core_internal_programs::beside_this_program(&self.program);
 

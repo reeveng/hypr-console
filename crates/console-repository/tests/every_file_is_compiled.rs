@@ -140,6 +140,19 @@ fn children(file: &Path, roots: &[PathBuf]) -> Result<Vec<PathBuf>, Never> {
   let mut elsewhere: Option<String> = None;
 
   for line in said.lines() {
+    let included = line
+      .trim()
+      .strip_prefix("include!(\"")
+      .and_then(|literal| literal.strip_suffix("\");"));
+
+    match included {
+      Some(source) => {
+        let Ok(resolved) = declared_path(&holding, source);
+        found.push(resolved);
+      }
+      None => {}
+    }
+
     let Ok(path) = moved(line);
     let Ok(named) = declared(line);
 

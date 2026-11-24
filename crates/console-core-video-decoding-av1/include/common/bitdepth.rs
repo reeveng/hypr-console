@@ -5,7 +5,6 @@ use crate::src::align::Align16;
 use crate::src::align::ArrayDefault;
 use std::ffi::c_int;
 use std::ffi::c_uint;
-use std::ffi::c_void;
 use std::fmt;
 use std::fmt::Display;
 use std::fmt::Formatter;
@@ -411,9 +410,7 @@ pub trait BitDepth: Clone + Copy {
 }
 
 #[derive(Clone, Copy)]
-pub struct BitDepth8 {
-  bitdepth_max: <Self as BitDepth>::BitDepthMax,
-}
+pub struct BitDepth8;
 
 impl BitDepth for BitDepth8 {
   const BPC: BPC = BPC::BPC8;
@@ -433,8 +430,8 @@ impl BitDepth for BitDepth8 {
 
   type DisplayPixel = DisplayPixel8;
 
-  fn new(bitdepth_max: Self::BitDepthMax) -> Self {
-    Self { bitdepth_max }
+  fn new(_bitdepth_max: Self::BitDepthMax) -> Self {
+    Self
   }
 
   fn from_c(_bitdepth_max: c_int) -> Self {
@@ -531,18 +528,6 @@ impl Display for DisplayPixel16 {
     write!(f, "{:03x}", self.0)
   }
 }
-
-#[repr(transparent)]
-pub struct DynPixel(c_void);
-
-#[repr(transparent)]
-pub struct DynCoef(c_void);
-
-#[repr(transparent)]
-pub struct DynEntry(c_void);
-
-#[repr(transparent)]
-pub struct DynScaling([u8; 1]);
 
 pub type LeftPixelRow<Pixel> = [Pixel; 4];
 pub type LeftPixelRow2px<Pixel> = [Pixel; 2];

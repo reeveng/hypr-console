@@ -28,6 +28,33 @@ fn console(arguments: &[&str]) -> Result<Output, Failure> {
   Ok(done)
 }
 
+#[test]
+fn doctor_is_listed_in_help_and_checks_paths_without_a_manifest() -> Result<(), Failure> {
+  let commands = console(&["--help"])?;
+  let command_help = String::from_utf8(commands.stdout)?;
+  assert!(commands.status.success());
+  assert!(command_help.contains("doctor"));
+
+  let help = console(&["doctor", "--help"])?;
+  let profile_help = String::from_utf8(help.stdout)?;
+  assert!(help.status.success());
+  assert!(profile_help.contains("console doctor"));
+  assert!(profile_help.contains("development"));
+  assert!(profile_help.contains("--report-only"));
+
+  let present = console(&["doctor", "path", "/dev/null"])?;
+  let report = String::from_utf8(present.stdout)?;
+  assert!(present.status.success());
+  assert!(report.contains("present  path /dev/null"));
+
+  let invalid = console(&["doctor", "unknown-profile"])?;
+  let usage = String::from_utf8(invalid.stderr)?;
+  assert_eq!(invalid.status.code(), Some(2));
+  assert!(usage.contains("console doctor"));
+
+  Ok(())
+}
+
 fn walked(from: &Path) -> Result<Vec<PathBuf>, Failure> {
   let Ok(listing) =
     console_core_directory_listing::recursive(

@@ -1,0 +1,17 @@
+[package]
+name = "console-package-manager-nix"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+console-core-external-programs.workspace = true
+console-core-never.workspace = true
+console-core-number-conversion.workspace = true
+rustix.workspace = true
+serde = "1"
+serde_json = "1"
+
+[lints]
+workspace = true

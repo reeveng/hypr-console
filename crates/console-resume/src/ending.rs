@@ -141,22 +141,18 @@ pub fn capture_worker(arguments: &[OsString]) -> Result<(), Unresumed> {
 }
 
 fn music_command() -> Result<Command, Never> {
-  let Ok(mut bus) = Program::Busctl.command();
-
-  bus
-    .args([
-      "--user",
-      "--quiet",
-      "--timeout=1s",
-      "--auto-start=no",
-      "call",
-      "org.mpris.MediaPlayer2.console",
-      "/org/mpris/MediaPlayer2",
-      "org.console.MusicPlayer.Session",
-      "Checkpoint",
-    ])
-    .stdout(Stdio::null())
-    .stderr(Stdio::null());
+  let Ok(mut bus) = console_bus::cli::command([
+    "--user",
+    "--quiet",
+    "--timeout=1s",
+    "--auto-start=no",
+    "call",
+    "org.mpris.MediaPlayer2.console",
+    "/org/mpris/MediaPlayer2",
+    "org.console.MusicPlayer.Session",
+    "Checkpoint",
+  ]);
+  bus.stdout(Stdio::null()).stderr(Stdio::null());
 
   Ok(bus)
 }

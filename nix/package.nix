@@ -16,8 +16,7 @@ rustPlatform.buildRustPackage {
   nativeBuildInputs = [ pkg-config ];
   buildInputs = [ wayland pam libxcrypt ];
   cargoBuildFlags = lib.concatMap (name: [ "--bin" name ]) manifest.build;
-  # The upstream gate remains `just ready`. Device and display tests cannot run
-  # as a headless Nix package check; the port's build is not a substitute for it.
+  # `just ready` runs the test suites in disposable NixOS guests.
   doCheck = false;
 
   # Prevent the checkout's target-cpu=native from producing machine-specific
@@ -62,6 +61,16 @@ rustPlatform.buildRustPackage {
       mv "$out/bin/$program" "$out/libexec/arch-only/$program"
       cat > "$out/bin/$program" <<'GUARD'
 #!${runtimeShell}
+GUARD
+      if [ "$program" = console ]; then
+        cat >> "$out/bin/$program" <<DOCTOR
+case "\$1" in
+  doctor) exec "$out/libexec/arch-only/console" "\$@" ;;
+  -h|--help) exec "$out/libexec/arch-only/console" doctor --help ;;
+esac
+DOCTOR
+      fi
+      cat >> "$out/bin/$program" <<'GUARD'
 echo "This Console administration command still requires its NixOS backend. Manage system changes through the migration flake; do not run console apply on NixOS." >&2
 exit 64
 GUARD

@@ -16,10 +16,9 @@
 //! The wallpaper is owned directly by the runner and carries the same staged
 //! environment, so it is included in the question even outside that scope.
 //!
-//! Skipped and said out loud where the answer would mean nothing: a machine
-//! with no user manager has no scope to put the session in, and a machine where
-//! the compositor never comes up has not been asked the question at all.
+//! The VM must have a user manager and be able to take the desktop screenshot.
 
+use std::io;
 use std::process::{Command, Stdio};
 
 use console_core_never::Never;
@@ -28,26 +27,22 @@ use console_operating_system_linux::systemd::{Scopes, scopes};
 const STAGE: &str = "a-run-that-leaves-nothing";
 
 #[test]
+#[ignore = "run just test e2e-desktop in a disposable NixOS VM"]
 fn a_nested_desktop_leaves_nothing_of_itself_running() -> Result<(), Box<dyn std::error::Error>> {
+  let _ = std::fs::metadata("/etc/console-test-vm").map_err(|fault| {
+    io::Error::new(
+      fault.kind(),
+      "this test requires a VM. Run just test e2e-desktop",
+    )
+  })?;
   let Ok(held) = scopes();
 
   match held {
     Scopes::Available => {}
-    Scopes::Unavailable => {
-      eprintln!("skipped: no user manager here, so a session has no scope to be held in");
-
-      return Ok(());
-    }
+    Scopes::Unavailable => return Err(io::Error::other("the guest has no user manager").into()),
   }
 
-  let folder = match console_core_temporary_directories::fresh("what-a-run-leaves") {
-    Ok(folder) => folder,
-    Err(fault) => {
-      eprintln!("skipped: no temporary directory to take the picture into: {fault}");
-
-      return Ok(());
-    }
-  };
+  let folder = console_core_temporary_directories::fresh("what-a-run-leaves")?;
   let shot = folder.join("what-a-run-leaves.png");
 
   let done = Command::new(env!("CARGO_BIN_EXE_console-desktop"))
@@ -55,38 +50,21 @@ fn a_nested_desktop_leaves_nothing_of_itself_running() -> Result<(), Box<dyn std
     .arg(&shot)
     .env("CONSOLE_STAGE", STAGE)
     .stdout(Stdio::null())
-    .stderr(Stdio::null())
+    .stderr(Stdio::inherit())
     .status();
   let captured = std::fs::remove_file(&shot);
   console_test_desktop::session::remove_tree(&folder)?;
 
-  let done_3 = match done {
-    Ok(done_2) => done_2,
-    Err(fault) => {
-      eprintln!("skipped: console-desktop would not start: {fault}");
+  let status = done?;
 
-      return Ok(());
-    }
-  };
-
-  match captured {
-    Ok(()) => {}
-    Err(fault) => {
-      eprintln!("skipped: the nested compositor produced no picture: {fault}");
-
-      return Ok(());
-    }
-  }
-
-  match done_3.success().then_some(()) {
+  match status.success().then_some(()) {
     Some(()) => {}
     None => {
-      eprintln!("skipped: the nested compositor stopped with {done_3}");
-
-      return Ok(());
+      return Err(io::Error::other(format!("the nested compositor exited with {status}")).into());
     }
   }
 
+  captured?;
   let Ok(left) = still_holding(STAGE);
 
   assert!(

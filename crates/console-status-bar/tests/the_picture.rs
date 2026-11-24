@@ -131,7 +131,7 @@ fn sidebar_items_fit_and_use_their_drawn_hit_regions_on_both_edges() -> Result<(
     };
 
     let inner_edge =
-      match ::core::primitive::bool::then_some({ placement == Placement::Left }, ()) {
+      match ::core::primitive::bool::then_some(placement == Placement::Left, ()) {
         ::core::option::Option::Some(()) => room.width.saturating_sub(fitting.thin),
         ::core::option::Option::None => 0,
       };

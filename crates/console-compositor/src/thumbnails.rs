@@ -17,7 +17,6 @@ use std::io;
 
 use console_core_geometry::Size;
 use console_core_iteration::Step;
-use console_core_never::Never;
 use console_core_number_conversion::{fitted, index};
 use console_core_shapes::Pixels;
 use console_wayland::buffer::ShmBuffer;

@@ -2,7 +2,6 @@ use crate::Error;
 use crate::stream::Stream;
 use alloc::format;
 use alloc::string::{String, ToString};
-use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Display;
 
@@ -267,6 +266,7 @@ impl<'a> FontShorthand<'a> {
 #[rustfmt::skip]
 #[cfg(test)]
 mod tests {
+    use alloc::vec;
     use super::*;
 
     #[cfg_attr(

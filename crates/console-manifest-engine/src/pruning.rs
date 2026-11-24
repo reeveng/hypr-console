@@ -39,7 +39,7 @@ use console_core_never::Never;
 use console_core_words::Words;
 use console_manifest_migrations::history::EVERY;
 use console_manifest_migrations::{holds, sweeping, whoevers};
-use console_package_manager_pacman::{Ownership, owner};
+use console_package_manager::system::{Ownership, owner};
 
 use crate::generations;
 use crate::install::{self, User};

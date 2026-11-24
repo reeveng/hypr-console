@@ -34,7 +34,7 @@ fn main() -> ExitCode {
   match bundle() {
     Ok(()) => ExitCode::SUCCESS,
     Err(error) => {
-      eprintln!("legion-go-bundle: {error}");
+      eprintln!("console-bundle: {error}");
       ExitCode::FAILURE
     }
   }
@@ -134,7 +134,7 @@ fn bundle() -> Result<(), Box<dyn Error>> {
     .skip(1)
     .collect::<Vec<_>>()
     .try_into()
-    .map_err(|_| "Usage: legion-go-bundle OUTPUT.tar.gz")?;
+    .map_err(|_| "Usage: console-bundle OUTPUT.tar.gz")?;
   let output = std::path::absolute(destination)?;
   let mut names = programs(Path::new("desktop.conf"), "[build]")?;
   let machine_programs = programs(Path::new("machines.conf"), "[legion-go.build]")?;

@@ -1,9 +1,9 @@
-//! A local browser fixture and serial-console check for the NixOS guest.
+//! A local browser fixture for testing the renderer in a graphical session.
 
 #![forbid(unsafe_code)]
 
 use std::fs::{self, File};
-use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom, Write};
+use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
@@ -301,12 +301,12 @@ fn check(check: Check<'_>) -> io::Result<()> {
   let local = listener.local_addr()?;
   let address = format!("http://{local}/start");
   let mut command = Command::new(check.browser);
+  let Ok(()) = console_core_places::set_home(&mut command, &home);
   command
     .args(check.arguments)
     .arg(address)
     .env("NO_PROXY", "127.0.0.1")
     .env("no_proxy", "127.0.0.1")
-    .env("HOME", &home)
     .env("XDG_CACHE_HOME", &cache.0)
     .env("XDG_DATA_HOME", &data)
     .env("LANGUAGE", "fr_BE:de_DE")
@@ -641,132 +641,11 @@ fn guest(browser: &Path, renderer: GuestRenderer) -> io::Result<()> {
   Ok(())
 }
 
-struct Vm<'a> {
-  launcher: &'a Path,
-  log: &'a Path,
-}
-
-fn vm(arguments: Vm<'_>) -> io::Result<()> {
-  let folder = match arguments
-    .log
-    .parent()
-    .filter(|parent| !parent.as_os_str().is_empty())
-  {
-    Some(parent) => parent,
-    None => Path::new("."),
-  };
-  let directory = console_core_temporary_directories::private_under(folder, "browser-vm-serial")
-    .map_err(io::Error::other)?;
-  let scratch = Cache(directory);
-  let staged = scratch.0.join("serial.log");
-  let mut serial_file = staged_serial(&staged)?;
-  let stdout = serial_file.try_clone()?;
-  let stderr = serial_file.try_clone()?;
-  let mut command = Command::new(arguments.launcher);
-  command.stdin(Stdio::null()).stdout(stdout).stderr(stderr);
-  let mut machine = alongside(&mut command)?;
-  let process = process_descriptor(&machine)?;
-  let until = deadline(Duration::from_secs(420))?;
-  let result = wait_for_vm(&mut machine, &process, until);
-  drop(machine);
-  fs::rename(&staged, arguments.log)?;
-  let serial = serial_tail(&mut serial_file)?;
-  let passed = serial
-    .split(|byte| *byte == b'\n')
-    .any(|line| line.trim_ascii() == PASSED.as_bytes());
-
-  match (result, passed) {
-    (Ok(status), true) => match status.success().then_some(()) {
-      Some(()) => {
-        println!(
-          "NixOS browser VM passed. Serial log is in {}",
-          arguments.log.display()
-        );
-        Ok(())
-      }
-      None => Err(io::Error::other(format!(
-        "NixOS browser VM exited with {status}"
-      ))),
-    },
-    (result_2, false) | (result_2 @ Err(_), true) => {
-      io::stderr().write_all(&serial)?;
-      result_2?;
-
-      Err(io::Error::other("NixOS browser VM did not report success"))
-    }
-  }
-}
-
-#[cfg_attr(
-  dylint_lib = "explicit040_no_torn_write",
-  expect(
-    explicit040_no_torn_write,
-    reason = "the log is created inside this run's private staging directory. The final path is published only by rename after the VM exits"
-  )
-)]
-fn staged_serial(path: &Path) -> io::Result<File> {
-  File::options()
-    .create_new(true)
-    .read(true)
-    .write(true)
-    .open(path)
-}
-
-fn wait_for_vm(
-  child: &mut BoundToParent,
-  process: &OwnedFd,
-  until: Instant,
-) -> io::Result<ExitStatus> {
-  for _ in 0..WAIT_WAKEUPS {
-    let status = child.try_wait()?;
-
-    match status {
-      Some(status_2) => return Ok(status_2),
-      None => {}
-    }
-
-    let wait = timeout(until, "NixOS browser VM")?;
-    let mut watched = [PollFd::new(process, PollFlags::IN)];
-
-    match poll(&mut watched, Some(&wait)) {
-      Ok(_) => {}
-      Err(Errno::INTR) => continue,
-      Err(fault) => return Err(io::Error::from(fault)),
-    }
-  }
-
-  Err(io::Error::other(
-    "the NixOS fixture exceeded its readiness wakeup limit",
-  ))
-}
-
-#[cfg_attr(
-  dylint_lib = "explicit057_no_unbounded_wait",
-  expect(
-    explicit057_no_unbounded_wait,
-    reason = "serial is a regular file created by this fixture. The VM has exited and the read is limited to its last 16 MiB"
-  )
-)]
-fn serial_tail(serial: &mut File) -> io::Result<Vec<u8>> {
-  const SERIAL_LIMIT: u64 = 16 * 1024 * 1024;
-  let about = serial.metadata()?;
-  let offset = about.len().saturating_sub(SERIAL_LIMIT);
-  serial.seek(SeekFrom::Start(offset))?;
-  let mut tail = Vec::new();
-  serial.take(SERIAL_LIMIT).read_to_end(&mut tail)?;
-
-  Ok(tail)
-}
-
 fn run() -> io::Result<()> {
   let args: Vec<String> = std::env::args().skip(1).collect();
   let words: Vec<&str> = args.iter().map(String::as_str).collect();
 
   match words.as_slice() {
-    ["--vm", launcher, log] => vm(Vm {
-      launcher: Path::new(launcher),
-      log: Path::new(log),
-    }),
     ["--guest-webkit", browser] => guest(Path::new(browser), GuestRenderer::WebKit),
     ["--guest-chromium", browser] => guest(Path::new(browser), GuestRenderer::Chromium),
     [browser, "--webkit"] => check(Check {

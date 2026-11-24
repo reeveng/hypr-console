@@ -148,6 +148,12 @@ pub fn home() -> Result<Option<PathBuf>, Never> {
   Ok(configured.map(PathBuf::from))
 }
 
+pub fn set_home(command: &mut std::process::Command, directory: &Path) -> Result<(), Never> {
+  command.env("HOME", directory);
+
+  Ok(())
+}
+
 pub fn login_name() -> Result<Option<OsString>, Never> {
   env_os("LOGNAME")
 }

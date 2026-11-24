@@ -25,6 +25,7 @@ console-core-iteration.workspace = true
 console-core-never.workspace = true
 console-core-state-machine.workspace = true
 console-core-words.workspace = true
+console-package-manager-nix.workspace = true
 console-program-contract.workspace = true
 console-repository.workspace = true
 

@@ -126,10 +126,10 @@ fn ran(asked: Option<Pattern>) -> Result<Result<(), LoginPatternError>, Never> {
     Some(Pattern::Off) => stored_pattern::remove(&home_3)
       .map_err(LoginPatternError::Store)
       .map(|()| {
-        ({
+        {
           let Ok(explicit_value) = reload_idle();
           explicit_value
-        })
+        }
       }),
   })
 }

@@ -128,6 +128,7 @@ enum Found {
 }
 
 #[test]
+#[ignore = "run just test e2e-panels in a disposable NixOS VM"]
 fn the_card_a_hand_is_given() -> Result<(), Box<dyn Error>> {
   let at = a_picture("hand")?;
   let path = argument(&at)?;
@@ -142,6 +143,7 @@ fn the_card_a_hand_is_given() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
+#[ignore = "run just test e2e-panels in a disposable NixOS VM"]
 fn a_picture_opened_over_the_whole_screen_can_still_be_left() -> Result<(), Box<dyn Error>> {
   let at = a_picture("whole-screen")?;
   let path = argument(&at)?;
@@ -170,6 +172,7 @@ fn a_picture_opened_over_the_whole_screen_can_still_be_left() -> Result<(), Box<
 }
 
 #[test]
+#[ignore = "run just test e2e-panels in a disposable NixOS VM"]
 fn every_row_of_the_media_page_offers_what_else_there_is_to_do_with_it()
 -> Result<(), Box<dyn Error>> {
   let at = a_picture("media-page")?;
@@ -214,6 +217,7 @@ fn every_row_of_the_media_page_offers_what_else_there_is_to_do_with_it()
 }
 
 #[test]
+#[ignore = "run just test e2e-panels in a disposable NixOS VM"]
 fn right_off_a_row_stands_on_what_else_it_offers() -> Result<(), Box<dyn Error>> {
   let at = a_picture("right-off")?;
   let folder = at.parent().ok_or("the picture was made in no folder")?;
@@ -243,6 +247,7 @@ fn right_off_a_row_stands_on_what_else_it_offers() -> Result<(), Box<dyn Error>>
 }
 
 #[test]
+#[ignore = "run just test e2e-panels in a disposable NixOS VM"]
 fn a_folder_with_nothing_to_show_opens_and_says_so() -> Result<(), Box<dyn Error>> {
   let here = console_core_temporary_directories::fresh("viewer-nothing")?;
   let path = argument(&here)?;
@@ -280,6 +285,7 @@ fn a_folder_with_the_film_further_in() -> Result<PathBuf, Box<dyn Error>> {
 }
 
 #[test]
+#[ignore = "run just test e2e-panels in a disposable NixOS VM"]
 fn a_folder_holding_nothing_itself_opens_on_what_the_shelf_found() -> Result<(), Box<dyn Error>> {
   let here = a_folder_with_the_film_further_in()?;
   let path = argument(&here)?;

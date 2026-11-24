@@ -3,7 +3,7 @@
 #![forbid(unsafe_code)]
 
 mod catalogue;
-mod nix;
+mod packages;
 mod scene;
 
 use std::cmp::Ordering;
@@ -14,7 +14,7 @@ use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::time::{Duration, Instant};
 
 use catalogue::{Category, Package};
-use console_core_external_programs::{Installed, Program};
+use console_core_external_programs::Installed;
 use console_core_geometry::{Containment, Point, Size};
 use console_core_iteration::{Step, iterate};
 use console_core_number_conversion::toward_zero_i32;
@@ -23,8 +23,9 @@ use console_draw_surface::{
   TextInputChange, TextInputState, Window,
 };
 use console_input_text::{InputDeletion, TextField, Typed};
+use console_package_manager::user::{self, Profile};
 use console_program_lifetime::threads::let_go;
-use nix::{Local, Matches, Profile};
+use packages::{Local, Matches};
 use scene::{FocusDirection, Frame, Theme};
 
 const APP_ID: &str = "console-application-software-store";
@@ -180,8 +181,8 @@ struct Shop {
 impl Shop {
   fn new() -> io::Result<Self> {
     let (send, replies) = mpsc::sync_channel(4);
-    let profile = Profile::user()?;
-    let Ok(nix_available) = nix::has(Program::Nix);
+    let profile = packages::profile()?;
+    let Ok(nix_available) = user::availability();
     let mut shop = Self {
       page: Page::Browse,
       category: Category::All,
@@ -263,7 +264,7 @@ impl Shop {
       self
         .installed
         .iter()
-        .find(|row| row.package.attribute == package.attribute),
+        .find(|row| row.entry.attribute == package.installable.attribute),
     )
   }
 
@@ -334,7 +335,7 @@ impl Shop {
       title,
       detail: Some(
         ({
-          let Ok(explicit_value) = nix::problem(fault);
+          let Ok(explicit_value) = packages::problem(fault);
           explicit_value
         })
         .to_owned(),
@@ -353,7 +354,7 @@ impl Shop {
     let profile = self.profile.clone();
 
     match spawn_reply(&self.send, "store-profile", move || {
-      Reply::Profile(profile.list())
+      Reply::Profile(packages::list(&profile))
     }) {
       Ok(()) => self.profile_status = ProfileStatus::Reading(previous),
       Err(fault) => {
@@ -418,7 +419,7 @@ impl Shop {
     self.deadline = None;
 
     match spawn_reply(&self.send, "store-search", move || {
-      Reply::Search(request, nix::search(&query))
+      Reply::Search(request, packages::search(&query))
     }) {
       Ok(()) => self.search_in_flight = Some(request),
       Err(fault) => {
@@ -554,14 +555,14 @@ impl Shop {
     let profile = self.profile.clone();
     let started = spawn_reply(&self.send, "store-change", move || {
       let outcome = match change {
-        PackageChange::Install(package) => profile.install(&package),
-        PackageChange::Remove(package) => profile.remove(&package),
+        PackageChange::Install(package) => profile.install(&package.installable),
+        PackageChange::Remove(package) => profile.remove(&package.entry),
       };
       Reply::Change(ChangedPackage {
         name,
         operation,
         outcome,
-        profile: profile.list(),
+        profile: packages::list(&profile),
       })
     });
 
@@ -1303,7 +1304,7 @@ mod tests {
     check_painting(&frame)?;
 
     let Ok(_flow) = shop.action(featured);
-    assert!(matches!(shop.overlay, Some(Overlay::Package(row)) if row.attribute == "obs-studio"));
+    assert!(matches!(shop.overlay, Some(Overlay::Package(row)) if row.installable.attribute == "obs-studio"));
     Ok(())
   }
 

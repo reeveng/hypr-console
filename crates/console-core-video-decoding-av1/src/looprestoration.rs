@@ -825,6 +825,7 @@ pub(crate) type RestorationMoments<T> = [T; match const_u16_index(RESTORATION_MO
 pub(crate) type RestorationDeltas<T> = [T; match const_u16_index(RESTORATION_DELTAS) {
   Ok(length) => length,
 }];
+#[cfg(all(test, target_arch = "x86_64"))]
 pub(crate) type RestorationInteriorRow<T> = [T; match const_u16_index(RESTORATION_INTERIOR) {
   Ok(length) => length,
 }];

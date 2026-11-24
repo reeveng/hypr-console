@@ -35,8 +35,6 @@ use console_core_never::Never;
 use core::ops::{BitAndAssign, BitOr, BitOrAssign};
 use std::ffi::c_int;
 #[cfg(feature = "c-ffi")]
-use std::mem;
-#[cfg(feature = "c-ffi")]
 use std::ptr::NonNull;
 #[cfg(feature = "c-ffi")]
 use std::ptr::fn_addr_eq;

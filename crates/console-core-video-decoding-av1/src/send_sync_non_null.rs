@@ -40,6 +40,8 @@ impl<T: ?Sized> Copy for SendSyncNonNull<T> {}
     reason = "safe construction requires a Send and Sync pointee and external raw pointers must uphold the same access rules"
   )
 )]
+// SAFETY: Sending the wrapper only copies the pointer. Dereferencing it requires the caller
+// to establish validity and the pointee's access rules on the receiving thread.
 unsafe impl<T: ?Sized> Send for SendSyncNonNull<T> {}
 
 #[cfg_attr(
@@ -56,6 +58,8 @@ unsafe impl<T: ?Sized> Send for SendSyncNonNull<T> {}
     reason = "safe construction requires a Send and Sync pointee and external raw pointers must uphold the same access rules"
   )
 )]
+// SAFETY: Sharing the wrapper only exposes the pointer. Turning it into a reference or
+// recovering ownership requires the caller to satisfy the corresponding safety contract.
 unsafe impl<T: ?Sized> Sync for SendSyncNonNull<T> {}
 
 impl<T: ?Sized> SendSyncNonNull<T> {
@@ -67,6 +71,7 @@ impl<T: ?Sized> SendSyncNonNull<T> {
 }
 
 impl<T: ?Sized + Send + Sync> SendSyncNonNull<T> {
+  #[doc = "# Safety\nThe caller must preserve the allocation and its access rules for every use of the returned pointer."]
   pub const unsafe fn new_unchecked(
     ptr: NonNull<T>,
   ) -> core::result::Result<Self, console_core_never::Never> {
@@ -99,6 +104,7 @@ impl<T: ?Sized + Send + Sync> SendSyncNonNull<T> {
       reason = "the caller supplies the lifetime and guarantees shared access to the pointee"
     )
   )]
+  #[doc = "# Safety\nThe pointer must be valid for shared access for the lifetime of the returned reference."]
   pub const unsafe fn as_ref(&self) -> core::result::Result<&T, console_core_never::Never> {
     Ok({
       // SAFETY: `self` originally came from a `&T` in `Self::from_ref`.
@@ -120,6 +126,7 @@ impl<T: ?Sized + Send + Sync> SendSyncNonNull<T> {
       reason = "the caller transfers the unique allocation whose Box ownership is recovered here"
     )
   )]
+  #[doc = "# Safety\nThe pointer must identify an allocation transferred by `from_box`. The caller must own that allocation exclusively and may recover it only once."]
   pub unsafe fn into_box(self) -> core::result::Result<Box<T>, console_core_never::Never> {
     Ok({
       let Ok(own_ptr) = self.as_ptr();

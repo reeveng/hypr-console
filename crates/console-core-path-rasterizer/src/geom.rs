@@ -60,10 +60,6 @@ impl ScreenIntRect {
     fitted::<i32, u32>(bottom)
   }
 
-  pub fn size(&self) -> Result<IntSize, Never> {
-    self.0.size()
-  }
-
   pub fn contains(&self, other: &Self) -> Result<crate::ContainsAnswer, Never> {
     let Ok(contains) = self.0.contains(&other.0);
 

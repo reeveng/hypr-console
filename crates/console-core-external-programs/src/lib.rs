@@ -31,6 +31,8 @@ use console_core_never::Never;
 pub mod shell;
 
 #[cfg(unix)]
+pub mod dependencies;
+#[cfg(unix)]
 mod unix;
 #[cfg(unix)]
 pub use unix::{Installed, installed, provide, provide_with};
@@ -82,7 +84,9 @@ programs! {
     Busctl, "busctl", Origin::Arch;
     Cal, "cal", Origin::Arch;
     Cargo, "cargo", Origin::Package("rust");
+    CargoNextest, "cargo-nextest", Origin::Developing;
     Cat, "cat", Origin::Arch;
+    Chmod, "chmod", Origin::Arch;
     Chromium, "chromium", Origin::Package("chromium");
     Cmake, "cmake", Origin::Package("cmake");
     Cp, "cp", Origin::Arch;
@@ -115,6 +119,7 @@ programs! {
     Loginctl, "loginctl", Origin::Arch;
     Logger, "logger", Origin::Arch;
     Ls, "ls", Origin::Arch;
+    Mise, "mise", Origin::Developing;
     Mkdir, "mkdir", Origin::Arch;
     Mktemp, "mktemp", Origin::Arch;
     Modprobe, "modprobe", Origin::Arch;

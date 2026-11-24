@@ -5,6 +5,10 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[[bin]]
+name = "console-browser-renderer-chromium"
+path = "src/main.rs"
+
 [dependencies]
 console-browser-downloads = { path = "../console-browser-downloads" }
 console-browser-renderer = { path = "../console-browser-renderer" }

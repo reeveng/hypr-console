@@ -8,7 +8,9 @@
 | Wayland client protocols | `console-wayland`. The optional Hyprland thumbnail protocol and its generated bindings live in `console-compositor`. |
 | Steam Game Mode switching | `console-session-cachyos` implements `console-session::SwitchBackend`. It builds the installed session buttons and the Steam compatibility switcher. The handheld profile in `machines.conf` supplies the Gamescope configuration and systemd units. |
 | Next login session | `console-session-plasma` implements `console-session::LoginBackend`. The login window links it to read the PlasmaLogin autologin selection written during the Steam handoff. |
-| `pacman` | `console-package-manager-pacman`. The package list and handheld policy live in the deployment manifests. |
+| `pacman` | `console-package-manager-pacman` through `console-package-manager::system`. The package list and handheld policy live in the deployment manifests. |
+| `nix` | `console-package-manager-nix` through `console-package-manager::user`. The Software Store supplies the path to its per-user profile. |
+| `mise` | `console-package-manager-mise` through `console-package-manager::tools`. `just dev-tools` uses the checkout's `mise.toml` and `mise.lock`. |
 | Selecting the next boot entry | `console-boot-entries` owns `bootctl set-oneshot`. The boot-complete and recovery units use `bootctl set-timeout-oneshot` separately to manage boot-menu visibility. |
 | `notify-send` | `console-operating-system-linux::notification`. The notifications integration check exercises the external client separately. |
 | D-Bus | `console-bus` owns the native transport and the remaining `busctl` commands. The notifications integration check uses `gdbus` as an external peer. |
@@ -18,26 +20,28 @@ The ownership tests in `crates/console-architecture/tests/dependencies` read the
 
 ## Checking availability
 
-Run the checker from a checkout with `just dependencies`. An installed Console
-desktop also provides `console-dependencies` directly.
+Run `console doctor --help` for profile descriptions, options, and examples.
+From a checkout, `just dependencies` and `console-dependencies` use the same
+checks. `just dependencies` builds the standalone checker with Cargo.
 On a new build host, check the bootstrap tools with `command -v just`,
 `command -v cargo`, and `command -v rustc`.
 
 | Command | Checks |
 | --- | --- |
-| `console-dependencies` | Arch/CachyOS desktop executables, deployment hook paths, and runtime data |
-| `console-dependencies handheld` | CachyOS Steam and Gamescope handoff and boot helpers |
-| `console-dependencies development` | Build tools, native library metadata, and QEMU firmware |
-| `console-dependencies optional` | Nix, OBS, fingerprint service registration, and WPE WebKit development libraries |
-| `console-dependencies all` | Every profile |
-| `console-dependencies executable ffmpeg /usr/bin/findmnt` | Executable names on the current PATH and at exact paths |
-| `console-dependencies path /dev/uinput` | A file, directory, device, or symlink target at a given path |
-| `console-dependencies pkg-config 'wpe-webkit-2.0 >= 2.54'` | A native module and any requested version constraint |
+| `console doctor` | Arch/CachyOS desktop executables, deployment hook paths, and runtime data |
+| `console doctor handheld` | CachyOS Steam and Gamescope handoff and boot helpers |
+| `console doctor development` | Build tools, native library metadata, and QEMU firmware |
+| `console doctor optional` | Nix, OBS, fingerprint service registration, and WPE WebKit development libraries |
+| `console doctor all` | Every profile |
+| `console doctor executable ffmpeg /usr/bin/findmnt` | Executable names on the current PATH and at exact paths |
+| `console doctor path /dev/uinput` | A file, directory, device, or symlink target at a given path |
+| `console doctor pkg-config 'wpe-webkit-2.0 >= 2.54'` | A native module and any requested version constraint |
 
 The checker lists every selected item and summarizes availability at the end.
-`just dependencies` reports missing items and exits successfully. The
-standalone command exits with status 1 when a dependency is missing or could
-not be checked. Pass `--report-only` to use it as a report.
+`just dependencies` reports missing items and exits successfully.
+`console doctor` and `console-dependencies` exit with status 1 when a dependency
+is missing or could not be checked. Use `console doctor --report-only all` to
+report every profile without failing on unavailable dependencies.
 The checker reads the Rust executable registry directly, so new variants
 appear in the report automatically. Run it as the account that will use the
 dependency. The desktop and handheld profiles include distribution-specific

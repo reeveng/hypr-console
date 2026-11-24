@@ -6,7 +6,6 @@ pub(crate) mod c_box;
 
 pub(crate) mod cpu;
 pub(crate) mod disjoint_mut;
-mod ffi_safe;
 mod in_range;
 pub(super) mod internal;
 mod intra_edge;

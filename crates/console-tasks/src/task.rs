@@ -15,8 +15,18 @@ use console_core_words::Words;
 pub enum Task {
   #[words(word = "help", about = "what this can do")]
   Help,
-  #[words(word = "test", about = "every test that can run on this machine")]
+  #[words(
+    word = "test",
+    about = "run unit, integration or e2e suites in NixOS VMs"
+  )]
   Test,
+  #[words(word = "guest-test", about = "run a test suite inside its NixOS guest")]
+  GuestTest,
+  #[words(
+    word = "guest-workspace",
+    about = "prepare the test workspace path inside its NixOS guest"
+  )]
+  GuestWorkspace,
   #[words(word = "ready", about = "everything that must hold before a deploy")]
   Ready,
   #[words(
@@ -34,6 +44,34 @@ pub enum Task {
   #[words(word = "alone", about = "a command in a control group of its own")]
   Alone,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
+pub enum Suite {
+  #[words(word = "unit")]
+  Unit,
+  #[words(word = "integration")]
+  Integration,
+  #[words(word = "e2e-desktop")]
+  Desktop,
+  #[words(word = "e2e-panels")]
+  Panels,
+  #[words(word = "e2e-live")]
+  Live,
+  #[words(word = "browser-chromium")]
+  Chromium,
+  #[words(word = "browser")]
+  Browser,
+}
+
+pub const QUICK: [Suite; 2] = [Suite::Unit, Suite::Integration];
+
+pub const E2E: [Suite; 5] = [
+  Suite::Desktop,
+  Suite::Panels,
+  Suite::Live,
+  Suite::Chromium,
+  Suite::Browser,
+];
 
 impl Subcommand for Task {
   fn variants() -> Result<impl Iterator<Item = Self>, Never> {

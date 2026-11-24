@@ -1,8 +1,8 @@
 use console_compositor::setup::{Mode, ModeMatch, Output, OutputRule, configure_outputs};
-use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_core_number_conversion::{Float, whole_u32};
 use console_core_state_machine::SingleEffectMachine;
+use console_operating_system_linux::notification::Options;
 use console_program_lifetime::Detached;
 use console_waiting::Schedule;
 use serde::{Deserialize, Serialize};
@@ -377,8 +377,11 @@ pub(super) fn notify(notice: Notice) -> Result<Option<Detached>, Never> {
     }
     ::core::option::Option::None => question.to_owned(),
   };
-  let Ok(mut command) = Program::NotifySend.command();
-  command.args(["--app-name=Console", "--", summary.as_str(), body.as_str()]);
+  let options = Options {
+    app_name: Some("Console"),
+    ..Options::default()
+  };
+  let Ok(mut command) = options.command(&summary, Some(&body));
 
   Ok(match console_program_lifetime::let_go(&mut command) {
     Ok(child) => Some(child),

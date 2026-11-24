@@ -644,7 +644,7 @@ fn checkerboard(size: Size<u32>, edge_alpha: u8) -> Result<Pixels, Box<dyn Error
     for x in 0..size.width {
       let Ok(red) = fitted(x.saturating_mul(31));
       let Ok(green) = fitted(y.saturating_mul(43));
-      let blue = match (x.wrapping_add(y) & 1) {
+      let blue = match x.wrapping_add(y) & 1 {
         0 => 255,
         _ => 0,
       };

@@ -1,4 +1,4 @@
-# Legion Go releases
+# Console releases
 
 The first-generation Legion Go (83E1) can install prebuilt releases from
 `reeveng/hypr-console`. A release includes the programs named by `desktop.conf`
@@ -9,12 +9,18 @@ and the Legion Go section of `machines.conf`.
 Export the intended commit into a checkout of the public repository with
 `console-manifest-publish --export-only`. This checks the exported tree for
 private machine and account names. Commit the export to the public repository
-and push a new tag such as `legion-go-v0.1.0` on that commit. GitHub Actions
+and push a new tag such as `console-v0.1.8` on that commit. GitHub Actions
 builds the bundle and publishes the immutable release after the build succeeds.
 
 The build uses an Arch Linux container and the `x86-64-v3` CPU target. The
-archive contains the built binaries and their source commit. GitHub publishes
-the archive's SHA-256 digest with the immutable release metadata.
+`console-x86_64.tar.gz` archive contains the built binaries and their source
+commit. GitHub publishes its SHA-256 digest with the immutable release metadata.
+
+For the one-time migration, push `console-v0.1.7` and `legion-go-v0.1.7`
+together on the same commit. GitHub Actions publishes the same bundle under
+both tags. It names the legacy copy `legion-go-x86_64.tar.gz` and marks that
+release as latest so older updaters can find it. Later releases use `console-v`
+tags and `console-x86_64.tar.gz`.
 
 ## Set up update checks
 
@@ -34,7 +40,11 @@ sudo systemctl start console-update.timer
 Open **Console Updates** from the launcher, choose **Check for updates**,
 then choose **Install** when ready.
 An administrator can also install a specific tag with
-`sudo console-update legion-go-v0.1.1`.
+`sudo console-update console-v0.1.8`.
+
+If a device with an older updater missed the migration, run
+`sudo console-update legion-go-v0.1.7` once. The installed updater can then
+find `console-v` releases and read earlier installation and rollback records.
 
 On a Legion Go with a login pattern, an administrator can enable pattern
 approval with `sudo console-update --enroll-pattern`. Console Updates then

@@ -39,7 +39,6 @@ use crate::src::loopfilter::{FilterLevels, FilterWindow, filter_slice};
 
 use crate::src::with_offset::WithOffset;
 use console_core_api_compatibility::NativeOffset;
-use std::cmp;
 use std::ffi::c_int;
 use std::sync::atomic::AtomicU8;
 use std::sync::atomic::Ordering::Relaxed;
@@ -3317,23 +3316,6 @@ struct PackedPosition {
 
 #[cfg(target_arch = "x86_64")]
 impl PackedWindow {
-  #[cfg_attr(
-    dylint_lib = "explicit051_no_machine_width",
-    expect(
-      explicit051_no_machine_width,
-      reason = "The caller presents an existing slice position and native pixel stride at this boundary"
-    )
-  )]
-  fn from_native(anchor: usize, stride: isize) -> Result<Self, console_core_never::Never> {
-    let Ok(anchor_fixed) = console_core_number_conversion::fixed_index(anchor);
-    let Ok(stride_fixed) = console_core_number_conversion::fixed_offset(stride);
-
-    Ok(Self {
-      anchor: anchor_fixed,
-      stride: stride_fixed,
-    })
-  }
-
   fn position(self, point: PackedPosition) -> Rav1dResult<u64> {
     let delta = self
       .stride

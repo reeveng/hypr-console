@@ -609,7 +609,7 @@ pub struct Dav1dPicture {
 )]
 mod picture_abi {
   use super::{Dav1dDataProps, Dav1dPicAllocator, Dav1dPicture, Dav1dPictureParameters};
-  use console_core_api_compatibility::{NativeOffset, NativeSize};
+  use console_core_api_compatibility::NativeSize;
   use core::mem::{align_of, offset_of, size_of};
 
   const POINTER: NativeSize = size_of::<*const ()>();
@@ -833,7 +833,6 @@ caller satisfies it as a TYPE property: the scratch buffers in
   }
 }
 
-// SAFETY: We only store the raw pointer (via PicDataPtr), so we never materialize a `&mut`.
 #[cfg(feature = "c-ffi")]
 #[allow(
   unsafe_code,
@@ -846,6 +845,8 @@ caller satisfies it as a TYPE property: the scratch buffers in
     reason = "the external decoder allocator hands off a raw pixel address through the disjoint guard's unsafe interoperability trait"
   )
 )]
+// SAFETY: The component stores the external address as a raw pointer. The adapter returns
+// that address without creating a mutable reference to any of the reserved pixel bytes.
 unsafe impl ExternalAsMutPtr for Rav1dPictureDataComponentInner {
   type Target = u8;
 
@@ -3448,21 +3449,17 @@ pub(crate) enum BufferReturn {
   Recycle(Arc<MemPool<u8>>),
 }
 
-#[doc = "# Safety
-
-The allocation callback must lend every initialized plane to the picture until the matching release callback."]
 #[cfg(feature = "c-ffi")]
-#[cfg_attr(
-  dylint_lib = "explicit058_contain_unsafe",
-  expect(
-    explicit058_contain_unsafe,
-    reason = "C allocation descriptors are paired with their release callback"
-  )
-)]
-unsafe fn allocated_picture_planes(
+struct CPlane {
+  address: Option<NonNull<u8>>,
+  layout: CPlaneLayout,
+}
+
+#[cfg(feature = "c-ffi")]
+fn describe_picture_planes(
   picture: &Rav1dPicture,
   data: [Option<NonNull<c_void>>; 3],
-) -> Rav1dResult<[Rav1dPictureDataComponent; 3]> {
+) -> Rav1dResult<[CPlane; 3]> {
   let [luma, chroma] = picture.stride.map(|stride| {
     let Ok(fixed) = console_core_number_conversion::fixed_offset(stride);
     fixed
@@ -3478,41 +3475,18 @@ unsafe fn allocated_picture_planes(
   };
   let [y, u, v] = data.map(|pointer| pointer.map(NonNull::cast));
 
-  match {
-    ::core::primitive::bool::then_some(
-      y.is_none()
-        || (picture.p.layout != Rav1dPixelLayout::I400 && (u.is_none() || v.is_none())),
-      (),
-    )
-  } {
-    ::core::option::Option::Some(()) => {
-      return Err(EINVAL);
-    }
-    ::core::option::Option::None => {}
+  let missing_chroma = picture.p.layout != Rav1dPixelLayout::I400 && (u.is_none() || v.is_none());
+
+  match (y.is_none() || missing_chroma).then_some(()) {
+    Some(()) => return Err(EINVAL),
+    None => {}
   }
 
-  // SAFETY: A successful allocation callback lends each initialized plane until release.
-  let (y_2, u_2, v_2) = unsafe {
-    (
-      {
-        let checked_value = Rav1dPictureDataComponentInner::new(y, y_layout)?;
-        checked_value
-      },
-      {
-        let checked_value_2 = Rav1dPictureDataComponentInner::new(u, uv_layout)?;
-        checked_value_2
-      },
-      {
-        let checked_value_3 = Rav1dPictureDataComponentInner::new(v, uv_layout)?;
-        checked_value_3
-      },
-    )
-  };
-
-  Ok([y_2, u_2, v_2].map(|inner| {
-    let Ok(component) = Rav1dPictureDataComponent::from_parts(inner);
-    component
-  }))
+  Ok([
+    CPlane { address: y, layout: y_layout },
+    CPlane { address: u, layout: uv_layout },
+    CPlane { address: v, layout: uv_layout },
+  ])
 }
 
 #[cfg(feature = "c-ffi")]
@@ -3594,8 +3568,21 @@ impl Rav1dPicAllocator {
       }
     };
 
-    // SAFETY: The successful allocator call above lent these planes until release.
-    let mapped_planes = unsafe { allocated_picture_planes(&picture, data) };
+    let mapped_planes = describe_picture_planes(&picture, data).and_then(|[y, u, v]| {
+      // SAFETY: The successful allocator call lends the described planes until release.
+      let planes = unsafe {
+        let luma = Rav1dPictureDataComponentInner::new(y.address, y.layout)?;
+        let chroma_u = Rav1dPictureDataComponentInner::new(u.address, u.layout)?;
+        let chroma_v = Rav1dPictureDataComponentInner::new(v.address, v.layout)?;
+
+        [luma, chroma_u, chroma_v]
+      };
+
+      Ok(planes.map(|inner| {
+        let Ok(component) = Rav1dPictureDataComponent::from_parts(inner);
+        component
+      }))
+    });
 
     let components = match mapped_planes {
       Ok(components) => components,

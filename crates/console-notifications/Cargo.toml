@@ -10,10 +10,6 @@ name = "console_notifications"
 path = "src/lib.rs"
 
 [[bin]]
-name = "notifications-panel"
-path = "src/bin/notifications-panel.rs"
-
-[[bin]]
 name = "console-notify"
 path = "src/bin/console-notify.rs"
 
@@ -53,7 +49,6 @@ console-core-arguments.workspace = true
 console-core-never.workspace = true
 console-core-words.workspace = true
 console-waiting.workspace = true
-console-panel.workspace = true
 console-onscreen.workspace = true
 console-core-atomic-writes.workspace = true
 console-program-contract.workspace = true

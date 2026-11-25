@@ -2,9 +2,9 @@ use std::path::{Path, PathBuf};
 
 use console_core_controls::Switch;
 use console_core_never::Never;
-use console_panel::page::{Aside, Handler, Row, Showing};
+use console_panel::icons::Icon;
+use console_panel::page::{Aside, Handler, NOW, Picture, Row, Showing};
 
-use crate::rows::choices;
 use console_status_bar::applets;
 use console_status_bar::preferences::{self, Item, Placement, Preferences, Visibility};
 use console_status_bar::settings::SettingsTab;
@@ -37,14 +37,22 @@ fn rows_at(at: &Path, folders: &[PathBuf], applications: &[PathBuf]) -> Result<V
       return Ok(vec![row]);
     }
   };
-  let Ok(placement) = placement(at, preferences.placement);
+  let Ok(position) = Row::naming("Position", Aside(""));
+  let mut rows = vec![position];
+
+  for placement in Placement::EVERY {
+    let Ok(row) = position_row(at, preferences.placement, placement);
+    rows.push(row);
+  }
+
   let Ok(items) = Row::naming("Built-in items", Aside(""));
-  let mut rows = vec![placement, items];
+  rows.push(items);
 
   for item in Item::STANDALONE {
     let Ok(title) = item.name();
+    let Ok(icon) = item.icon();
     let Ok(shown) = preferences.visibility(item);
-    let Ok(row) = visibility(at, title, shown, move |preferences_2| {
+    let Ok(row) = visibility(at, title, icon, shown, move |preferences_2| {
       let Ok(()) = preferences_2.toggle(item);
     });
     rows.push(row);
@@ -55,8 +63,9 @@ fn rows_at(at: &Path, folders: &[PathBuf], applications: &[PathBuf]) -> Result<V
 
   for tab in SettingsTab::EVERY {
     let Ok(title) = tab.title();
+    let Ok(icon) = tab.icon();
     let Ok(shown) = preferences.settings_visibility(tab);
-    let Ok(row) = visibility(at, &title, shown, move |preferences_3| {
+    let Ok(row) = visibility(at, &title, icon, shown, move |preferences_3| {
       let Ok(()) = preferences_3.toggle_settings(tab);
     });
     rows.push(row);
@@ -77,9 +86,15 @@ fn rows_at(at: &Path, folders: &[PathBuf], applications: &[PathBuf]) -> Result<V
   for applet in applets {
     let Ok(enabled) = preferences.applet_visibility(&applet.id);
     let id = applet.id;
-    let Ok(row) = visibility(at, &applet.name, enabled, move |preferences_4| {
-      let Ok(()) = preferences_4.toggle_applet(&id);
-    });
+    let Ok(row) = visibility(
+      at,
+      &applet.name,
+      applet.settings_icon,
+      enabled,
+      move |preferences_4| {
+        let Ok(()) = preferences_4.toggle_applet(&id);
+      },
+    );
     rows.push(row);
   }
 
@@ -91,6 +106,18 @@ mod tests {
   use console_panel::page::{ActionOutcome, Control, Nowhere};
 
   use super::*;
+
+  fn choose(row: &Row) -> Result<(), Box<dyn std::error::Error>> {
+    match &row.does {
+      Some(Handler::Call(action)) => assert_eq!(action(&Nowhere), ActionOutcome::Stay),
+      Some(Handler::Run(_)) | None => {
+        let fault = std::io::Error::other(format!("missing action for {}", row.says));
+        return Err(Box::new(fault));
+      }
+    }
+
+    Ok(())
+  }
 
   #[test]
   fn bar_settings_save_the_position_and_both_kinds_of_switch()
@@ -109,17 +136,21 @@ mod tests {
         .find(|row| row.says == name)
         .ok_or("missing setting")
     };
-    let position = row("Position")?;
-    let placement = position
-      .choices
-      .as_ref()
-      .ok_or("missing position choices")?;
-    assert_eq!(placement.said, ["Top", "Bottom", "Left", "Right"]);
-    assert_eq!(placement.chosen, 0);
+    let top = row("Top")?;
+    let bottom = row("Bottom")?;
+    assert_eq!(top.aside, NOW);
+    assert_eq!(bottom.aside, "");
     let clock = row("Clock")?;
     let applet = row("Example applet")?;
     assert_eq!(clock.control, Some(Control::Switch(Switch::On)));
     assert_eq!(applet.control, Some(Control::Switch(Switch::Off)));
+    assert_eq!(applet.picture, Picture::Named(Icon::Applet));
+
+    assert!(
+      rows
+        .iter()
+        .all(|entry| entry.does.is_none() || matches!(entry.picture, Picture::Named(_)))
+    );
 
     for tab in SettingsTab::EVERY {
       let Ok(title) = tab.title();
@@ -134,31 +165,23 @@ mod tests {
       assert_eq!(setting.control, Some(Control::Switch(expected)), "{tab:?}");
     }
 
-    for (index, edge) in [
-      (2, Placement::Left),
-      (3, Placement::Right),
-      (0, Placement::Top),
-      (1, Placement::Bottom),
+    for edge in [
+      Placement::Left,
+      Placement::Right,
+      Placement::Top,
+      Placement::Bottom,
     ] {
-      (placement.choose)(&Nowhere, index);
+      let Ok(name) = edge.name();
+      let option = row(name)?;
+      choose(option)?;
       let load = Preferences::load(&at)?;
       assert_eq!(load.placement, edge);
     }
 
     let display = row("Display")?;
 
-    for (switch, name) in [
-      (clock, "Clock"),
-      (applet, "Example applet"),
-      (display, "Display"),
-    ] {
-      match &switch.does {
-        Some(Handler::Call(toggle)) => assert_eq!(toggle(&Nowhere), ActionOutcome::Stay),
-        Some(Handler::Run(_)) | None => {
-          let fault = std::io::Error::other(format!("missing switch callback for {name}"));
-          return Err(Box::new(fault));
-        }
-      }
+    for switch in [clock, applet, display] {
+      choose(switch)?;
     }
 
     let saved = Preferences::load(&at)?;
@@ -203,50 +226,35 @@ mod tests {
       .find(|row| row.says == "OBS stream status")
       .ok_or("missing OBS switch")?;
     assert_eq!(setting.control, Some(Control::Switch(Switch::Off)));
+    assert_eq!(setting.picture, Picture::Named(Icon::Film));
 
     Ok(())
   }
 }
 
-fn placement(at: &Path, placement: Placement) -> Result<Row, Never> {
+fn position_row(at: &Path, current: Placement, placement: Placement) -> Result<Row, Never> {
   let at_2 = at.to_path_buf();
-  let ::core::result::Result::Ok(chosen) = ::console_core_number_conversion::fixed_index(
-    match Placement::EVERY.iter().position(|one| *one == placement) {
-      ::core::option::Option::Some(present) => present,
-      ::core::option::Option::None => 0,
-    },
-  );
-  let Ok(chosen_2) = console_core_number_conversion::fitted(
-    match ::console_core_number_conversion::index(chosen) {
-      ::core::result::Result::Ok(native_position) => native_position,
-    },
-  );
-  let labels = Placement::EVERY
-    .into_iter()
-    .map(|one| {
-      let Ok(name) = one.name();
-      name.to_owned()
-    })
-    .collect();
-  let Ok(control) = choices(labels, chosen_2, move |showing, choice| {
-    let Ok(index) = console_core_number_conversion::index(choice);
-
-    match Placement::EVERY.get(index) {
-      Some(&placement_3) => {
-        let Ok(()) = save(&at_2, showing, |preferences| {
-          preferences.placement = placement_3
-        });
-      }
-      None => {}
-    }
+  let aside = match (current == placement).then_some(()) {
+    Some(()) => NOW,
+    None => "",
+  };
+  let Ok(name) = placement.name();
+  let Ok(icon) = placement.icon();
+  let Ok(choose) = Handler::and_stay(move |showing| {
+    let Ok(()) = save(&at_2, showing, |preferences| {
+      preferences.placement = placement
+    });
   });
 
-  Row::picking("Position", control)
+  let Ok(row) = Row::new(name, Aside(aside), choose);
+
+  row.picturing(Picture::Named(icon))
 }
 
 fn visibility(
   at: &Path,
   name: &str,
+  icon: Icon,
   visible: Visibility,
   change: impl Fn(&mut Preferences) + Send + Sync + 'static,
 ) -> Result<Row, Never> {
@@ -255,12 +263,13 @@ fn visibility(
     let Ok(()) = save(&at_2, showing, &change);
   });
   let Ok(row) = Row::new(name, Aside(""), handler);
+  let Ok(pictured) = row.picturing(Picture::Named(icon));
   let state = match visible {
     Visibility::Shown => Switch::On,
     Visibility::Hidden => Switch::Off,
   };
 
-  row.switched(state)
+  pictured.switched(state)
 }
 
 fn save(
@@ -270,7 +279,13 @@ fn save(
 ) -> Result<(), Never> {
   match Preferences::update(at, change) {
     Ok(()) => showing.refresh(),
-    Err(error) => showing.note(&format!("Could not save status bar settings. {error}")),
+    Err(error) => {
+      let Ok(()) = console_notifications::notify(
+        console_notifications::Application("Settings"),
+        "Could not save status bar settings",
+        Some(&error.to_string()),
+      );
+    }
   }
 
   Ok(())

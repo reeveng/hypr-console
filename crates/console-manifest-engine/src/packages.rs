@@ -17,12 +17,28 @@
 //! `PackageState::Borrowed` is that state said out loud, and `console apply` settles it
 //! by telling pacman the desktop asked for the package too, which is true.
 
+use std::borrow::Cow;
 use std::collections::HashSet;
 
 use console_core_never::Never;
 use console_core_words::Words;
 
-use crate::up_to_date::UpToDate;
+use crate::{build::Programs, up_to_date::UpToDate};
+
+const BUILD_TOOLCHAIN: &str = "rust";
+
+pub fn for_install(named: &[String], programs: Programs) -> Result<Cow<'_, [String]>, Never> {
+  Ok(match programs {
+    Programs::Compile => Cow::Borrowed(named),
+    Programs::Prebuilt => Cow::Owned(
+      named
+        .iter()
+        .filter(|package| package.as_str() != BUILD_TOOLCHAIN)
+        .cloned()
+        .collect(),
+    ),
+  })
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
 pub enum PackageState {
@@ -136,6 +152,16 @@ mod tests {
     assert_eq!(asked_for, UpToDate::Yes);
     assert_eq!(borrowed, UpToDate::No);
     assert_eq!(missing, UpToDate::No);
+  }
+
+  #[test]
+  fn a_prebuilt_install_leaves_the_rust_toolchain_alone() {
+    let Ok(named) = names(&["hyprland", "rust", "git"]);
+    let Ok(source) = for_install(&named, Programs::Compile);
+    let Ok(prebuilt) = for_install(&named, Programs::Prebuilt);
+
+    assert_eq!(source.as_ref(), ["hyprland", "rust", "git"]);
+    assert_eq!(prebuilt.as_ref(), ["hyprland", "git"]);
   }
 
   #[test]

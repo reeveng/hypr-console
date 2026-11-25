@@ -17,7 +17,7 @@ use console_input_gamepad::vocabulary::{
 
 use console_input_bindings::bound::Input;
 
-use crate::actions::{ButtonPress, RepeatMode, Table, Task};
+use crate::actions::{ButtonPress, MappedAction, RepeatMode, Table};
 use crate::buttons;
 use crate::clock::Seconds;
 use crate::effect::Effect;
@@ -184,7 +184,7 @@ impl Default for Ranges {
 #[derive(Debug, Clone, PartialEq)]
 struct Stepping {
   button: &'static str,
-  job: &'static Task,
+  action: MappedAction,
   until: Seconds,
   gap: Seconds,
 }
@@ -198,7 +198,7 @@ pub struct Controller {
   pub ranges: Ranges,
   pub table: Table,
   using: Option<Input>,
-  holding: Vec<(&'static str, &'static Task)>,
+  holding: Vec<(&'static str, MappedAction)>,
   pressed_buttons: Vec<&'static str>,
   stepping: Option<Stepping>,
   hat: (i32, i32),
@@ -481,23 +481,23 @@ impl Controller {
 
     self.pressed_buttons.push(button);
 
-    let job = match found {
-      Some(job) => job,
+    let action = match found {
+      Some(job) => job.action.clone(),
       None => return Ok(Vec::new()),
     };
     let Ok(holding) = console_core_number_conversion::fitted::<_, u32>(self.holding.len());
 
     match ::core::primitive::bool::then_some(holding < AT_ONCE, ()) {
       ::core::option::Option::Some(()) => {
-        self.holding.push((button, job));
+        self.holding.push((button, action.clone()));
 
-        let Ok(repeats) = job.action.repeats();
+        let Ok(repeats) = action.repeats();
 
         match repeats {
           RepeatMode::WhileHeld => {
             self.stepping = Some(Stepping {
               button,
-              job,
+              action: action.clone(),
               until: Seconds(STEP_AFTER),
               gap: Seconds(STEP_FIRST),
             });
@@ -508,7 +508,7 @@ impl Controller {
       ::core::option::Option::None => {}
     }
 
-    let Ok(acted) = buttons::acted(job, ButtonPress::Down);
+    let Ok(acted) = buttons::acted(&action, ButtonPress::Down);
 
     Ok(acted.into_iter().collect())
   }
@@ -520,7 +520,7 @@ impl Controller {
       .holding
       .extract_if(.., |(down, _)| *down == button)
       .next();
-    let (_, job) = match matched {
+    let (_, action) = match matched {
       Some(holding) => holding,
       None => return Ok(Vec::new()),
     };
@@ -536,7 +536,7 @@ impl Controller {
       ::core::option::Option::None => {}
     }
 
-    let Ok(acted) = buttons::acted(job, ButtonPress::Up);
+    let Ok(acted) = buttons::acted(&action, ButtonPress::Up);
 
     Ok(acted.into_iter().collect())
   }
@@ -557,8 +557,8 @@ impl Controller {
     Ok(
       held
         .into_iter()
-        .filter_map(|(_, job)| {
-          let Ok(acted) = buttons::acted(job, ButtonPress::Up);
+        .filter_map(|(_, action)| {
+          let Ok(acted) = buttons::acted(&action, ButtonPress::Up);
 
           acted
         })
@@ -634,8 +634,7 @@ impl Controller {
     held.gap = Seconds((held.gap.0 * STEP_GATHER).max(STEP_FASTEST));
     held.until = held.gap;
 
-    let job = held.job;
-    let Ok(acted) = buttons::acted(job, ButtonPress::Down);
+    let Ok(acted) = buttons::acted(&held.action, ButtonPress::Down);
 
     Ok(acted.into_iter().collect())
   }

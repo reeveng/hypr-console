@@ -29,6 +29,7 @@ pub mod palette;
 pub mod place;
 pub mod render;
 pub mod rules;
+pub mod scene;
 pub mod source;
 pub mod sun;
 pub mod units;

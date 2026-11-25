@@ -185,9 +185,10 @@ pub(crate) mod actions {
   }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub(crate) enum KeyRepeat {
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub enum KeyRepeat {
   Repeats,
+  #[default]
   DoesNotRepeat,
 }
 

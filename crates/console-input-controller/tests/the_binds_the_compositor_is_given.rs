@@ -18,8 +18,10 @@ use console_core_never::Never;
 use console_input_bindings::bound::Input;
 use console_input_bindings::keys;
 use console_input_bindings::moved::Tasks;
-use console_input_controller::actions::{JOBS, LockBehavior, RepeatMode, Table};
+use console_input_controller::actions::{ButtonPress, JOBS, LockBehavior, RepeatMode, Table};
 use console_input_controller::binds::{BindingAction, KeyBinding, desired_binds};
+use console_input_controller::effect::Effect;
+use console_input_controller::mode::Mode;
 
 type Failure = Box<dyn Error>;
 
@@ -54,15 +56,68 @@ fn command(bind: &KeyBinding) -> Result<&str, Failure> {
 }
 
 #[test]
-fn super_shift_s_opens_the_area_selector() -> Result<(), Failure> {
+fn a_named_special_workspace_uses_the_same_action_for_keys_and_the_controller()
+-> Result<(), Failure> {
+  let read = Tasks::read(
+    r#"
+[jobs]
+special-workspace-notes = ["keyboard: super + alt + u", "pad: r2 + y"]
+"special-workspace-research notes" = ["keyboard: super + alt + c"]
+"#,
+  );
+  let tasks = read?;
+  let Ok(saved) = tasks.serialize();
+  let reread = Tasks::read(&saved);
+  let persisted = reread?;
+  assert_eq!(persisted, tasks);
+
+  let Ok(table) = Table::of(&tasks);
+  let Ok(bindings) = desired_binds(&table);
+  let Ok(program) = console_core_internal_programs::InternalProgram::Compositor.path();
+  let notes = on(&bindings, &["super", "alt"], "u")?;
+  let chat = on(&bindings, &["super", "alt"], "c")?;
+  let note_command = command(notes)?;
+  let chat_command = command(chat)?;
+
+  assert_eq!(note_command, format!("{program} special-workspace notes"));
+  assert_eq!(
+    chat_command,
+    format!("{program} special-workspace 'research notes'")
+  );
+  assert_eq!(notes.repeats, RepeatMode::Once);
+  assert_eq!(notes.locked, LockBehavior::Unlocked);
+
+  let Ok(button) = table.what(Input::Pad, &["r2"], "y", Mode::Desktop);
+  let job = button.ok_or("the controller shortcut should be available");
+  let selected = job?;
+  let Ok(action) = selected.action.does(ButtonPress::Down);
+
+  assert_eq!(
+    action,
+    Some(Effect::Run(vec![
+      program.to_owned(),
+      "special-workspace".to_owned(),
+      "notes".to_owned()
+    ]))
+  );
+  assert_eq!(selected.action.does(ButtonPress::Up), Ok(None));
+  Ok(())
+}
+
+#[test]
+fn print_screen_and_super_shift_s_open_the_area_selector() -> Result<(), Failure> {
   let Ok(every) = unmoved();
-  let bind = on(&every, &["super", "shift"], "s")?;
   let Ok(program) = console_core_internal_programs::InternalProgram::ControlCenter.path();
   let flag = console_core_internal_programs::SELECT_SCREENSHOT_AREA.spelling;
-  let installed = command(bind)?;
+  let print = on(&every, &[], "print")?;
+  let chord = on(&every, &["super", "shift"], "s")?;
 
-  assert_eq!(installed, format!("{program} {flag}"));
-  assert_eq!(bind.repeats, RepeatMode::Once);
+  for bind in [print, chord] {
+    let installed = command(bind)?;
+    assert_eq!(installed, format!("{program} {flag}"));
+    assert_eq!(bind.repeats, RepeatMode::Once);
+  }
+
   Ok(())
 }
 
@@ -94,21 +149,21 @@ fn the_power_key_puts_the_panel_back_and_answers_with_the_screen_locked() -> Res
 #[test]
 fn what_a_keyboard_labels_for_itself_is_bound_to_what_the_label_says() -> Result<(), Failure> {
   let Ok(every) = unmoved();
+  let Ok(volume) = console_core_internal_programs::InternalProgram::Volume.path();
+  let Ok(brightness) = console_core_internal_programs::InternalProgram::Brightness.path();
 
-  for (pressed, runs) in [
-    ("volume-up", "up"),
-    ("volume-down", "down"),
-    ("mute", "mute"),
-    ("brightness-up", "up"),
-    ("brightness-down", "down"),
+  for (pressed, program, argument) in [
+    ("volume-up", &volume, "up"),
+    ("volume-down", &volume, "down"),
+    ("mute", &volume, "mute"),
+    ("mic-mute", &volume, "mic-mute"),
+    ("brightness-up", &brightness, "up"),
+    ("brightness-down", &brightness, "down"),
   ] {
     let bind = on(&every, &[], pressed)?;
     let bound = command(bind)?;
 
-    assert!(
-      bound.ends_with(runs),
-      "the key marked {pressed} runs {bound:?}"
-    );
+    assert_eq!(bound, format!("{program} {argument}"), "{pressed}");
     assert_eq!(
       bind.locked,
       LockBehavior::EvenThen,
@@ -125,15 +180,85 @@ fn a_level_walks_while_it_is_held_and_a_door_opens_once() -> Result<(), Failure>
   let Ok(every) = unmoved();
   let louder = on(&every, &[], "volume-up")?;
   let dimmer = on(&every, &[], "brightness-down")?;
+  let microphone = on(&every, &[], "mic-mute")?;
   let browser = on(&every, &["super"], "b")?;
 
   assert_eq!(louder.repeats, RepeatMode::WhileHeld);
   assert_eq!(dimmer.repeats, RepeatMode::WhileHeld);
+  assert_eq!(microphone.keys, "code:256");
+  assert_eq!(microphone.repeats, RepeatMode::Once);
   assert_eq!(
     browser.repeats,
     RepeatMode::Once,
     "holding Super and B would open a browser for as long as the finger is down"
   );
+
+  Ok(())
+}
+
+#[test]
+fn dedicated_laptop_keys_run_their_actions_once_per_press() -> Result<(), Failure> {
+  use console_core_internal_programs::InternalProgram;
+
+  let Ok(every) = unmoved();
+  let Ok(hotkey) = InternalProgram::Hotkey.path();
+  let Ok(settings) = InternalProgram::SettingsPanel.name();
+  let Ok(control_center) = InternalProgram::ControlCenter.path();
+  let area = console_core_internal_programs::SELECT_SCREENSHOT_AREA.spelling;
+
+  for (pressed, code, program, argument) in [
+    ("display-switch", "code:235", settings, "Display"),
+    ("selective-screenshot", "code:642", control_center, area),
+    ("performance", "code:709", hotkey, "power-profile"),
+    ("play-pause", "code:172", hotkey, "play-pause"),
+    ("next-track", "code:171", hotkey, "next-track"),
+    ("previous-track", "code:173", hotkey, "previous-track"),
+    ("touchpad-toggle", "code:538", hotkey, "toggle-touchpad"),
+  ] {
+    let bind = on(&every, &[], pressed)?;
+    let installed = command(bind)?;
+
+    assert_eq!(bind.keys, code);
+    assert_eq!(bind.repeats, RepeatMode::Once);
+    assert_eq!(installed, format!("{program} {argument}"));
+  }
+
+  let fallback = on(&every, &["super"], "f8")?;
+  let installed = command(fallback)?;
+  assert_eq!(installed, format!("{hotkey} power-profile"));
+
+  Ok(())
+}
+
+#[test]
+fn tiled_windows_use_physical_keys_for_swapping_resizing_and_stacking() -> Result<(), Failure> {
+  let Ok(every) = unmoved();
+  let swap = on(&every, &["super", "alt"], "j")?;
+  let resize = on(&every, &["super", "ctrl"], "k")?;
+  let stack = on(&every, &["super", "alt", "shift"], "u")?;
+  let root = on(&every, &["super", "alt", "shift"], "space")?;
+  let split = on(&every, &["super", "alt"], "space")?;
+
+  for (bind, dispatched, repeating) in [
+    (
+      swap,
+      "window.swap({ direction = 'down' })",
+      RepeatMode::Once,
+    ),
+    (
+      resize,
+      "window.resize({ x = 0, y = -32, relative = true })",
+      RepeatMode::WhileHeld,
+    ),
+    (stack, ")('left', 'u')", RepeatMode::Once),
+    (root, "layout('movetoroot')", RepeatMode::Once),
+    (split, "layout('togglesplit')", RepeatMode::Once),
+  ] {
+    let Ok(script) = bind.bind_command();
+    assert!(bind.keys.contains("code:"));
+    assert!(script.to_string().contains(dispatched));
+    assert_eq!(bind.repeats, repeating);
+  }
 
   Ok(())
 }

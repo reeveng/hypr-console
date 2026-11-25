@@ -1,9 +1,7 @@
 //! The screen a locked session is drawn behind.
 //!
 //!     lock-screen
-//!     lock-screen idle-config BASE OUTPUT
-//!     lock-screen watch-power BASE OUTPUT
-//!     lock-screen idle-lock SECONDS
+//!     lock-screen idle
 //!
 //! What is decided is `console_lock_screen` and the greeter it drives; this is
 //! the lock the compositor holds and the surface the ring is drawn on. It is
@@ -35,7 +33,7 @@ use console_core_shapes::{Edge, Panel, Round, Shape};
 use console_core_size::Size;
 use console_core_state_machine::{Machine, Transition};
 use console_draw_painting::{Rendered, painter};
-use console_draw_surface::{Closed, KeyboardEvent, Lock, Surface, SurfaceError, Unlocked};
+use console_draw_surface::{Closed, Lock, Surface, SurfaceError, Unlocked};
 use console_lock_screen::{LockScreen, Method, PATTERN_UNAVAILABLE, Wanted, desired, respond};
 use console_login_greeter::bar;
 use console_login_greeter::greeting::{
@@ -50,8 +48,8 @@ use console_status_bar::showing;
 
 const WHO: &str = "lock-screen";
 
-#[path = "lock-screen/idle_config.rs"]
-mod idle_config;
+#[path = "lock-screen/idle_daemon/mod.rs"]
+mod idle_daemon;
 #[path = "lock-screen/unlock.rs"]
 mod unlock;
 
@@ -102,30 +100,9 @@ fn main() -> ExitCode {
       let Ok(status) = show_lock();
       return status;
     }
-    Some((Some("idle-config"), [base, output])) => {
-      idle_config::write(base.as_ref(), output.as_ref())
-    }
-    Some((Some("watch-power"), [base, output])) => {
-      let Ok(()) = idle_config::watch_power(base.as_ref(), output.as_ref());
-      Ok(())
-    }
-    Some((Some("idle-lock"), [seconds])) => {
-      match seconds
-        .to_str()
-        .and_then(|seconds_2| match seconds_2.parse() {
-          ::core::result::Result::Ok(value) => ::core::option::Option::Some(value),
-          ::core::result::Result::Err(_invalid_integer) => ::core::option::Option::None,
-        }) {
-        Some(seconds_3) => idle_config::request_lock(seconds_3),
-        None => Err(Box::<dyn std::error::Error>::from(
-          "invalid idle lock delay",
-        )),
-      }
-    }
+    Some((Some("idle"), [])) => idle_daemon::run(),
     Some(_) => {
-      eprintln!(
-        "Usage: {WHO} [idle-config BASE OUTPUT | watch-power BASE OUTPUT | idle-lock SECONDS]"
-      );
+      eprintln!("Usage: {WHO} [idle]");
       return ExitCode::FAILURE;
     }
   };
@@ -341,7 +318,7 @@ fn round(
     Closed::No => {}
   }
 
-  let Ok(keys) = surface.keyboard_events();
+  let Ok(keys) = surface.key_presses();
   let Ok(pointer) = surface.pointer_events();
   let Ok(logical) = surface.logical();
   let mut events = Vec::new();
@@ -354,7 +331,7 @@ fn round(
       let Ok(method) = unlock.method();
       let state = &mut greeting.state;
 
-      for KeyboardEvent::Down { key } in keys {
+      for key in keys {
         let Ok(disposition) = match state.bar.focus {
           Some(_) => Ok(InputDisposition::ForwardToGreeter),
           None => {
@@ -365,7 +342,7 @@ fn round(
 
         match disposition {
           InputDisposition::ForwardToGreeter => {
-            let Ok(pressed) = press(key);
+            let Ok(pressed) = press(key.key);
             events.extend(pressed.map(GreeterEvent::Pressed));
           }
           InputDisposition::Handled => {}

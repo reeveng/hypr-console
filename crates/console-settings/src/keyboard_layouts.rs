@@ -164,7 +164,11 @@ fn finish(
     Ok(()) => open(KeyboardMenu::Closed, showing),
     Err(fault) => {
       console_core_logging::warn!("could not change the keyboard layout: {fault}");
-      showing.note(&fault.to_string());
+      let Ok(()) = console_notifications::notify(
+        console_notifications::Application("Settings"),
+        "Could not change the keyboard layout",
+        Some(&fault.to_string()),
+      );
       showing.refresh();
     }
   }

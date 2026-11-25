@@ -100,6 +100,7 @@ programs! {
     Env, "env", Origin::Arch;
     Ffmpeg, "ffmpeg", Origin::Package("ffmpeg");
     Ffprobe, "ffprobe", Origin::Package("ffmpeg");
+    Flatpak, "flatpak", Origin::Optional;
     Gdbus, "gdbus", Origin::Package("glib2");
     Getent, "getent", Origin::Arch;
     Gio, "gio", Origin::Package("glib2");
@@ -124,7 +125,7 @@ programs! {
     Mktemp, "mktemp", Origin::Arch;
     Modprobe, "modprobe", Origin::Arch;
     Mv, "mv", Origin::Arch;
-    Nix, "nix", Origin::Optional;
+    Nix, "nix", Origin::Package("nix");
     Nmcli, "nmcli", Origin::Package("networkmanager");
     NotifySend, "notify-send", Origin::Package("libnotify");
     Pacman, "pacman", Origin::Arch;
@@ -161,8 +162,11 @@ programs! {
     Tesseract, "tesseract", Origin::Package("tesseract");
     SystemdInhibit, "systemd-inhibit", Origin::Arch;
     SystemdRun, "systemd-run", Origin::Arch;
+    SystemdSysusers, "systemd-sysusers", Origin::Arch;
+    SystemdTmpfiles, "systemd-tmpfiles", Origin::Arch;
     Tar, "tar", Origin::Arch;
     Timedatectl, "timedatectl", Origin::Arch;
+    Timeout, "timeout", Origin::Arch;
     True, "true", Origin::Arch;
     Udevadm, "udevadm", Origin::Arch;
     Usermod, "usermod", Origin::Arch;
@@ -172,6 +176,7 @@ programs! {
     XdgMime, "xdg-mime", Origin::Package("xdg-utils");
     XdgOpen, "xdg-open", Origin::Package("xdg-utils");
     XdgSettings, "xdg-settings", Origin::Package("xdg-utils");
+    Yay, "yay", Origin::Optional;
     YtDlp, "yt-dlp", Origin::Package("yt-dlp");
 }
 

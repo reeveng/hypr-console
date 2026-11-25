@@ -1,38 +1,93 @@
 //! Rows and the effect driver for the Music Library management tabs.
 
 use std::collections::BTreeMap;
+use std::path::PathBuf;
+
+use console_core_external_programs::Program;
+use console_events::again::Worth;
+use console_panel::page::{ButtonStyle, Subject};
 
 use super::*;
+use crate::looking::FileRevision;
 use crate::management::AlbumStart;
+use crate::scan::{self, Activity};
 
 pub(super) fn manage_effect(
   held: &Panel,
   work: &Work,
   showing: &dyn Showing,
-) -> Result<(), Never> {
+) -> Result<Option<Manage>, Never> {
   match work {
     Work::FocusFirst => showing.replace(0),
     Work::Redraw => showing.refresh(),
-    Work::Refresh { id } => {
-      let Ok(command) = RunCommand::internal(crate::update::INDEX, &["--analyze"]);
-      let Ok(()) = task(held, showing, command, *id, Job::Scan);
-    }
+    Work::Refresh { id } => return scan_task(held, showing, *id),
     Work::Cover { id, album } => {
-      let Ok(()) = json_task(held, showing, "--cover", album, *id, Job::Cover);
+      return json_task(held, showing, "--cover", album, *id, Job::Cover);
     }
     Work::SearchSong { id, query } => {
-      let Ok(()) = json_task(held, showing, "--suggest", query, *id, Job::Search);
+      return json_task(held, showing, "--suggest", query, *id, Job::Search);
     }
     Work::Select { id, changes } => {
-      let Ok(()) = saved(held, showing, *id, Selection::apply(changes));
+      let Ok(reply) = saved(*id, Selection::apply(changes));
+
+      return Ok(Some(reply));
     }
     Work::ConfirmSong { id, choice } => {
-      let Ok(()) = saved(held, showing, *id, crate::suggestions::apply(choice));
+      let Ok(reply) = saved(*id, crate::suggestions::apply(choice));
+
+      return Ok(Some(reply));
     }
     Work::PlayAlbum(start) => play_album(start, showing)?,
   }
 
-  Ok(())
+  Ok(None)
+}
+
+fn scan_task(held: &Panel, showing: &dyn Showing, id: u64) -> Result<Option<Manage>, Never> {
+  let Ok(index) = crate::update::INDEX.at();
+  let program = match index.to_str() {
+    Some(program) => program,
+    None => {
+      console_core_logging::warn!("could not start the Music Library scan: {index:?}");
+      let Ok(()) = console_notifications::notify(
+        console_notifications::Application("Music Library"),
+        "Could not start the Music Library scan",
+        None,
+      );
+
+      return Ok(Some(Manage::Finished {
+        id,
+        job: Job::Scan,
+        status: ExitStatus::Failure(None),
+      }));
+    }
+  };
+  let Ok(cache) = console_core_places::Base::Cache.called();
+  let Ok(config) = console_core_places::Base::Configuration.called();
+  let Ok(state) = console_core_places::Base::State.called();
+  let arguments = [
+    "--user",
+    "--quiet",
+    "--collect",
+    "--wait",
+    "--same-dir",
+    "--service-type=exec",
+    "--expand-environment=no",
+    "--setenv",
+    cache,
+    "--setenv",
+    config,
+    "--setenv",
+    state,
+    "--",
+    program,
+    "--analyze",
+  ];
+  let Ok(command) = RunCommand::external(Program::SystemdRun, &arguments);
+
+  let Ok(()) = task(held, showing, command, id, Job::Scan);
+
+  Ok(None)
 }
 
 fn json_task<T: serde::Serialize>(
@@ -42,54 +97,47 @@ fn json_task<T: serde::Serialize>(
   value: &T,
   id: u64,
   job: Job,
-) -> Result<(), Never> {
+) -> Result<Option<Manage>, Never> {
   match serde_json::to_string(value) {
     Ok(encoded) => {
       let Ok(command) = RunCommand::internal(crate::update::INDEX, &[flag, &encoded]);
 
-      task(held, showing, command, id, job)
+      let Ok(()) = task(held, showing, command, id, job);
+
+      Ok(None)
     }
     Err(fault) => {
       console_core_logging::warn!("could not prepare lookup: {fault}");
 
-      manage(
-        held,
-        Manage::Finished {
-          id,
-          job,
-          status: ExitStatus::Failure(None),
-        },
-        showing,
-      )
+      Ok(Some(Manage::Finished {
+        id,
+        job,
+        status: ExitStatus::Failure(None),
+      }))
     }
   }
 }
 
-fn saved(
-  held: &Panel,
-  showing: &dyn Showing,
-  id: u64,
-  result: std::io::Result<()>,
-) -> Result<(), Never> {
+fn saved(id: u64, result: std::io::Result<()>) -> Result<Manage, Never> {
   let status = match result {
     Ok(()) => ExitStatus::Success,
     Err(fault) => {
       console_core_logging::warn!("could not save the Music Library choice: {fault}");
-      showing.note("Could not save your choice");
+      let Ok(()) = console_notifications::notify(
+        console_notifications::Application("Music Library"),
+        "Music Library could not save your choice",
+        None,
+      );
 
       ExitStatus::Failure(None)
     }
   };
 
-  manage(
-    held,
-    Manage::Finished {
-      id,
-      job: Job::Selection,
-      status,
-    },
-    showing,
-  )
+  Ok(Manage::Finished {
+    id,
+    job: Job::Selection,
+    status,
+  })
 }
 
 fn play_album(start: &AlbumStart, showing: &dyn Showing) -> Result<(), Never> {
@@ -132,8 +180,9 @@ fn task(
   job: Job,
 ) -> Result<(), Never> {
   let destination = held.clone();
-  let Ok(task) = console_panel::tasks::Task::of(command);
-  let Ok(task) = task.then(move |answer| {
+  let Ok(work) = console_panel::tasks::Task::of(command);
+  let Ok(attributed) = work.from_application(console_notifications::Application("Music Library"));
+  let Ok(with_completion) = attributed.then(move |answer| {
     let Ok(effects) = decided(
       &destination,
       MusicEvent::Manage(Manage::Finished {
@@ -142,6 +191,7 @@ fn task(
         status: answer.status.clone(),
       }),
     );
+
     match effects.is_empty().then_some(()) {
       Some(()) => return Ok(None),
       None => {}
@@ -152,34 +202,65 @@ fn task(
       (Job::Cover, ExitStatus::Failure(Some(2))) => "No matching cover found",
       (Job::Cover, ExitStatus::Failure(_) | ExitStatus::Interrupt) => "Album cover lookup ended",
       (Job::Scan, ExitStatus::Success) => "Music Library scan finished",
-      (Job::Scan, ExitStatus::Failure(_) | ExitStatus::Interrupt) => {
-        "Music Library scan ended early"
+      (Job::Scan, ExitStatus::Failure(code)) => {
+        match (*code == Some(i32::from(scan::BUSY_EXIT_CODE))).then_some(()) {
+          Some(()) => return Ok(None),
+          None => "Music Library scan ended early",
+        }
       }
-      (Job::Search, ExitStatus::Success) => "MusicBrainz search finished",
-      (Job::Search, ExitStatus::Failure(_) | ExitStatus::Interrupt) => {
-        "MusicBrainz search ended early"
-      }
-      (Job::Selection, _) => return Ok(None),
+      (Job::Scan, ExitStatus::Interrupt) => "Music Library scan ended early",
+      (Job::Search | Job::Selection, _) => return Ok(None),
     };
     let Ok(note) = Notification::of(said);
 
     Ok(Some(note))
   });
-  showing.run(task);
+  showing.run(with_completion);
 
   Ok(())
 }
 
-fn manage(held: &Panel, request: Manage, showing: &dyn Showing) -> Result<(), Never> {
+pub(super) fn manage(held: &Panel, request: Manage, showing: &dyn Showing) -> Result<(), Never> {
   press(held, MusicEvent::Manage(request), showing)
 }
 
-fn action(held: &Panel, request: Manage) -> Result<Handler, Never> {
+pub(super) fn action(held: &Panel, request: Manage) -> Result<Handler, Never> {
   let destination = held.clone();
 
   Handler::and_stay(move |showing| {
     let Ok(()) = manage(&destination, request.clone(), showing);
   })
+}
+
+pub(super) fn catalog_watch(page: Page) -> Result<Page, Never> {
+  let Ok(directory) = scan::directory();
+
+  match directory {
+    Some(at) => page.with_subscription(EventGroup::Path(at), catalog_changed),
+    None => Ok(page),
+  }
+}
+
+fn catalog_changed(line: &str) -> Result<Worth, Never> {
+  Ok(
+    match Path::new(line).file_name().and_then(|name| name.to_str()) {
+      Some(
+        "music"
+        | looking::CATALOG_FILE
+        | review::FINDINGS_FILE
+        | scan::LOCK_NAME
+        | "metadata-suggestions-v1.json",
+      ) => Worth::Querying,
+      Some(_) | None => Worth::Ignoring,
+    },
+  )
+}
+
+fn scan_activity(status: &Status) -> Result<Activity, Never> {
+  match status {
+    Status::Pending(_) => Ok(Activity::Running),
+    Status::Idle | Status::Finished(_) => scan::activity(),
+  }
 }
 
 pub(super) fn albums_page(held: &Panel) -> Result<Page, Never> {
@@ -191,8 +272,9 @@ pub(super) fn albums_page(held: &Panel) -> Result<Page, Never> {
     rows
   });
   let Ok(page) = Page::new("Albums", rows);
+  let Ok(watched) = catalog_watch(page);
 
-  page.on_back(move |showing| {
+  watched.on_back(move |showing| {
     let Ok(state) = panel_state(&leaving);
 
     match state.management.album {
@@ -220,18 +302,28 @@ fn album_rows(held: &Panel) -> Result<Vec<Row>, Never> {
     None => {}
   }
 
-  match albums.is_empty().then_some(()) {
-    Some(()) => {
-      let what = match state.management.scan {
-        Status::Pending(_) => "Reading album tags…",
-        Status::Idle | Status::Finished(_) => "No tagged albums",
-      };
-      let Ok(row) = Row::placeholder(what);
+  let Ok(unread) = looking::unread(&songs);
+  let reading = match unread {
+    0 => Activity::Idle,
+    _ => scan_activity(&state.management.scan)?,
+  };
+  let mut rows = match (reading, albums.is_empty().then_some(())) {
+    (Activity::Running, _) => {
+      let Ok(row) = Row::placeholder("Reading album tags…");
 
-      Ok(vec![row])
+      vec![row]
     }
-    None => album_list(held, &albums),
-  }
+    (Activity::Idle, Some(())) => {
+      let Ok(row) = Row::placeholder("No tagged albums");
+
+      vec![row]
+    }
+    (Activity::Idle, None) => Vec::new(),
+  };
+  let Ok(albums_list) = album_list(held, &albums);
+  rows.extend(albums_list);
+
+  Ok(rows)
 }
 
 fn album_list(held: &Panel, albums: &[albums::Album<'_>]) -> Result<Vec<Row>, Never> {
@@ -256,9 +348,9 @@ fn album_list(held: &Panel, albums: &[albums::Album<'_>]) -> Result<Vec<Row>, Ne
     let aside = format!("{} tracks", album.tracks.len());
     let Ok(row) = Row::new(album.title, Aside(&aside), does);
     let cover = album_art::cached(&album.key)?;
-    let Ok(row) = row.picturing(Picture::Sleeve(cover));
-    let Ok(row) = row.opening();
-    rows.push(row);
+    let Ok(row_2) = row.picturing(Picture::Sleeve(cover));
+    let Ok(row_3) = row_2.opening();
+    rows.push(row_3);
   }
 
   Ok(rows)
@@ -270,7 +362,7 @@ fn album_tracks(
   cover_job: &Status,
 ) -> Result<Vec<Row>, Never> {
   let back = held.clone();
-  let Ok(back) = Row::back("Albums", move |showing| {
+  let Ok(back_2) = Row::back("Albums", move |showing| {
     let Ok(()) = manage(&back, Manage::Browse(None), showing);
   });
   let cover = album_art::cached(&album.key)?;
@@ -287,7 +379,7 @@ fn album_tracks(
     }),
   )?;
   let Ok(play) = Row::new("Play Album", Aside(""), does);
-  let mut rows = vec![back, head, play];
+  let mut rows = vec![back_2, head, play];
 
   match (cover, cover_job) {
     (None, Status::Pending(_)) => {
@@ -295,7 +387,7 @@ fn album_tracks(
       rows.push(row);
     }
     (None, Status::Idle | Status::Finished(_)) => {
-      let does = action(
+      let does_2 = action(
         held,
         Manage::Cover(album_art::Lookup {
           album: album.key.clone(),
@@ -303,7 +395,7 @@ fn album_tracks(
           title: album.title.to_owned(),
         }),
       )?;
-      let Ok(row) = Row::new("Find Album Art", Aside("MusicBrainz, then YouTube"), does);
+      let Ok(row) = Row::new("Find Album Art", Aside("MusicBrainz, then YouTube"), does_2);
       rows.push(row);
     }
     (Some(_), _) => {}
@@ -311,7 +403,7 @@ fn album_tracks(
 
   for song in &album.tracks {
     let Ok(name) = song.says();
-    let does = action(
+    let does_3 = action(
       held,
       Manage::PlayAlbum(AlbumStart {
         album: album.key.clone(),
@@ -322,7 +414,7 @@ fn album_tracks(
       Some(track) => format!("Track {track}"),
       None => song.tags.artist.clone(),
     };
-    let Ok(row) = Row::new(name, Aside(&aside), does);
+    let Ok(row) = Row::new(name, Aside(&aside), does_3);
     rows.push(row);
   }
 
@@ -337,20 +429,28 @@ pub(super) fn review_page(held: &Panel) -> Result<Page, Never> {
     rows
   });
 
-  Page::new("Possible Duplicates", rows)
+  let Ok(page) = Page::new("Possible Duplicates", rows);
+
+  catalog_watch(page)
 }
 
 fn review_rows(held: &Panel) -> Result<Vec<Row>, Never> {
   let state = panel_state(held)?;
-  let scan = match state.management.scan {
-    Status::Pending(_) => Row::placeholder("Scanning your library…")?,
-    Status::Idle | Status::Finished(_) => {
+  let active = scan_activity(&state.management.scan)?;
+  let scan = match active {
+    Activity::Running => Row::placeholder("Scanning your library…")?,
+    Activity::Idle => {
       let does = action(held, Manage::Refresh)?;
 
       Row::new("Scan for Possible Duplicates", Aside(""), does)?
     }
   };
   let mut rows = vec![scan];
+  let Ok(stored) = review::findings();
+  let findings = match stored {
+    Some(findings) => findings,
+    None => return Ok(rows),
+  };
   let folder = folder()?;
   let songs = songs(&folder)?;
   let by_path: BTreeMap<_, _> = songs
@@ -362,7 +462,6 @@ fn review_rows(held: &Panel) -> Result<Vec<Row>, Never> {
     })
     .collect();
   let selected = selection()?;
-  let findings = review::findings()?;
 
   for finding in &findings {
     let tracks: Vec<_> = finding
@@ -372,7 +471,7 @@ fn review_rows(held: &Panel) -> Result<Vec<Row>, Never> {
         by_path
           .get(&track.path)
           .copied()
-          .filter(|song| song.revision == track.revision)
+          .filter(|song| song.revision() == Ok(track.revision))
       })
       .collect();
 
@@ -381,6 +480,7 @@ fn review_rows(held: &Panel) -> Result<Vec<Row>, Never> {
         .decision(&track.path)
         .is_ok_and(|decision| decision.is_some())
     });
+
     match tracks.as_slice() {
       [first, _, ..] => {
         let Ok(title) = first.says();
@@ -395,30 +495,29 @@ fn review_rows(held: &Panel) -> Result<Vec<Row>, Never> {
       [] | [_] => continue,
     }
 
+    for track in &tracks {
+      let row = review_track(held, &selected, track, &tracks, &folder)?;
+      rows.push(row);
+    }
+
     let hidden = tracks
       .iter()
       .any(|track| selected.visibility(&track.path) == Ok(Visibility::Hidden));
+
     match (hidden || !reviewed).then_some(()) {
       Some(()) => {
-        let all = tracks
+        let changes = tracks
           .iter()
           .map(|song| (song.path.clone(), Visibility::Included))
           .collect();
-        let does = action(held, Manage::Select(all))?;
-        let Ok(row) = Row::new("Include All Versions", Aside(""), does);
+        let Ok(row) = include_all(held, Manage::Select(changes));
         rows.push(row);
       }
       None => {}
     }
-
-    for track in &tracks {
-      let row = review_track(held, &selected, track, &tracks, &folder)?;
-
-      rows.push(row);
-    }
   }
 
-  match (rows.len() == 1 && !matches!(state.management.scan, Status::Pending(_))).then_some(()) {
+  match (rows.len() == 1 && active == Activity::Idle).then_some(()) {
     Some(()) => {
       let Ok(row) = Row::placeholder("No possible duplicates to review");
       rows.push(row);
@@ -427,6 +526,16 @@ fn review_rows(held: &Panel) -> Result<Vec<Row>, Never> {
   }
 
   Ok(rows)
+}
+
+fn include_all(held: &Panel, request: Manage) -> Result<Row, Never> {
+  let destination = held.clone();
+  let Ok(button) = ButtonPress::labelled("Include All Versions", Active::No, move |showing| {
+    let Ok(()) = manage(&destination, request.clone(), showing);
+  });
+  let Ok(tinted) = button.styled(ButtonStyle::Tinted);
+
+  Row::pressing(vec![tinted], 0)
 }
 
 fn review_track(
@@ -446,171 +555,141 @@ fn review_track(
     Ok(relative) => relative,
     Err(_outside) => &song.path,
   };
-  let aside = format!("{note} · {}", relative.display());
-  let plays = plays(held, &song.path, Kind::ASong)?;
-  let Ok(row) = Row::new(title, Aside(&aside), plays);
+  let Ok(name) = library::visible_name(relative.as_os_str());
+  let aside = format!("{note} · {name}");
+  let Ok(row) = Row::stacked(Picture::None, title, Aside(&aside));
   let destination = held.clone();
   let path = song.path.clone();
+  let Ok(expected) = song.revision();
   let only: Vec<_> = group
     .iter()
     .map(|track| {
-      let visibility = match (track.path == path).then_some(()) {
+      let keeping = match (track.path == path).then_some(()) {
         Some(()) => Visibility::Included,
         None => Visibility::Hidden,
       };
 
-      (track.path.clone(), visibility)
+      (track.path.clone(), keeping)
     })
     .collect();
 
-  row.offering(move |showing| {
+  let Ok(does) = Handler::and_stay(move |showing| {
     let other = destination.clone();
+    let track = path.clone();
+    let file = name.clone();
     let include = match visibility {
       Visibility::Included => Visibility::Hidden,
       Visibility::Hidden => Visibility::Included,
     };
     let label = match include {
-      Visibility::Included => "Include this version",
-      Visibility::Hidden => "Hide this version",
+      Visibility::Included => "Include",
+      Visibility::Hidden => "Hide",
     };
-    let changes = vec![(path.clone(), include)];
-    let only = only.clone();
+    let keep_only = only.clone();
 
     showing.sure(
-      "Which versions should appear in Music Library?",
-      console_panel::page::Subject(title_of(&path)),
-      &[label, "Keep Only This Version"],
-      Box::new(move |showing, chosen| {
-        let changes = match chosen {
-          0 => changes,
-          1 => only,
-          _ => return,
-        };
-        let Ok(()) = manage(&other, Manage::Select(changes), showing);
+      "Track Actions",
+      Subject(&name),
+      &["Play", label, "Keep Only", "Trash"],
+      Box::new(move |picked, chosen| match chosen {
+        0 => {
+          let Ok(()) = press(
+            &other,
+            MusicEvent::Chose {
+              path: track,
+              kind: Kind::ASong,
+            },
+            picked,
+          );
+        }
+        1 => {
+          let Ok(()) = manage(&other, Manage::Select(vec![(track, include)]), picked);
+        }
+        2 => {
+          let Ok(()) = manage(&other, Manage::Select(keep_only), picked);
+        }
+        3 => {
+          let Ok(()) = confirm_trash(picked, track, expected, &file);
+        }
+        _ => {}
       }),
     );
-    ActionOutcome::Stay
-  })
-}
-
-fn title_of(path: &Path) -> &str {
-  path
-    .file_name()
-    .and_then(|name| name.to_str())
-    .unwrap_or("Recording")
-}
-
-pub(super) fn suggestions_page(held: &Panel) -> Result<Page, Never> {
-  let reading = held.clone();
-  let Ok(rows) = Rows::computed(move || {
-    let Ok(rows) = metadata_rows(&reading);
-
-    rows
   });
+  let Ok(actionable) = row.choosing(does);
 
-  Page::new("Metadata Suggestions", rows)
+  actionable.opening()
 }
 
-fn metadata_rows(held: &Panel) -> Result<Vec<Row>, Never> {
-  use crate::suggestions;
+fn confirm_trash(
+  showing: &dyn Showing,
+  path: PathBuf,
+  expected: Option<FileRevision>,
+  name: &str,
+) -> Result<(), Never> {
+  showing.sure(
+    "Move this track to Trash?",
+    Subject(name),
+    &["Move to Trash"],
+    Box::new(move |confirmed, _| {
+      let Ok(()) = trash_track(confirmed, &path, expected);
+    }),
+  );
 
-  let folder = folder()?;
-  let files = visible_songs(&folder)?;
-  let local = suggestions::local_results()?;
-  let state = panel_state(held)?;
-  let mut by_path = BTreeMap::<&str, Vec<&suggestions::Proposal>>::new();
-
-  for proposal in &local {
-    by_path
-      .entry(&proposal.file.path)
-      .or_default()
-      .push(proposal);
-  }
-
-  let mut rows = Vec::new();
-  for file in &files {
-    match suggestions::missing(file) {
-      Ok(Some(())) => {}
-      Ok(None) => continue,
-    }
-    let Ok(query) = suggestions::query(file);
-    let Ok(does) = plays(held, &file.path, Kind::ASong);
-    let Ok(track) = Row::new(&file.name, Aside("Play recording"), does);
-    rows.push(track);
-
-    let local = by_path
-      .get(query.file.path.as_str())
-      .into_iter()
-      .flatten()
-      .filter(|proposal| proposal.file == query.file);
-    for proposal in local {
-      let Ok(row) = proposal_row(held, proposal);
-      rows.push(row);
-    }
-
-    let Ok(online) = suggestions::online_results(&query.file);
-    match online {
-      Some(found) => match found.as_slice() {
-        [] => {
-          let Ok(row) = Row::placeholder("No MusicBrainz match");
-          rows.push(row);
-        }
-        [_first, ..] => {
-          for proposal in &found {
-            let Ok(row) = proposal_row(held, proposal);
-            rows.push(row);
-          }
-        }
-      },
-      None => {}
-    }
-
-    match state.management.search {
-      Status::Pending(_) => {}
-      Status::Idle | Status::Finished(_) => {
-        let does = action(held, Manage::SearchSong(query))?;
-        let Ok(row) = Row::new("Search MusicBrainz", Aside(""), does);
-        rows.push(row);
-      }
-    }
-  }
-
-  match rows.is_empty().then_some(()) {
-    Some(()) => {
-      let Ok(row) = Row::placeholder("All visible tracks have an artist and title");
-      rows.push(row);
-    }
-    None => {}
-  }
-
-  Ok(rows)
+  Ok(())
 }
 
-fn proposal_row(held: &Panel, proposal: &crate::suggestions::Proposal) -> Result<Row, Never> {
-  let description = match proposal.tags.album.as_str() {
-    "" => format!("{} · {}", proposal.tags.artist, proposal.tags.title),
-    release => format!(
-      "{} · {} · {release}",
-      proposal.tags.artist, proposal.tags.title
-    ),
+fn trash_track(
+  showing: &dyn Showing,
+  path: &Path,
+  expected: Option<FileRevision>,
+) -> Result<(), Never> {
+  let Ok(current) = FileRevision::of(path);
+  let application = console_notifications::Application("Music Library");
+
+  match current.filter(|revision| Some(*revision) == expected) {
+    Some(_) => {}
+    None => {
+      let Ok(()) = console_notifications::notify(
+        application,
+        "The track changed or is no longer available",
+        None,
+      );
+      showing.refresh();
+
+      return Ok(());
+    }
+  }
+
+  let absolute = match std::path::absolute(path) {
+    Ok(target) => target,
+    Err(fault) => {
+      console_core_logging::warn!("could not name {} for Trash: {fault}", path.display());
+      let Ok(()) = console_notifications::notify(
+        application,
+        "Music Library could not move the track to Trash",
+        None,
+      );
+
+      return Ok(());
+    }
   };
-  let Ok(evidence) = proposal.source.label();
-  let subject = description.clone();
-  let choice = proposal.clone();
-  let held = held.clone();
-  let Ok(does) = Handler::and_stay(move |showing| {
-    let result = held.clone();
-    let choice = choice.clone();
+  let Ok(url) = review::key(&absolute);
+  let Ok(command) = console_gio::trash_command(&[url]);
+  let Ok(task) = console_panel::tasks::Task::of(command);
+  let Ok(attributed) = task.from_application(application);
+  let Ok(trashing) = attributed.then(|answer| match &answer.status {
+    ExitStatus::Success => Ok(None),
+    ExitStatus::Failure(_) | ExitStatus::Interrupt => {
+      console_core_logging::warn!(
+        "Music Library could not move the track to Trash: {}",
+        answer.error_output,
+      );
+      let Ok(note) = Notification::of("Music Library could not move the track to Trash");
 
-    showing.sure(
-      "Is this the song?",
-      console_panel::page::Subject(&subject),
-      &["Use in Music Library"],
-      Box::new(move |showing, _| {
-        let Ok(()) = manage(&result, Manage::ConfirmSong(choice), showing);
-      }),
-    );
+      Ok(Some(note))
+    }
   });
+  showing.run(trashing);
 
-  Row::new(&description, Aside(evidence), does)
+  Ok(())
 }

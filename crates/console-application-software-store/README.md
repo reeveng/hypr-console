@@ -1,18 +1,23 @@
-# Software Store
+# Console Store
 
-Browse featured desktop apps, including OBS Studio, or search Nixpkgs by
-name or description. Select a package to install it. **Installed** shows
-packages managed by the store and lets you open or remove them.
+Browse featured desktop apps or search by name. Results identify the package
+manager. Select a result to install it or open **Installed** to launch or
+remove an installed package.
 
 Run from a Wayland session with `cargo run --locked -p console-application-software-store`.
-The Console desktop manifest installs the **Software Store** launcher.
+The Console desktop manifest installs the **Console Store** launcher.
 
-The store invokes the Nix already available on the machine and keeps installed
-packages in its own profile under `$XDG_STATE_HOME/console/software-store`.
-The first search may download the Nixpkgs catalogue. If Nix reports a failure,
-**Details** shows its diagnostic.
+Console provisions Nix on Arch and enables it on NixOS. The Store uses Nixpkgs
+on Linux hosts with Nix and keeps its Nix packages in its own profile
+under `$XDG_STATE_HOME/console/software-store`. The first Nixpkgs search may
+download the catalogue.
 
-The [OBS feature artwork](assets/obs-feature.png) was made with the built-in
-image generation tool using this prompt.
+Pacman, Flatpak, and mise appear when available. On Arch, pacman lists
+explicitly installed packages and installed desktop apps. System changes ask
+for administrator approval. With yay installed, search also includes the AUR
+and installation opens a terminal to review the build. Flatpak uses its
+configured user and system remotes. Mise installs into its shared tool cache
+and removes individual tool versions.
 
-> Use case: product-mockup. Asset type: OBS Studio feature banner artwork for a dark desktop software store. A polished photographic 3D studio still life of a compact video streaming setup: a dark graphite video switcher with tactile glowing pastel square keys and a single dark widescreen monitor behind it displaying an abstract violet and ice-blue lightwave on a black screen. Deep bluish-purple seamless stage, soft purple and cyan side lighting, clean premium hardware editorial photography. Wide landscape framing, all objects concentrated on the right two-thirds with breathing room and fading to solid near-black indigo on the left for an overlaid headline. No people, no text, no letters, no logos, no watermarks.
+Package managers can themselves appear as installable packages when a source
+on the current system offers them.

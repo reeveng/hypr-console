@@ -6,6 +6,8 @@ use console_core_geometry::{Point, Size};
 use console_core_shapes::{Edge, Panel, Picture, Pixels, Round, Shape, Text, Weight};
 use console_draw_painting::{self as painting, Frame, Lines, Run};
 use console_draw_surface::{Surface, SurfaceError};
+use console_panel::canvas::{Area, Canvas, Frame as Chrome, Interaction, Style};
+use console_panel::strip::{self, Header};
 
 use super::Camera;
 
@@ -15,6 +17,7 @@ const ROW: u32 = 48;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Action {
+  Source(u32),
   Previous,
   Next,
   Take,
@@ -25,11 +28,9 @@ pub(super) enum Action {
 impl Action {
   fn label(self) -> Result<&'static str, Infallible> {
     Ok(match self {
-      Self::Previous => "Previous",
-      Self::Next => "Next",
       Self::Take => "Take Photo",
       Self::Retry => "Retry",
-      Self::Close => "Close",
+      Self::Source(_) | Self::Previous | Self::Next | Self::Close => "",
     })
   }
 }
@@ -37,13 +38,13 @@ impl Action {
 pub(super) struct Layout {
   pub points: Size<u32>,
   preview: Panel,
-  heading: Panel,
+  header: Chrome<Action>,
   status: Panel,
-  buttons: Vec<(Action, Panel, bool)>,
+  capture: Panel,
 }
 
 impl Layout {
-  pub fn new(points: Size<u32>, camera: &Camera) -> Result<Self, Infallible> {
+  pub fn new(points: Size<u32>, camera: &Camera, colors: &Wearing) -> Result<Self, Infallible> {
     let wide = points.width.saturating_sub(MARGIN.wrapping_mul(2));
     let bottom = points.height.saturating_sub(MARGIN.wrapping_add(ROW));
     let top = MARGIN.wrapping_add(ROW).wrapping_add(GAP);
@@ -55,7 +56,7 @@ impl Layout {
         height: status_top.saturating_sub(top.wrapping_add(GAP)),
       },
     );
-    let Ok((heading, close)) = title_row(wide);
+    let Ok(header) = header(points, camera, colors);
     let Ok(status) = bounds(
       Point {
         x: MARGIN,
@@ -66,20 +67,8 @@ impl Layout {
         height: 24,
       },
     );
-    let source_switching = camera.sources.len() > 1;
-    let mut buttons = match source_switching.then_some(()) {
-      Some(()) => Vec::with_capacity(4),
-      None => Vec::with_capacity(2),
-    };
-    buttons.push((Action::Close, close, true));
-
-    let main = match &camera.stream {
-      Some(_stream) => Action::Take,
-      None => Action::Retry,
-    };
     let main_width = 176.min(wide.saturating_sub(GAP.wrapping_mul(2)).wrapping_div(2));
     let main_left = MARGIN.wrapping_add(wide.saturating_sub(main_width).wrapping_div(2));
-    let enabled = main == Action::Retry || camera.frame.is_some();
     let Ok(main_button) = bounds(
       Point {
         x: main_left,
@@ -90,86 +79,103 @@ impl Layout {
         height: ROW,
       },
     );
-    buttons.push((main, main_button, enabled));
-
-    match source_switching.then_some(()) {
-      Some(()) => {
-        let side_width = 100.min(main_left.saturating_sub(MARGIN.wrapping_add(GAP)));
-        let side = Size {
-          width: side_width,
-          height: ROW,
-        };
-        let Ok(previous) = bounds(
-          Point {
-            x: main_left.saturating_sub(side_width.wrapping_add(GAP)),
-            y: bottom,
-          },
-          side,
-        );
-        let Ok(next) = bounds(
-          Point {
-            x: main_left.wrapping_add(main_width).wrapping_add(GAP),
-            y: bottom,
-          },
-          side,
-        );
-        buttons.extend([
-          (Action::Previous, previous, true),
-          (Action::Next, next, true),
-        ]);
-      }
-      None => {}
-    }
-
     Ok(Self {
       points,
       preview,
-      heading,
+      header,
       status,
-      buttons,
+      capture: main_button,
     })
   }
 
-  pub fn action(&self, at: (f64, f64)) -> Result<Option<Action>, Infallible> {
-    let [x, y] = [at.0, at.1].map(|value| match value.is_nan().then_some(()) {
-      Some(()) => 0.0,
-      None => value,
-    });
-    Ok(self.buttons.iter().find_map(|(action, panel, enabled)| {
-      let Ok(width) = coordinate(panel.size.width);
-      let Ok(height) = coordinate(panel.size.height);
-      let left = f64::from(panel.at.x);
-      let top = f64::from(panel.at.y);
-      let right = f64::from(panel.at.x.saturating_add(width));
-      let bottom = f64::from(panel.at.y.saturating_add(height));
-      (*enabled && (left..right).contains(&x) && (top..bottom).contains(&y)).then_some(*action)
-    }))
+  pub fn action(&self, at: (f64, f64), camera: &Camera) -> Result<Option<Action>, Infallible> {
+    let (x, y) = at;
+    let Ok(action) = self.header.targets.action(Point { x, y });
+    let Ok(capture) = capture_action(camera);
+    let panel = self.capture;
+    let Ok(width) = coordinate(panel.size.width);
+    let Ok(height) = coordinate(panel.size.height);
+    let right = f64::from(panel.at.x.saturating_add(width));
+    let bottom = f64::from(panel.at.y.saturating_add(height));
+
+    Ok(
+      match ((f64::from(panel.at.x)..right).contains(&x)
+        && (f64::from(panel.at.y)..bottom).contains(&y))
+      .then_some(())
+      {
+        Some(()) => capture,
+        None => action,
+      },
+    )
   }
 }
 
-fn title_row(wide: u32) -> Result<(Panel, Panel), Infallible> {
-  let close_width = 76.min(wide);
-  let Ok(heading) = bounds(
-    Point {
-      x: MARGIN,
-      y: MARGIN,
-    },
-    Size {
-      width: wide.saturating_sub(close_width.wrapping_add(GAP)),
-      height: ROW,
+pub(super) fn capture_action(camera: &Camera) -> Result<Option<Action>, Infallible> {
+  Ok(match (&camera.stream, &camera.frame) {
+    (None, _) => Some(Action::Retry),
+    (Some(_), Some(_)) => Some(Action::Take),
+    (Some(_), None) => None,
+  })
+}
+
+fn header(
+  points: Size<u32>,
+  camera: &Camera,
+  colors: &Wearing,
+) -> Result<Chrome<Action>, Infallible> {
+  let Ok(width) = coordinate(points.width);
+  let Ok(height) = coordinate(points.height);
+  let root = Area {
+    origin: Point { x: 0, y: 0 },
+    size: Size { width, height },
+  };
+  let style = Style {
+    rule: colors.edge,
+    lifted: colors.panel,
+    accent: colors.pink,
+    ink: colors.text,
+    quiet: colors.soft,
+    disabled: colors.edge,
+  };
+  let Ok(mut canvas) = Canvas::new(
+    root,
+    style,
+    Interaction {
+      focus: None,
+      hover: None,
     },
   );
-  let Ok(close) = bounds(
-    Point {
-      x: MARGIN.wrapping_add(wide.saturating_sub(close_width)),
-      y: MARGIN,
+  let labels: Vec<_> = camera
+    .sources
+    .iter()
+    .map(|source| source.label.as_str())
+    .collect();
+  let margin = strip::MARGIN;
+  let area = Area {
+    origin: Point {
+      x: margin,
+      y: margin,
     },
-    Size {
-      width: close_width,
-      height: ROW,
+    size: Size {
+      width: width.saturating_sub(margin.saturating_mul(2)),
+      height: strip::HEIGHT,
     },
+  };
+  let Ok(()) = strip::header(
+    &mut canvas,
+    area,
+    &Header {
+      title: "Camera",
+      tabs: &labels,
+      selected: camera.selected,
+      select: Action::Source,
+      previous: Action::Previous,
+      next: Action::Next,
+      close: Action::Close,
+    },
+    colors,
   );
-  Ok((heading, close))
+  Ok(canvas.frame)
 }
 
 pub(super) fn paint(
@@ -182,7 +188,7 @@ pub(super) fn paint(
   let Ok(window) = bounds(Point { x: 0, y: 0 }, points);
   let background = [
     Shape::Panel(Panel {
-      fill: wearing.ground,
+      fill: wearing.panel,
       ..window
     }),
     Shape::Panel(Panel {
@@ -190,51 +196,37 @@ pub(super) fn paint(
       ..layout.preview
     }),
   ];
+  let panel = layout.capture;
+  let Ok(action) = capture_action(camera);
+  let enabled = action.is_some();
   let mut controls = Vec::new();
-
-  let Ok(selected) = camera.selected_source();
-
-  match selected {
-    Some(source) => {
-      let Ok(heading) = label(
-        layout.heading,
-        &source.label,
-        TextStyle::Headline,
-        wearing.text,
-        1,
-      );
-      controls.push(heading);
-    }
-    ::core::option::Option::None => {}
-  }
-
-  for &(action, panel, enabled) in &layout.buttons {
-    let primary = action == Action::Take || action == Action::Retry;
-    controls.push(Shape::Panel(Panel {
-      fill: wearing.panel,
-      round: Round(8),
-      edge: Edge::Of {
-        wide: 1,
-        color: match { ::core::primitive::bool::then_some(primary && enabled, ()) } {
-          ::core::option::Option::Some(()) => wearing.pink,
-          ::core::option::Option::None => wearing.edge,
-        },
+  controls.push(Shape::Panel(Panel {
+    fill: wearing.panel,
+    round: Round(8),
+    edge: Edge::Of {
+      wide: 1,
+      color: match { ::core::primitive::bool::then_some(enabled, ()) } {
+        ::core::option::Option::Some(()) => wearing.pink,
+        ::core::option::Option::None => wearing.edge,
       },
-      ..panel
-    }));
-    let Ok(title) = action.label();
-    let Ok(text) = label(
-      panel,
-      title,
-      TextStyle::Callout,
-      match ::core::primitive::bool::then_some(enabled, ()) {
-        ::core::option::Option::Some(()) => wearing.text,
-        ::core::option::Option::None => wearing.soft,
-      },
-      1,
-    );
-    controls.push(text);
-  }
+    },
+    ..panel
+  }));
+  let Ok(title) = match action {
+    Some(available) => available.label(),
+    None => Action::Take.label(),
+  };
+  let Ok(text) = label(
+    panel,
+    title,
+    TextStyle::Callout,
+    match ::core::primitive::bool::then_some(enabled, ()) {
+      ::core::option::Option::Some(()) => wearing.text,
+      ::core::option::Option::None => wearing.soft,
+    },
+    1,
+  );
+  controls.push(text);
 
   let Ok(picture) = preview_picture(layout.preview, camera.frame.as_ref());
 
@@ -260,13 +252,18 @@ pub(super) fn paint(
     let frame = Frame { points, device };
     let painted = match painting::onto(pixels, frame, &background) {
       Ok(()) => match picture {
-        Some(preview) => painting::over_picture(pixels, frame, preview, &controls),
-        None => painting::over(pixels, frame, &controls),
+        Some(preview) => painting::over_picture(pixels, frame, preview, &layout.header.shapes),
+        None => painting::over(pixels, frame, &layout.header.shapes),
       },
       Err(fault) => Err(fault),
     };
 
-    match painted {
+    let painted_controls = match painted {
+      Ok(()) => painting::over(pixels, frame, &controls),
+      Err(fault) => Err(fault),
+    };
+
+    match painted_controls {
       Err(fault) => {
         console_core_logging::warn!("drawing camera: {fault}");
       }
@@ -366,4 +363,77 @@ fn label(
     font,
     ink,
   }))
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::source::Source;
+  use std::path::PathBuf;
+
+  #[test]
+  fn sources_are_in_the_header_and_capture_stays_below_the_preview()
+  -> Result<(), Box<dyn std::error::Error>> {
+    let Ok(palette) = console_core_color::palette::read(include_str!(
+      "../../../../../files/usr/local/lib/console/palette.sh"
+    ));
+    let colors = Wearing::out_of(&palette)?;
+    let camera = Camera {
+      sources: vec![
+        Source {
+          path: PathBuf::from("/dev/video0"),
+          label: "Front".to_owned(),
+        },
+        Source {
+          path: PathBuf::from("/dev/video1"),
+          label: "Rear".to_owned(),
+        },
+      ],
+      selected: 0,
+      stream: None,
+      frame: None,
+      message: String::new(),
+    };
+    let Ok(layout) = Layout::new(
+      Size {
+        width: 780,
+        height: 560,
+      },
+      &camera,
+      &colors,
+    );
+
+    for mark in [
+      console_panel::marks::BEFORE,
+      console_panel::marks::AFTER,
+      console_panel::marks::SHUT,
+    ] {
+      assert!(
+        layout
+          .header
+          .shapes
+          .iter()
+          .any(|shape| matches!(shape, Shape::Text(label) if label.said == mark))
+      );
+    }
+
+    assert!(matches!(layout.action((32.0, 32.0), &camera), Ok(None)));
+    assert!(matches!(
+      layout.action((520.0, 32.0), &camera),
+      Ok(Some(Action::Source(1)))
+    ));
+    assert!(matches!(
+      layout.action((690.0, 32.0), &camera),
+      Ok(Some(Action::Next))
+    ));
+    assert!(matches!(
+      layout.action((745.0, 32.0), &camera),
+      Ok(Some(Action::Close))
+    ));
+    assert!(matches!(
+      layout.action((390.0, 520.0), &camera),
+      Ok(Some(Action::Retry))
+    ));
+    Ok(())
+  }
 }

@@ -182,7 +182,7 @@ impl From<bool> for CommandOutcome {
 }
 
 pub(super) fn notify(message: &str) -> Result<(), Never> {
-  let options = console_operating_system_linux::notification::Options {
+  let options = console_notifications::delivery::Options {
     app_name: Some("Console"),
     expire_ms: Some(2500),
     ..Default::default()

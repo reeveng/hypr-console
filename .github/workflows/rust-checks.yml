@@ -50,12 +50,13 @@ jobs:
           target/unsafe-rust/check "$BASE"
 
       - name: Check rasterizer feature combinations
+        shell: bash
         run: |
           set -euo pipefail
-          cargo test --locked -p console-core-path-rasterizer --lib
-          cargo test --locked -p console-core-path-rasterizer --lib --no-default-features --features std
-          cargo test --locked -p console-core-path-rasterizer --lib --no-default-features --features no-std-float,simd
-          cargo check --locked -p console-core-path-rasterizer --no-default-features --features no-std-float
+          curl --fail --silent --show-error --location https://nixos.org/nix/install -o "$RUNNER_TEMP/install-nix.sh"
+          sh "$RUNNER_TEMP/install-nix.sh" --daemon --yes
+          /nix/var/nix/profiles/default/bin/nix --extra-experimental-features 'nix-command flakes' \
+            build --no-link --print-build-logs .#checks.x86_64-linux.rasterizer
 
       - name: Install Explicit Rust build tools
         run: |

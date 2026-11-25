@@ -14,12 +14,10 @@ name = "calendar-panel"
 path = "src/bin/calendar-panel.rs"
 
 [dependencies]
-console-actor.workspace = true
 console-core-external-programs.workspace = true
 console-core-arguments.workspace = true
 console-core-never.workspace = true
 console-core-number-conversion.workspace = true
-console-core-state-machine.workspace = true
 console-panel.workspace = true
 
 [dev-dependencies]

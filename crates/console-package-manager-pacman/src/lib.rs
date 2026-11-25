@@ -7,6 +7,7 @@ use std::process::{ExitStatus, Stdio};
 use console_core_external_programs::Program;
 use console_core_never::Never;
 
+pub mod applications;
 mod progress;
 
 pub use progress::PacmanOutput;
@@ -17,6 +18,25 @@ pub fn installed() -> Result<Vec<String>, Never> {
 
 pub fn explicit() -> Result<Vec<String>, Never> {
   packages("-Qeq")
+}
+
+pub fn unmet_dependencies(packages: &[&str]) -> io::Result<Vec<String>> {
+  match packages {
+    [] => return Ok(Vec::new()),
+    [_, ..] => {}
+  }
+
+  let Ok(mut command) = Program::Pacman.command();
+  let answer = command.args(["-T", "--"]).args(packages).output()?;
+
+  match answer.status.code() {
+    Some(0) => Ok(Vec::new()),
+    Some(127) => {
+      let missing = String::from_utf8(answer.stdout).map_err(io::Error::other)?;
+      Ok(missing.split_whitespace().map(str::to_owned).collect())
+    }
+    Some(_) | None => Err(io::Error::other(format!("pacman -T exited with {}", answer.status))),
+  }
 }
 
 fn packages(query: &str) -> Result<Vec<String>, Never> {

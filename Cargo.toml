@@ -128,6 +128,7 @@ console-login-window = { path = "crates/console-login-window" }
 console-manifest-engine = { path = "crates/console-manifest-engine" }
 console-manifest-migrations = { path = "crates/console-manifest-migrations" }
 console-package-manager = { path = "crates/console-package-manager" }
+console-package-manager-flatpak = { path = "crates/console-package-manager-flatpak" }
 console-package-manager-mise = { path = "crates/console-package-manager-mise" }
 console-package-manager-nix = { path = "crates/console-package-manager-nix" }
 console-package-manager-pacman = { path = "crates/console-package-manager-pacman" }

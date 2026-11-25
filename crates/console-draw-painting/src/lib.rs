@@ -246,11 +246,12 @@ fn paint(
   let Ok(transform) = scale.pre_translate_by(console_core_paths::Point { x: left, y: top });
   let mut canvas = Canvas::new(pixels, frame.device, transform)?;
 
-  match ground {
+  let remaining_shapes = match ground {
     Ground::Cleared => {
-      let Ok(()) = canvas.pixels.fill(Color::TRANSPARENT);
+      let Ok(remaining) = clear_ground(&mut canvas, frame, shapes, origin);
+      remaining
     }
-    Ground::Preserved => {}
+    Ground::Preserved => shapes,
     Ground::Picture(picture) => {
       let Ok(painted) = opaque_frame::paint(&mut canvas, frame, &picture);
 
@@ -258,10 +259,12 @@ fn paint(
         opaque_frame::OpaquePaint::Painted => {}
         opaque_frame::OpaquePaint::Fallback => draw_picture(&mut canvas, picture)?,
       }
-    }
-  }
 
-  for shape in shapes {
+      shapes
+    }
+  };
+
+  for shape in remaining_shapes {
     match shape {
       Shape::Panel(panel) => draw_panel(&mut canvas, panel)?,
       Shape::Text(words) => draw_text(&mut canvas, words)?,
@@ -291,6 +294,45 @@ fn paint(
   }
 
   Ok(())
+}
+
+fn clear_ground<'a>(
+  canvas: &mut Canvas<'_>,
+  frame: Frame,
+  shapes: &'a [Shape],
+  origin: Point<i32>,
+) -> Result<&'a [Shape], Never> {
+  let (fill, remaining) = match shapes.split_first() {
+    Some((
+      Shape::Panel(Panel {
+        at,
+        size,
+        round: Round(0),
+        fill,
+        edge: Edge::None,
+      }),
+      rest,
+    )) => {
+      match (origin == Point::default()
+        && *at == origin
+        && *size == frame.points
+        && size.width != 0
+        && size.height != 0)
+        .then_some(())
+      {
+        Some(()) => {
+          let Ok(ink) = color(*fill);
+          let Ok(pixel) = raster::buffer_color(ink);
+          (pixel, rest)
+        }
+        None => (Color::TRANSPARENT, shapes),
+      }
+    }
+    Some(_) | None => (Color::TRANSPARENT, shapes),
+  };
+  let Ok(()) = canvas.pixels.fill(fill);
+
+  Ok(remaining)
 }
 
 fn ratio(frame: Frame) -> Result<Size<f64>, Never> {
@@ -346,7 +388,11 @@ fn draw_line(canvas: &mut Canvas<'_>, line: &Line) -> Result<(), Never> {
           ..Stroke::default()
         },
         canvas.transform,
-        canvas.clip.as_ref(),
+        canvas.clip.as_ref().map(|clip| {
+          let Ok(mask) = clip.mask();
+
+          mask
+        }),
       );
     }
     None => {}
@@ -415,7 +461,11 @@ fn panel_path(
         ..Stroke::default()
       },
       canvas.transform,
-      canvas.clip.as_ref(),
+      canvas.clip.as_ref().map(|clip| {
+        let Ok(mask) = clip.mask();
+
+        mask
+      }),
     ),
     None => canvas.fill_path(&path_3, &paint, FillRule::Winding),
   };
@@ -425,16 +475,8 @@ fn panel_path(
 
 fn draw_text(canvas: &mut Canvas<'_>, words: &Text) -> Result<(), Cannot> {
   let Ok(ink) = color(words.ink);
-  let Ok(layout) = text::layout(&words.said, &words.font, words.weight, words.width);
 
-  layout.draw(
-    canvas,
-    Point {
-      x: f64::from(words.at.x),
-      y: f64::from(words.at.y),
-    },
-    ink,
-  )
+  text::paint(canvas, words, ink)
 }
 
 fn premultiplied(pixels: &Pixels) -> Result<Pixmap, Cannot> {
@@ -533,7 +575,11 @@ fn cropped(canvas: &mut Canvas<'_>, picture: Cropped<&Pixels>) -> Result<(), Can
   let ::core::result::Result::Ok(()) =
     canvas
       .pixels
-      .fill_rect(rect, &paint, canvas.transform, canvas.clip.as_ref());
+      .fill_rect(rect, &paint, canvas.transform, canvas.clip.as_ref().map(|clip| {
+        let Ok(mask) = clip.mask();
+
+        mask
+      }));
 
   Ok(())
 }

@@ -124,14 +124,14 @@ pub fn surface_worth_asking_after(line: &str) -> Result<Worth, Never> {
     | CompositorEvent::WorkspaceChanged
     | CompositorEvent::WindowOpened(_)
     | CompositorEvent::WindowClosed(_)
+    | CompositorEvent::WindowMoved
+    | CompositorEvent::ConfigurationReloaded
     | CompositorEvent::ScreenFocused => Worth::Querying,
     CompositorEvent::WindowRenamed(_)
-    | CompositorEvent::WindowMoved
     | CompositorEvent::WindowFloated
     | CompositorEvent::WindowPinned
     | CompositorEvent::WindowFilled
     | CompositorEvent::WindowFocused
-    | CompositorEvent::ConfigurationReloaded
     | CompositorEvent::Ignored => Worth::Ignoring,
   })
 }

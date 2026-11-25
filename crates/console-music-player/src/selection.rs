@@ -88,6 +88,22 @@ impl Selection {
     })
   }
 
+  pub fn copy_decision(from: &Path, to: &Path) -> io::Result<()> {
+    Self::edit(|selection| {
+      let Ok(source) = selection.decision(from);
+      let Ok(target) = selection.decision(to);
+
+      Ok(match (source, (source == target).then_some(())) {
+        (Some(visibility), None) => {
+          let _old = selection.0.insert(to.to_path_buf(), visibility);
+
+          Change::Recorded
+        }
+        (None, _) | (Some(_), Some(())) => Change::Unchanged,
+      })
+    })
+  }
+
   pub fn forget(paths: &BTreeSet<&Path>) -> io::Result<()> {
     match paths.is_empty().then_some(()) {
       Some(()) => Ok(()),

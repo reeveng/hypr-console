@@ -63,6 +63,7 @@ pub enum Step {
   DisableGlobally(&'static str),
   Terminate(&'static str),
   RemovePackage(&'static str),
+  SetupNixDaemon,
   RemoveIfEmpty(&'static str),
   Rewrite(Rewrite),
   CopySetting(CopySetting),
@@ -94,17 +95,32 @@ pub enum Timing {
   AfterDeployment,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FirstApply {
+  Remember,
+  Run,
+}
+
 impl Migration {
   pub fn timing(&self) -> Result<Timing, Never> {
-    let removes_package = self
+    let needs_deployment = self
       .steps
       .iter()
-      .any(|step| matches!(step, Step::RemovePackage(_)));
+      .any(|step| matches!(step, Step::RemovePackage(_) | Step::SetupNixDaemon));
 
-    Ok(match removes_package.then_some(()) {
+    Ok(match needs_deployment.then_some(()) {
       Some(()) => Timing::AfterDeployment,
       None => Timing::BeforeDeployment,
     })
+  }
+
+  pub fn first_apply(&self) -> Result<FirstApply, Never> {
+    Ok(
+      match self.steps.contains(&Step::SetupNixDaemon).then_some(()) {
+        Some(()) => FirstApply::Run,
+        None => FirstApply::Remember,
+      },
+    )
   }
 }
 
@@ -121,6 +137,7 @@ pub fn sweeps(migration: &Migration) -> Result<BTreeSet<String>, Never> {
           | Step::Stop(_)
           | Step::Terminate(_)
           | Step::RemovePackage(_)
+          | Step::SetupNixDaemon
           | Step::RemoveIfEmpty(_)
           | Step::Rewrite(_)
           | Step::CopySetting(_) => return None,

@@ -10,8 +10,8 @@ mod text_input;
 pub use console_core_highlight::Activation;
 pub use scale::Scale;
 pub use standing::{
-  Anchor, Closed, Damage, DmaBufView, Drawing, KeyPress, Keyboard, KeyboardEvent, KeyboardFocus,
-  Keysym, LayerSupport, Lock, Margin, Part, PointerEvent, Room, Surface, SurfaceError, Under,
-  Unlocked, Visible, Wanted, Window, on_the_device,
+  Anchor, Closed, Damage, DmaBufView, Drawing, KeyPress, KeyPressKind, Keyboard, KeyboardEvent,
+  KeyboardFocus, Keysym, LayerSupport, Lock, Margin, Part, PhysicalKeyPress, PointerEvent, Room,
+  ShortcutPress, Surface, SurfaceError, Under, Unlocked, Visible, Wanted, Window, on_the_device,
 };
 pub use text_input::{Composition, InputContent, Surrounding, TextInputChange, TextInputState};

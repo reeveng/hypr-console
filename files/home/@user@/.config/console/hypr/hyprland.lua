@@ -73,11 +73,38 @@ if keyboard_state then
     keyboard_state:close()
 end
 
+local configuration = os.getenv("XDG_CONFIG_HOME")
+if not configuration or configuration:sub(1, 1) ~= "/" then
+    configuration = home and (home .. "/.config")
+end
+
+local function input_preference(name)
+    local file = configuration and io.open(configuration .. "/console/" .. name, "r")
+    if not file then
+        return ""
+    end
+    local value = file:read(16) or ""
+    file:close()
+    return value:match("^%s*(.-)%s*$")
+end
+
+local pointer_speed = tonumber(input_preference("pointer-speed"):match("^[+-]?%d+$")) or 0
+if pointer_speed < -100 or pointer_speed > 100 then
+    pointer_speed = 0
+end
+local pointer_profile = input_preference("pointer-acceleration")
+if pointer_profile ~= "adaptive" and pointer_profile ~= "flat" then
+    pointer_profile = ""
+end
+
 -- Clipboard contents and window titles stay private in compositor captures.
 hl.layer_rule({
     match = { namespace = "^(console-clipboard|console-task-manager)$" },
     no_screen_share = true,
 })
+
+-- Hyprland draws lower orders later within the background layer.
+hl.layer_rule({ match = { namespace = "^console-paper-live$" }, order = -1 })
 
 hl.env("XCURSOR_SIZE", "48")
 hl.env("HYPRCURSOR_SIZE", "48")
@@ -99,12 +126,7 @@ hl.env("QT_QPA_PLATFORMTHEME", "kde")
 
 ------------------------------------------------------------------ look
 
--- The palette, written by tools/console-palette out of theme/palette.toml. Every
--- other surface on this machine imports the palette in its own language; the
--- compositor is handed a copy instead, because a config file that fails to
--- load here does not cost a window, it abandons every line after the failure
--- and leaves a session with no bindings on a device whose only other way in is
--- ssh.
+-- The default colors, generated from theme/palette.toml by console-palette.
 -- console-palette:begin
 local blossom = {
     active   = "rgba(ffc2e7ff)",
@@ -113,6 +135,23 @@ local blossom = {
 }
 -- console-palette:end
 
+local function window_borders()
+    local colors = io.popen("exec '/usr/local/bin/console-compositor' theme-borders", "r")
+    if colors then
+        -- Hyprland may reap the helper before close can report its exit status.
+        local line = colors:read(14) or ""
+        colors:close()
+        local hex = ("%x"):rep(6)
+        local active, inactive = line:match("^(" .. hex .. ") (" .. hex .. ")\n$")
+        if active and inactive then
+            return "rgba(" .. active .. "ff)", "rgba(" .. inactive .. "ff)"
+        end
+    end
+    return blossom.active, blossom.inactive
+end
+
+local active_border, inactive_border = window_borders()
+
 -- No gaps and no rounding: on an 8.8 inch screen a window should have the
 -- whole of it. With a tiling layout one window is already full screen.
 hl.config({
@@ -120,9 +159,8 @@ hl.config({
         gaps_in     = 0,
         gaps_out    = 0,
         border_size = 3,
-        -- The window you are typing into is the pink one.
-        ["col.active_border"]   = blossom.active,
-        ["col.inactive_border"] = blossom.inactive,
+        ["col.active_border"]   = active_border,
+        ["col.inactive_border"] = inactive_border,
     },
     decoration = {
         rounding = 0,
@@ -159,10 +197,7 @@ hl.config({
         -- is next to nothing to see, and what little there is, is not worth
         -- drawing every frame.
         --
-        -- What actually lifts a window here is the border: three pixels of
-        -- `pink` on the one being typed into, which is the same pink a
-        -- highlighted row is everywhere else on this machine. That is the
-        -- affordance, it is deliberate, and it does not need a shadow's help.
+        -- The selected theme's accent marks the focused window.
         shadow = {
             enabled = false,
         },
@@ -213,11 +248,13 @@ hl.config({
     },
     input = {
         kb_layout    = keyboard_layout,
+        kb_options   = input_preference("caps-lock") == "super" and "caps:super" or "",
         follow_mouse = 1,
-        sensitivity  = 0,
+        sensitivity  = pointer_speed / 100,
+        accel_profile = pointer_profile,
     },
-    -- Windows sharing a place stand side by side and are never stacked. Dwindle
-    -- stacks a split when its height times this number is more than its width,
+    -- Dwindle gives automatic splits a strong side-by-side bias. It stacks
+    -- an automatic split when its height times this number is more than its width,
     -- and no window on this screen is eight times taller than it is wide. An
     -- eighth rather than a tenth because 0.57 holds its minimum of 0.1 as a
     -- float, a tenth written here is a double that lands just under it, and
@@ -225,6 +262,7 @@ hl.config({
     dwindle = {
         preserve_split         = true,
         split_width_multiplier = 0.125,
+        use_active_for_splits  = true,
     },
 })
 
@@ -232,6 +270,8 @@ hl.device({
     name   = "nvtk0603:00-0603:f001",
     output = "eDP-1",
 })
+
+console_disabled_touchpads = nil
 
 -- The controller's touchpad is read by InputPlumber, which turns it into
 -- pointer motion. The compositor sees it too, as an absolute touch device
@@ -241,14 +281,6 @@ hl.device({
     name    = "--legion-controller--touchpad",
     enabled = false,
 })
-
--- A window opens alone and fills the screen, because with no gaps a tiling
--- layout gives one window the whole of it. Two can share a place when somebody
--- carries one onto another's (L2 with a shoulder, or Super, Shift and an
--- arrow): the tiling splits the screen between them, and a finger or Super and
--- an arrow says which one is being used. This used to maximise every window,
--- which meant a window carried onto an occupied place landed on top of the one
--- there and hid it, so moving a window between places could only ever stack.
 
 -- Nothing floats. A dialog that asks to be a small window on top of another
 -- one is the only way anything could overlap here, and on a screen this size
@@ -263,13 +295,13 @@ hl.window_rule({
     tile  = true,
 })
 
--- A new window gets a place of its own. Sharing is something a person asks
--- for by carrying a window; a program opening a second window is not asking.
-hl.window_rule({
-    name      = "a new window opens alone",
-    match     = { class = ".*" },
-    workspace = "emptyn",
-})
+if input_preference("new-window-workspace") ~= "current" then
+    hl.window_rule({
+        name      = "a new window opens alone",
+        match     = { class = ".*" },
+        workspace = "emptyn",
+    })
+end
 
 -- Settings stores the desktop entry ID followed by its window classes.
 -- Register the rule after the default so selected apps open over the active workspace.

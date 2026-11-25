@@ -21,6 +21,16 @@ const PANELS: &str = concat!(
   "(package(=console-application-media-viewer) & binary(=a_finger)) | ",
   "(package(=console-panel) & binary(=every_panel_answers_a_finger))"
 );
+const ARCHITECTURE: &str =
+  "package(=console-architecture) & (binary(=the_map) | binary(=the_rules))";
+const VOCABULARY: &str = "package(=console-vocabulary) & binary(=the_words)";
+const WAYLAND: &str = "package(=console-wayland) & kind(lib)";
+const MEDIA: &str = concat!(
+  "(package(=console-sound-effects) & binary(=balanced_output)) | ",
+  "(package(=console-music-player) & test(loudness::tests::)) | ",
+  "(package(=console-wallpaper) & test(=render::tests::a_fixture_frame_finishes_after_the_encoder_input_closes)) | ",
+  "(package(=console-application-camera) & test(a_monochrome_stream_can_be_previewed_and_encoded))"
+);
 
 pub(super) fn link(arguments: &[String]) -> io::Result<()> {
   let _ = fs::read_to_string(GUEST)?;
@@ -82,6 +92,8 @@ pub(super) fn run(arguments: &[String]) -> io::Result<()> {
       &format!("all() - ({UNIT} | {DESKTOP} | {PANELS} | {LIVE})"),
       &[],
     ),
+    Suite::Architecture => nextest(workspace, ARCHITECTURE, &["--run-ignored", "all"]),
+    Suite::Vocabulary => nextest(workspace, VOCABULARY, &["--success-output", "final"]),
     Suite::Desktop => {
       desktop(workspace)?;
 
@@ -93,9 +105,23 @@ pub(super) fn run(arguments: &[String]) -> io::Result<()> {
       LIVE,
       &["--run-ignored", "all", "--test-threads", "1"],
     ),
-    Suite::Chromium | Suite::Browser => Err(io::Error::other(
-      "the browser fixture has its own guest executable",
-    )),
+    Suite::Wayland => nextest(
+      workspace,
+      WAYLAND,
+      &["--run-ignored", "ignored-only", "--test-threads", "1"],
+    ),
+    Suite::Media => nextest(
+      workspace,
+      MEDIA,
+      &["--run-ignored", "ignored-only", "--test-threads", "1"],
+    ),
+    Suite::Chromium
+    | Suite::Browser
+    | Suite::Servo
+    | Suite::Rasterizer
+    | Suite::NightLight
+    | Suite::KernelGpuChecksums
+    | Suite::SystemGpuCompute => Err(io::Error::other("this suite has its own guest executable")),
   }
 }
 

@@ -2,6 +2,8 @@
 
 #![forbid(unsafe_code)]
 
+pub mod applications;
+
 use std::ffi::OsString;
 use std::fs;
 use std::io;

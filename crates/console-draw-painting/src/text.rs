@@ -11,6 +11,7 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::marker::PhantomData;
 
 use console_core_path_rasterizer::{Color, ColorU8, Pixmap, PixmapPaint};
@@ -20,20 +21,24 @@ use console_core_fonts::ICONS;
 use console_core_geometry::{Point, Size};
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index, narrow_f32, toward_zero_u32};
-use console_core_shapes::{Font, Weight};
+use console_core_shapes::{Font, Text, Weight};
 use console_core_text_layout::fontdb::{Database, Query};
 use console_core_text_layout::{
   Attrs, Buffer, CacheKey, Family, FontSystem, GlyphCache, GlyphContent, Hinting, Metrics,
   Shaping, Wrap,
 };
 
-use crate::Cannot;
+use crate::{Cannot, Run};
+
+const PAINT_LAYOUTS: u16 = 256;
+const CACHEABLE_TEXT_BYTES: u16 = 256;
 
 struct TextSystem {
   fonts: FontSystem,
   icon_family: String,
   glyphs: GlyphCache,
   surfaces: HashMap<(CacheKey, [u8; 4]), Glyph>,
+  layouts: Vec<Option<PaintLayout>>,
 }
 
 thread_local! {
@@ -41,6 +46,101 @@ thread_local! {
 }
 
 pub struct Layout(Buffer, PhantomData<*const ()>);
+
+struct PaintLayout {
+  said: String,
+  font: Font,
+  weight: Weight,
+  width: u32,
+  layout: Layout,
+}
+
+impl PaintLayout {
+  fn for_text(words: &Text, system: &mut TextSystem) -> Result<Self, Never> {
+    let run = Run {
+      said: &words.said,
+      weight: words.weight,
+      width: words.width,
+    };
+    let Ok(layout) = build_layout(system, run, &words.font, Style::Normal);
+
+    Ok(Self {
+      said: words.said.clone(),
+      font: words.font.clone(),
+      weight: words.weight,
+      width: words.width,
+      layout,
+    })
+  }
+}
+
+#[cfg_attr(
+  dylint_lib = "explicit047_no_captured_permission",
+  allow(
+    explicit047_no_captured_permission,
+    reason = "the canvas is lent to the synchronous draw while the owning thread lends its text cache"
+  )
+)]
+pub(super) fn paint(canvas: &mut Canvas<'_>, words: &Text, ink: Color) -> Result<(), Cannot> {
+  let at = Point {
+    x: f64::from(words.at.x),
+    y: f64::from(words.at.y),
+  };
+  let Ok(length) = fitted::<_, u16>(words.said.len());
+
+  match (length <= CACHEABLE_TEXT_BYTES).then_some(()) {
+    Some(()) => {}
+    None => {
+      let Ok(layout) = layout(&words.said, &words.font, words.weight, words.width);
+
+      return layout.draw(canvas, at, ink);
+    }
+  }
+
+  TEXT.with(|cache| {
+    let mut held = cache.try_borrow_mut().map_err(|_| Cannot::TextBusy)?;
+    let system = held.get_or_insert_with(|| {
+      let Ok(system) = TextSystem::new();
+
+      system
+    });
+    let Ok(slot) = paint_slot(words);
+    let Ok(index) = index(slot);
+    let cached = system.layouts.get_mut(index).and_then(Option::take);
+    let drawing = match cached.filter(|former| {
+      former.said == words.said
+        && former.font == words.font
+        && former.weight == words.weight
+        && former.width == words.width
+    }) {
+      Some(layout) => layout,
+      None => {
+        let Ok(layout) = PaintLayout::for_text(words, system);
+
+        layout
+      }
+    };
+    let result = drawing.layout.draw_in(system, canvas, at, ink);
+
+    match system.layouts.get_mut(index) {
+      Some(cell) => *cell = Some(drawing),
+      None => {}
+    }
+
+    result
+  })
+}
+
+fn paint_slot(words: &Text) -> Result<u16, Never> {
+  let mut hash = DefaultHasher::new();
+  words.said.hash(&mut hash);
+  words.font.family.hash(&mut hash);
+  words.font.height.hash(&mut hash);
+  words.width.hash(&mut hash);
+  std::mem::discriminant(&words.weight).hash(&mut hash);
+
+  fitted(hash.finish() & u64::from(PAINT_LAYOUTS.saturating_sub(1)))
+}
 
 pub struct FontCatalog(FontSystem);
 
@@ -101,6 +201,35 @@ pub fn styled_layout(
   width: u32,
   style: Style,
 ) -> Result<Layout, Never> {
+  Ok(TEXT.with(|held| {
+    #[cfg_attr(
+      dylint_lib = "explicit056_no_hidden_panic_api",
+      expect(
+        explicit056_no_hidden_panic_api,
+        reason = "the infallible layout API shapes synchronously against its own thread's font database and has no cache reentry in its call path"
+      )
+    )]
+    let mut held_2 = held.borrow_mut();
+    let system = held_2.get_or_insert_with(|| {
+      let Ok(system) = TextSystem::new();
+
+      system
+    });
+    let Ok(layout) = build_layout(system, crate::Run { said, weight, width }, font, style);
+    layout
+  }))
+}
+
+fn build_layout(
+  system: &mut TextSystem,
+  crate::Run {
+    said,
+    weight,
+    width,
+  }: crate::Run<'_>,
+  font: &Font,
+  style: Style,
+) -> Result<Layout, Never> {
   let Ok(height) = fitted::<u32, u16>(font.height.max(1));
   let height_2 = f32::from(height);
   let width_3 = match width {
@@ -117,75 +246,96 @@ pub fn styled_layout(
     Weight::Bold => console_core_text_layout::Weight::BOLD,
   };
 
-  Ok(TEXT.with(|held| {
-    #[cfg_attr(
-      dylint_lib = "explicit056_no_hidden_panic_api",
-      expect(
-        explicit056_no_hidden_panic_api,
-        reason = "the infallible layout API shapes synchronously against its own thread's font database and has no cache reentry in its call path"
-      )
-    )]
-    let mut held_2 = held.borrow_mut();
-    let system = held_2.get_or_insert_with(|| {
-      let Ok(system) = TextSystem::new();
+  let family = match (font.family == ICONS).then_some(()) {
+    Some(()) => Family::Name(&system.icon_family),
+    None => Family::Name(&font.family),
+  };
+  let Ok(database) = system.fonts.db();
+  let face = database.query(&Query {
+    families: &[family],
+    weight: weight_2,
+    style,
+    ..Query::default()
+  });
+  let face_2 = match {
+    let Ok(explicit_value) = face;
+    explicit_value
+  } {
+    Some(id) => {
+      let Ok(font_2) = system.fonts.get_font(id, weight_2);
 
-      system
-    });
-    let family = match (font.family == ICONS).then_some(()) {
-      Some(()) => Family::Name(&system.icon_family),
-      None => Family::Name(&font.family),
-    };
-    let Ok(database) = system.fonts.db();
-    let face = database.query(&Query {
-      families: &[family],
-      weight: weight_2,
-      style,
-      ..Query::default()
-    });
-    let face_2 = match {
-      let Ok(explicit_value) = face;
-      explicit_value
-    } {
-      Some(id) => {
-        let Ok(font_2) = system.fonts.get_font(id, weight_2);
+      font_2
+    }
+    None => None,
+  };
+  let line_height = match face_2 {
+    Some(face_3) => {
+      let Ok(metrics) = face_3.metrics();
 
-        font_2
-      }
-      None => None,
-    };
-    let line_height = match face_2 {
-      Some(face_3) => {
-        let Ok(metrics) = face_3.metrics();
+      height_2 * (metrics.ascent - metrics.descent + metrics.leading)
+        / f32::from(metrics.units_per_em.max(1))
+    }
+    None => height_2 * 1.4,
+  };
+  let Ok(metrics) = Metrics::new(
+    height_2,
+    console_core_text_layout::LineHeight(line_height.max(height_2)),
+  );
+  let Ok(mut buffer) = Buffer::new_empty(metrics);
+  let Ok(attrs) = Attrs::new();
+  let Ok(attrs_2) = attrs.family(family);
+  let Ok(attrs_3) = attrs_2.weight(weight_2);
+  let Ok(attrs_4) = attrs_3.style(style);
 
-        height_2 * (metrics.ascent - metrics.descent + metrics.leading)
-          / f32::from(metrics.units_per_em.max(1))
-      }
-      None => height_2 * 1.4,
-    };
-    let Ok(metrics) = Metrics::new(
-      height_2,
-      console_core_text_layout::LineHeight(line_height.max(height_2)),
-    );
-    let Ok(mut buffer) = Buffer::new_empty(metrics);
-    let Ok(attrs) = Attrs::new();
-    let Ok(attrs_2) = attrs.family(family);
-    let Ok(attrs_3) = attrs_2.weight(weight_2);
-    let Ok(attrs_4) = attrs_3.style(style);
+  let Ok(()) = buffer.set_hinting(Hinting::Disabled);
+  let Ok(()) = buffer.set_wrap(Wrap::WordOrGlyph);
+  let Ok(()) = buffer.set_size(width_3, None);
+  let Ok(()) = buffer.set_text(said, &attrs_4, Shaping::Advanced, None);
+  let Ok(()) = buffer.shape_until_scroll(
+    &mut system.fonts,
+    console_core_text_layout::Pruning::Preserve,
+  );
 
-    let Ok(()) = buffer.set_hinting(Hinting::Disabled);
-    let Ok(()) = buffer.set_wrap(Wrap::WordOrGlyph);
-    let Ok(()) = buffer.set_size(width_3, None);
-    let Ok(()) = buffer.set_text(said, &attrs_4, Shaping::Advanced, None);
-    let Ok(()) = buffer.shape_until_scroll(
-      &mut system.fonts,
-      console_core_text_layout::Pruning::Preserve,
-    );
-
-    Layout(buffer, PhantomData)
-  }))
+  Ok(Layout(buffer, PhantomData))
 }
 
 impl Layout {
+  pub fn vertical_ink_bounds(&self) -> Result<Option<(i32, i32)>, Cannot> {
+    TEXT.with(|held| {
+      let mut cache = held.try_borrow_mut().map_err(|_in_use| Cannot::TextBusy)?;
+      let system = match cache.as_mut() {
+        Some(system) => system,
+        None => return Ok(None),
+      };
+      let Ok(runs) = self.0.layout_runs();
+      let mut bounds: Option<(i32, i32)> = None;
+
+      for run in runs {
+        for glyph in run.glyphs {
+          let Ok(physical) = glyph.physical((0.0, run.line_y), 1.0);
+          let Ok(image) = system
+            .glyphs
+            .get_image(&mut system.fonts, physical.cache_key);
+
+          match image {
+            Some(glyph_image) => {
+              let top = physical.y.saturating_sub(glyph_image.placement.top);
+              let Ok(height) = fitted::<u32, i32>(glyph_image.placement.height);
+              let bottom = top.saturating_add(height);
+              bounds = Some(match bounds {
+                Some((first, last)) => (first.min(top), last.max(bottom)),
+                None => (top, bottom),
+              });
+            }
+            None => {}
+          }
+        }
+      }
+
+      Ok(bounds)
+    })
+  }
+
   pub fn measured(&self) -> Result<Size<u32>, Never> {
     let mut width = 0.0_f32;
     let mut height = 0.0_f32;
@@ -266,55 +416,79 @@ impl Layout {
 
         system
       });
-      let Ok(scale) = toward_zero_u32(f64::from(canvas.transform.sy.abs().ceil().max(1.0)));
-      let Ok(scale_2) = fitted::<_, u16>(scale);
-      let scale_3 = f32::from(scale_2.max(1));
-      let Ok(at_x) = narrow_f32(at.x);
-      let Ok(at_y) = narrow_f32(at.y);
-
-      let Ok(runs) = self.0.layout_runs();
-
-      for run in runs {
-        'glyphs: for glyph in run.glyphs {
-          let Ok(physical) = glyph.physical((0.0, run.line_y * scale_3), scale_3);
-          let image = system.image(physical.cache_key, ink)?;
-          let image_3 = match image {
-            Some(image_2) => image_2,
-            None => continue 'glyphs,
-          };
-          let Ok(x) =
-            narrow_f32(f64::from(physical.x.saturating_add(image_3.at.x)) / f64::from(scale_3));
-          let Ok(y) =
-            narrow_f32(f64::from(physical.y.saturating_sub(image_3.at.y)) / f64::from(scale_3));
-          let Ok(translated) = canvas
-            .transform
-            .pre_translate_by(console_core_paths::Point {
-              x: at_x + x,
-              y: at_y + y,
-            });
-          let inverse_scale = 1.0 / scale_3;
-          let transform = translated.pre_scale_by(console_core_paths::ScaleFactors {
-            x: inverse_scale,
-            y: inverse_scale,
-          });
-
-          let Ok(surface) = image_3.surface.as_ref();
-          let ::core::result::Result::Ok(()) = canvas.pixels.draw_pixmap(
-            0,
-            0,
-            surface,
-            &PixmapPaint::default(),
-            {
-              let Ok(explicit_value) = transform;
-              explicit_value
-            },
-            canvas.clip.as_ref(),
-          );
-        }
-      }
-
-      Ok(())
+      self.draw_in(system, canvas, at, ink)
     })
+  }
+
+  fn draw_in(
+    &self,
+    system: &mut TextSystem,
+    canvas: &mut Canvas<'_>,
+    at: Point<f64>,
+    ink: Color,
+  ) -> Result<(), Cannot> {
+    let Ok(scale) = toward_zero_u32(f64::from(canvas.transform.sy.abs().ceil().max(1.0)));
+    let Ok(scale_2) = fitted::<_, u16>(scale);
+    let scale_3 = f32::from(scale_2.max(1));
+    let Ok(at_x) = narrow_f32(at.x);
+    let Ok(at_y) = narrow_f32(at.y);
+
+    let Ok(runs) = self.0.layout_runs();
+
+    for run in runs {
+      'glyphs: for glyph in run.glyphs {
+        let Ok(physical) = glyph.physical((0.0, run.line_y * scale_3), scale_3);
+        let image = system.image(physical.cache_key, ink)?;
+        let image_3 = match image {
+          Some(image_2) => image_2,
+          None => continue 'glyphs,
+        };
+        let Ok(x) =
+          narrow_f32(f64::from(physical.x.saturating_add(image_3.at.x)) / f64::from(scale_3));
+        let Ok(y) =
+          narrow_f32(f64::from(physical.y.saturating_sub(image_3.at.y)) / f64::from(scale_3));
+        let Ok(translated) = canvas
+          .transform
+          .pre_translate_by(console_core_paths::Point {
+            x: at_x + x,
+            y: at_y + y,
+          });
+        let inverse_scale = 1.0 / scale_3;
+        let Ok(transform) = translated.pre_scale_by(console_core_paths::ScaleFactors {
+          x: inverse_scale,
+          y: inverse_scale,
+        });
+
+        let Ok(surface) = image_3.surface.as_ref();
+        let mask = canvas.clip.as_ref().and_then(|clip| {
+          let Ok(wide) = surface.width();
+          let Ok(tall) = surface.height();
+          let Ok(width) = narrow_f32(f64::from(wide));
+          let Ok(height) = narrow_f32(f64::from(tall));
+          let Ok(rectangle) =
+            console_core_path_rasterizer::FloatRectangle::from_xywh(0.0, 0.0, width, height);
+
+          match rectangle {
+            Some(bounds) => {
+              let Ok(mask) = clip.mask_for(bounds, transform);
+
+              mask
+            }
+            None => {
+              let Ok(mask) = clip.mask();
+
+              Some(mask)
+            }
+          }
+        });
+        let ::core::result::Result::Ok(()) =
+          canvas
+            .pixels
+            .draw_pixmap(0, 0, surface, &PixmapPaint::default(), transform, mask);
+      }
+    }
+
+    Ok(())
   }
 }
 
@@ -357,12 +531,14 @@ impl TextSystem {
     let Ok(glyphs) = GlyphCache::new();
     let Ok(db) = fonts.db();
     let Ok(icon_family) = icon_family(db);
+    let layouts = (0..PAINT_LAYOUTS).map(|_| None).collect();
 
     Ok(Self {
       fonts,
       icon_family,
       glyphs,
       surfaces: HashMap::new(),
+      layouts,
     })
   }
 

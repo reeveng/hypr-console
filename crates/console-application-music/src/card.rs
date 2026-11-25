@@ -5,12 +5,16 @@
 //! card actor. The panel by the bar has only Now Playing.
 
 mod catalog;
+mod metadata;
 
-use catalog::{albums_page, manage_effect, review_page, suggestions_page};
+use catalog::{albums_page, manage_effect, review_page};
 use console_core_arguments::{Command, Operands};
+use console_core_iteration::{Step, iterate};
 use console_core_localization::positional;
 use console_core_never::Never;
 use console_core_number_conversion::{Float, fitted};
+use metadata::suggestions_page;
+use std::collections::VecDeque;
 use std::path::Path;
 use std::time::Duration;
 
@@ -27,7 +31,8 @@ use console_music_player::selection::{Selection, Visibility};
 use console_panel::card::{Card, Door};
 use console_panel::icons::Icon;
 use console_panel::page::{
-  ActionOutcome, Active, Aside, Bar, ButtonPress, Handler, Page, Picture, Row, Rows, Showing,
+  ActionOutcome, Active, Aside, Bar, ButtonPress, Handler, LoadedRows, Page, Picture, Row, Rows,
+  Showing,
 };
 use console_panel::running;
 use console_program_contract::{
@@ -67,23 +72,55 @@ fn decided(held: &Panel, heard: MusicEvent) -> Result<Vec<Effect<MusicEffect>>, 
 }
 
 fn press(held: &Panel, heard: MusicEvent, showing: &dyn Showing) -> Result<(), Never> {
-  let effects = decided(held, heard)?;
+  let Ok(effects) = decided(held, heard);
+  let pending = VecDeque::from(effects);
+  let drained = iterate(pending, |mut pending_2| {
+    let effect = match pending_2.pop_front() {
+      Some(effect) => effect,
+      None => return Ok(Step::Halt(())),
+    };
+    let Ok(reply) = carry(held, &effect, showing);
 
-  for effect in effects {
-    carry(held, &effect, showing)?;
+    match reply {
+      Some(request) => {
+        let Ok(effects_2) = decided(held, MusicEvent::Manage(request));
+
+        for effect_2 in effects_2.into_iter().rev() {
+          pending_2.push_front(effect_2);
+        }
+      }
+      None => {}
+    }
+
+    Ok(Step::Again(pending_2))
+  });
+
+  match drained {
+    Ok(()) => {}
+    Err(fault) => console_core_logging::warn!("could not finish Music Library effects: {fault}"),
   }
 
   Ok(())
 }
 
-fn carry(held: &Panel, effect: &Effect<MusicEffect>, showing: &dyn Showing) -> Result<(), Never> {
+fn carry(
+  held: &Panel,
+  effect: &Effect<MusicEffect>,
+  showing: &dyn Showing,
+) -> Result<Option<Manage>, Never> {
   match effect {
     Effect::Custom(MusicEffect::Replace(row)) => {
       let Ok(row_2) = fitted(*row);
 
       showing.replace(row_2)
     }
-    Effect::Custom(MusicEffect::Note(said)) => showing.note(said),
+    Effect::Custom(MusicEffect::Notify(said)) => {
+      let Ok(()) = console_notifications::notify(
+        console_notifications::Application("Music Library"),
+        said,
+        None,
+      );
+    }
     Effect::Custom(MusicEffect::ForgetTyping) => showing.forget_typing(),
     Effect::Custom(MusicEffect::Shuffle(order)) => {
       player::shuffle(*order)?;
@@ -94,7 +131,7 @@ fn carry(held: &Panel, effect: &Effect<MusicEffect>, showing: &dyn Showing) -> R
       showing.refresh();
     }
 
-    Effect::Custom(MusicEffect::Manage(work)) => manage_effect(held, work, showing)?,
+    Effect::Custom(MusicEffect::Manage(work)) => return manage_effect(held, work, showing),
     Effect::Custom(MusicEffect::Play(path)) => play_track(path, showing)?,
     Effect::Run(runs) => {
       let Ok(task) = console_panel::tasks::Task::of(runs.clone());
@@ -119,7 +156,7 @@ fn carry(held: &Panel, effect: &Effect<MusicEffect>, showing: &dyn Showing) -> R
     | Effect::Stop(_) => {}
   }
 
-  Ok(())
+  Ok(None)
 }
 
 fn play_track(path: &Path, showing: &dyn Showing) -> Result<(), Never> {
@@ -134,9 +171,9 @@ fn play_track(path: &Path, showing: &dyn Showing) -> Result<(), Never> {
   showing.leave_running(start);
 
   let onward = player::onward_for(path)?;
-  let args: Vec<_> = onward.iter().skip(1).map(String::as_str).collect();
-  let Ok(command) = RunCommand::internal(crate::update::ONWARD, &args);
-  let Ok(task) = console_panel::tasks::Task::of(command);
+  let args_2: Vec<_> = onward.iter().skip(1).map(String::as_str).collect();
+  let Ok(command_2) = RunCommand::internal(crate::update::ONWARD, &args_2);
+  let Ok(task) = console_panel::tasks::Task::of(command_2);
   showing.run(task);
 
   Ok(())
@@ -363,19 +400,16 @@ fn transport_row(held: &Panel, playing: &Playing, at: u32) -> Result<Row, Never>
   Row::pressing(presses, at_2)
 }
 
-fn music_rows(held: &Panel) -> Result<Vec<Row>, Never> {
+fn music_rows(held: &Panel, folder: &Path, songs: Vec<Song>) -> Result<Vec<Row>, Never> {
   let typed = typed_in(held)?;
-  let folder = folder()?;
 
   match ::core::primitive::bool::then_some(typed.is_empty(), ()) {
-    ::core::option::Option::Some(()) => in_the_folder(held, &folder),
-    ::core::option::Option::None => answering(held, &folder, &typed),
+    ::core::option::Option::Some(()) => in_the_folder(held, folder, songs),
+    ::core::option::Option::None => answering(held, folder, &songs, &typed),
   }
 }
 
-fn in_the_folder(held: &Panel, folder: &Path) -> Result<Vec<Row>, Never> {
-  let mut listed = visible_songs(folder)?;
-
+fn in_the_folder(held: &Panel, folder: &Path, mut listed: Vec<Song>) -> Result<Vec<Row>, Never> {
   match listed.is_empty().then_some(()) {
     Some(()) => {
       let Ok(row) = Row::placeholder(&format!("No Music in {}", folder.display()));
@@ -392,11 +426,11 @@ fn in_the_folder(held: &Panel, folder: &Path) -> Result<Vec<Row>, Never> {
     (rank, name.to_lowercase())
   });
 
-  let rows: Result<Vec<Row>, Never> = listed
+  let listed_rows: Result<Vec<Row>, Never> = listed
     .iter()
     .map(|song| played(held, song, folder))
     .collect();
-  let Ok(rows) = rows;
+  let Ok(rows) = listed_rows;
 
   console_panel::page::lettered(rows)
 }
@@ -413,7 +447,12 @@ fn selection() -> Result<Selection, Never> {
 }
 
 fn visible_songs(folder: &Path) -> Result<Vec<Song>, Never> {
-  let mut songs = songs(folder)?;
+  let listed = songs(folder)?;
+
+  included(listed)
+}
+
+fn included(mut songs: Vec<Song>) -> Result<Vec<Song>, Never> {
   let Ok(()) = crate::suggestions::apply_saved(&mut songs);
   let selected = selection()?;
   songs.retain(|song| selected.visibility(&song.path) == Ok(Visibility::Included));
@@ -421,9 +460,8 @@ fn visible_songs(folder: &Path) -> Result<Vec<Song>, Never> {
   Ok(songs)
 }
 
-fn answering(held: &Panel, folder: &Path, word: &str) -> Result<Vec<Row>, Never> {
-  let songs = visible_songs(folder)?;
-  let found = looking::ranked(&songs, word)?;
+fn answering(held: &Panel, folder: &Path, songs: &[Song], word: &str) -> Result<Vec<Row>, Never> {
+  let found = looking::ranked(songs, word)?;
 
   match ::core::primitive::bool::then_some(found.is_empty(), ()) {
     ::core::option::Option::Some(()) => {
@@ -514,15 +552,6 @@ fn plays(held: &Panel, path: &Path, folder: Kind) -> Result<Handler, Never> {
   })
 }
 
-fn read_the_library(held: &Panel, showing: &dyn Showing) -> Result<(), Never> {
-  let folder = folder()?;
-
-  let songs = songs(&folder)?;
-  let unread = looking::unread(&songs)?;
-
-  press(held, MusicEvent::Arrived { unread }, showing)
-}
-
 fn playing_page(held: &Panel) -> Result<Page, Never> {
   let showing = held.clone();
 
@@ -539,44 +568,23 @@ fn playing_page(held: &Panel) -> Result<Page, Never> {
 
 fn music_page(held: &Panel, purpose: Holds) -> Result<Page, Never> {
   let reading = held.clone();
-  let arriving = held.clone();
   let backing = held.clone();
   let typing = held.clone();
 
-  let Ok(asked) = Rows::computed(move || {
-    let Ok(mut rows) = music_rows(&reading);
+  let Ok(asked) = Rows::with_completion(move || {
+    let Ok(loaded) = library_rows(&reading, purpose);
 
-    match purpose {
-      Holds::Management => {
-        let Ok(shortcut) = now_playing_shortcut();
-
-        match shortcut {
-          Some(shortcut) => rows.insert(0, shortcut),
-          None => {}
-        }
-      }
-      Holds::Library | Holds::Playing => {}
-    }
-
-    rows
+    loaded
   });
   let Ok(page) = Page::new("All Songs", asked);
-  let Ok(page_2) = page.trashing_selected();
-  let Ok(page_3) = page_2.on_arriving(move |showing| match purpose {
-    Holds::Management => {
-      let Ok(standing) = panel_state(&arriving);
-      match standing.management.scan {
-        Status::Idle => {
-          let Ok(()) = press(&arriving, MusicEvent::Manage(Manage::Refresh), showing);
-        }
-        Status::Pending(_) | Status::Finished(_) => {}
-      }
-    }
-    Holds::Library | Holds::Playing => {
-      let Ok(()) = read_the_library(&arriving, showing);
-    }
+  let Ok(opening) = page.reading_after_first_frame();
+  let Ok(waiting) = opening.meanwhile(|| {
+    let Ok(row) = Row::placeholder("Loading songs…");
+
+    vec![row]
   });
-  let Ok(page_4) = page_3.on_back(move |showing| {
+  let Ok(page_2) = waiting.trashing_selected();
+  let Ok(page_3) = page_2.on_back(move |showing| {
     let Ok(was) = panel_state(&backing);
 
     let Ok(()) = press(&backing, MusicEvent::Back, showing);
@@ -589,21 +597,102 @@ fn music_page(held: &Panel, purpose: Holds) -> Result<Page, Never> {
     }
   });
 
-  let Ok(page) = page_4.searching(ABOUT, move |showing, word| {
+  let Ok(searchable) = page_3.searching(ABOUT, move |showing, word| {
     let Ok(()) = press(&typing, MusicEvent::Typed(word.to_string()), showing);
   });
 
   match purpose {
-    Holds::Management => page.with_subscription(EventGroup::Player, player::worth_asking_after),
-    Holds::Library | Holds::Playing => Ok(page),
+    Holds::Management => {
+      searchable.with_subscription(EventGroup::Player, player::worth_asking_after)
+    }
+    Holds::Library | Holds::Playing => Ok(searchable),
   }
+}
+
+fn library_rows(held: &Panel, purpose: Holds) -> Result<LoadedRows, Never> {
+  let folder = folder()?;
+  let catalog = songs(&folder)?;
+  let event = match purpose {
+    Holds::Library | Holds::Playing => {
+      let Ok(unread) = looking::unread(&catalog);
+
+      MusicEvent::Arrived { unread }
+    }
+    Holds::Management => MusicEvent::Manage(Manage::Opened),
+  };
+  let visible = included(catalog)?;
+  let mut rows = music_rows(held, &folder, visible)?;
+
+  match purpose {
+    Holds::Management => {
+      let Ok(typed) = typed_in(held);
+
+      match typed.is_empty().then_some(()) {
+        Some(()) => {
+          let Ok(convert) = convert_music_row();
+          rows.insert(0, convert);
+        }
+        None => {}
+      }
+
+      let shortcut = now_playing_shortcut()?;
+
+      match shortcut {
+        Some(row) => rows.insert(0, row),
+        None => {}
+      }
+    }
+    Holds::Library | Holds::Playing => {}
+  }
+
+  let after = held.clone();
+  let Ok(loaded) = LoadedRows::new(rows);
+
+  loaded.then(move |showing| {
+    let Ok(()) = press(&after, event, showing);
+  })
+}
+
+fn convert_music_row() -> Result<Row, Never> {
+  use console_core_internal_programs::InternalProgram::DownloadsFormat;
+  use console_panel::page::Subject;
+  use console_panel::tasks::Task;
+
+  let Ok(command) = RunCommand::internal(DownloadsFormat, &["--music-library"]);
+  let requested = command.clone();
+  let Ok(does) = Handler::and_stay(move |showing| {
+    let convert = requested.clone();
+
+    showing.sure(
+      "Convert the Music Library to Opus?",
+      Subject("Includes album folders. Re-encoding is lossy. Originals go to Trash."),
+      &["Convert"],
+      Box::new(move |confirmed, _| {
+        let Ok(task) = Task::of(convert);
+        let Ok(attributed) =
+          task.from_application(console_notifications::Application("Music Library"));
+        let Ok(tracked) = attributed.then(|answer| match &answer.status {
+          ExitStatus::Success | ExitStatus::Interrupt => Ok(None),
+          ExitStatus::Failure(_) => {
+            let Ok(note) = Notification::of("Music Library conversion could not finish");
+
+            Ok(Some(note))
+          }
+        });
+        confirmed.run(tracked);
+      }),
+    );
+  });
+  let Ok(row) = Row::new("Convert Music to Opus", Aside(""), does);
+
+  row.while_running(&command, "Converting Music to Opus")
 }
 
 fn now_playing_shortcut() -> Result<Option<Row>, Never> {
   let playing = player::playing()?;
-  let playing = match playing {
-    Some(playing) => match playing.sound {
-      Sound::Playing | Sound::Paused => playing,
+  let playing_3 = match playing {
+    Some(playing_2) => match playing_2.sound {
+      Sound::Playing | Sound::Paused => playing_2,
       Sound::Stopped => return Ok(None),
     },
     None => return Ok(None),
@@ -611,17 +700,17 @@ fn now_playing_shortcut() -> Result<Option<Row>, Never> {
   let Ok(does) = Handler::and_stay(|showing| showing.turn_to(4));
   let title = format!(
     "{} · {}",
-    match playing.sound {
+    match playing_3.sound {
       Sound::Playing => "Now Playing",
       Sound::Paused => "Paused",
       Sound::Stopped => "Stopped",
     },
-    playing.title
+    playing_3.title
   );
-  let Ok(row) = Row::new(&title, Aside(&playing.artist), does);
-  let Ok(row) = row.opening();
+  let Ok(row) = Row::new(&title, Aside(&playing_3.artist), does);
+  let Ok(row_2) = row.opening();
 
-  Ok(Some(row))
+  Ok(Some(row_2))
 }
 
 pub const WHO: &str = "music-panel";

@@ -4,7 +4,7 @@ use console_core_color::palette::Wearing;
 use console_core_geometry::{Containment, Point, Rectangle, Size};
 use console_core_never::Never;
 use console_core_shapes::{Edge, Font, Panel, Round, Shape, Text, Weight};
-use console_draw_surface::{Keysym, PointerEvent};
+use console_draw_surface::{KeyPress, Keysym, PointerEvent};
 use console_lock_screen::Method;
 use console_login_greeter::greeting::PatternFocus;
 use console_login_greeter::picture::{FONT, from_the_room, in_the_room};
@@ -42,6 +42,7 @@ enum Action {
   Shift,
   Symbols,
   Erase,
+  EraseWord,
   Submit,
 }
 
@@ -287,10 +288,10 @@ impl Unlock {
     Ok(())
   }
 
-  pub fn key(&mut self, key: Keysym, focus: PatternFocus) -> Result<InputDisposition, Never> {
+  pub fn key(&mut self, press: KeyPress, focus: PatternFocus) -> Result<InputDisposition, Never> {
     self.interaction = Interaction::Received;
 
-    let Ok(()) = match (self.method, key, focus) {
+    let Ok(()) = match (self.method, press.key, focus) {
       (_, Keysym::Tab | Keysym::ISO_Left_Tab, _)
       | (Method::Fingerprint | Method::Password, Keysym::Down, _)
       | (Method::Pattern, Keysym::Down, PatternFocus::Submit) => self.cycle(),
@@ -299,7 +300,14 @@ impl Unlock {
       (Method::Fingerprint, Keysym::Return | Keysym::KP_Enter | Keysym::space, _) => self.scan(),
       (Method::Fingerprint, _, _) => Ok(()),
       (Method::Password, Keysym::Return | Keysym::KP_Enter, _) => self.act(Action::Submit),
-      (Method::Password, Keysym::BackSpace, _) => self.act(Action::Erase),
+      (Method::Password, Keysym::BackSpace, _) => {
+        let action = match (press.modifiers & KeyPress::CONTROL != 0).then_some(()) {
+          Some(()) => Action::EraseWord,
+          None => Action::Erase,
+        };
+
+        self.act(action)
+      }
       (Method::Password, key_2, _) => {
         let Ok(character) = key_2.char();
 
@@ -357,7 +365,12 @@ impl Unlock {
       (Action::Select(method), _) => return self.select(method),
       (Action::Scan, _) => return self.scan(),
       (
-        Action::Type(_) | Action::Shift | Action::Symbols | Action::Erase | Action::Submit,
+        Action::Type(_)
+        | Action::Shift
+        | Action::Symbols
+        | Action::Erase
+        | Action::EraseWord
+        | Action::Submit,
         Some(_),
       ) => {}
       (Action::Type(letter), None) => {
@@ -378,6 +391,9 @@ impl Unlock {
       }
       (Action::Erase, None) => {
         let Ok(()) = self.password.erase();
+      }
+      (Action::EraseWord, None) => {
+        let Ok(()) = self.password.erase_previous_word();
       }
       (Action::Submit, None) => {
         let Ok(entry) = self.password.entry();
@@ -411,29 +427,29 @@ impl Unlock {
   #[must_use]
   fn buttons(&self) -> core::result::Result<Vec<Button>, console_core_never::Never> {
     let mut buttons = Vec::new();
+    let Ok(methods) = self.methods();
+    let mut available = methods.peekable();
+    let first = available.next();
+    let first_tab = match available.peek() {
+      Some(_) => first,
+      None => None,
+    };
 
-    for (method, x) in Method::ALL.into_iter().zip([
-      13,
-      13_i32.saturating_add(TAB_GAP),
-      13_i32.saturating_add(TAB_GAP.saturating_mul(2)),
-    ]) {
-      let Ok(availability) = self.availability(method);
+    for method in first_tab.into_iter().chain(available) {
+      let x = match method {
+        Method::Pattern => 13,
+        Method::Fingerprint => 13_i32.saturating_add(TAB_GAP),
+        Method::Password => 13_i32.saturating_add(TAB_GAP.saturating_mul(2)),
+      };
 
-      match availability {
-        Availability::Available => {
-          let Ok(label) = method.label();
-          buttons.push({
-            let Ok(explicit_value) = button(
-              Point { x, y: TABS_Y },
-              TAB_WIDTH,
-              label,
-              Action::Select(method),
-            );
-            explicit_value
-          });
-        }
-        Availability::Unavailable => {}
-      }
+      let Ok(label) = method.label();
+      let Ok(tab) = button(
+        Point { x, y: TABS_Y },
+        TAB_WIDTH,
+        label,
+        Action::Select(method),
+      );
+      buttons.push(tab);
     }
 
     match self.method {
@@ -583,6 +599,30 @@ mod tests {
   use super::*;
 
   #[test]
+  fn method_tabs_appear_only_when_there_is_a_choice() {
+    let Ok(mut screen) = Unlock::new(Method::Pattern);
+    screen.password_ready = Availability::Unavailable;
+    let Ok(pattern_buttons) = screen.buttons();
+    assert!(pattern_buttons.is_empty());
+
+    screen.password_ready = Availability::Available;
+    let Ok(method_tabs) = screen.buttons();
+    assert!(matches!(
+      method_tabs.as_slice(),
+      [
+        Button {
+          action: Action::Select(Method::Pattern),
+          ..
+        },
+        Button {
+          action: Action::Select(Method::Password),
+          ..
+        },
+      ]
+    ));
+  }
+
+  #[test]
   fn an_unavailable_fingerprint_preference_starts_on_pattern() {
     let Ok(screen) = Unlock::new(Method::Fingerprint);
     assert_eq!(
@@ -599,9 +639,11 @@ mod tests {
   #[test]
   fn switching_methods_clears_the_pending_password() {
     let Ok(mut screen) = Unlock::new(Method::Pattern);
+    let Ok(tab) = KeyPress::unmodified(Keysym::Tab);
+    let Ok(letter) = KeyPress::unmodified(Keysym::a);
     screen.password_ready = Availability::Available;
     assert_eq!(
-      screen.key(Keysym::Tab, PatternFocus::Dot),
+      screen.key(tab, PatternFocus::Dot),
       Ok(InputDisposition::Handled)
     );
     assert_eq!(
@@ -612,13 +654,13 @@ mod tests {
       Method::Password
     );
     assert_eq!(
-      screen.key(Keysym::a, PatternFocus::Dot),
+      screen.key(letter, PatternFocus::Dot),
       Ok(InputDisposition::Handled)
     );
     let Ok(mask) = screen.password.mask();
     assert_eq!(mask, "•");
     assert_eq!(
-      screen.key(Keysym::Tab, PatternFocus::Dot),
+      screen.key(tab, PatternFocus::Dot),
       Ok(InputDisposition::Handled)
     );
     assert_eq!(
@@ -629,7 +671,7 @@ mod tests {
       Method::Pattern
     );
     assert_eq!(
-      screen.key(Keysym::Tab, PatternFocus::Dot),
+      screen.key(tab, PatternFocus::Dot),
       Ok(InputDisposition::Handled)
     );
     assert_eq!(screen.password.entry(), Ok(Entry::Empty));

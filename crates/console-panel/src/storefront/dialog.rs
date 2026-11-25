@@ -1,4 +1,4 @@
-//! Dialog layouts for details, confirmation, reports, and help.
+//! Dialog layouts for details, confirmation, and reports.
 
 use console_core_color::palette::Wearing;
 use console_core_geometry::{Insets, Point, Size};
@@ -10,13 +10,8 @@ use crate::canvas::{Area, AreaLayout, Face, Interaction};
 use super::{Button, Components, Frame, Link, window};
 
 pub struct Dialog<'a, A> {
-  pub back: Link<'a, A>,
+  pub back: A,
   pub body: DialogBody<'a, A>,
-}
-
-pub struct Topic<'a> {
-  pub title: &'a str,
-  pub detail: &'a str,
 }
 
 pub enum DetailActions<'a, A> {
@@ -49,10 +44,6 @@ pub enum DialogBody<'a, A> {
     title: &'a str,
     report: &'a str,
   },
-  Help {
-    title: &'a str,
-    topics: &'a [Topic<'a>],
-  },
 }
 
 #[must_use]
@@ -70,7 +61,7 @@ pub fn dialog<A: Copy + PartialEq>(
   let width = wide.wrapping_sub(38).clamp(240, 630);
   let preferred = match &view.body {
     DialogBody::Details { .. } | DialogBody::Confirmation { .. } => 267_i32,
-    DialogBody::Report { .. } | DialogBody::Help { .. } => 335,
+    DialogBody::Report { .. } => 335,
   };
   let height = preferred.min(tall.wrapping_sub(24));
   let panel = Area {
@@ -86,22 +77,22 @@ pub fn dialog<A: Copy + PartialEq>(
   let Ok(padding) = Insets::uniform(24);
   let Ok(content) = panel.inset(padding);
   let Ok(right) = content.right();
-  let back = Area {
-    origin: Point {
-      x: right.wrapping_sub(67),
+  let Ok(()) = crate::strip::header_control(
+    &mut components.canvas,
+    Point {
+      x: right.saturating_sub(crate::strip::HEIGHT),
       y: content.origin.y,
     },
-    size: Size {
-      width: 67,
-      height: 38,
-    },
-  };
-  let Ok(()) = components.button(back, view.back, Button::Quiet);
+    crate::marks::SHUT,
+    Some(view.back),
+    &colors,
+  );
   let Ok(()) = components.dialog_body(content, &view.body);
   Ok(Frame {
     canvas: components.canvas.frame,
     caret: None,
     scroll_area: Area::default(),
+    entries: Vec::new(),
   })
 }
 
@@ -204,37 +195,7 @@ impl<A: Copy + PartialEq> Components<A> {
         let lines = i32::cast_unsigned(room.size.height.wrapping_div(17).max(1));
         self.text(room, report, 12, Face::Mono, colors.soft, Lines(lines))
       }
-      DialogBody::Help { title, topics } => {
-        let Ok(()) = self.text(heading, title, 25, Face::Medium, colors.text, Lines(1));
-        self.help_topics(content, topics)
-      }
     }
-  }
-
-  fn help_topics(&mut self, content: Area, topics: &[Topic<'_>]) -> Result<(), Never> {
-    let colors = self.colors;
-    let x = content.origin.x;
-    let width = content.size.width;
-    let mut y = content.origin.y.wrapping_add(55);
-
-    for topic in topics {
-      let title = Area {
-        origin: Point { x, y },
-        size: Size { width, height: 22 },
-      };
-      let Ok(()) = self.text(title, topic.title, 16, Face::Medium, colors.pink, Lines(1));
-      let detail = Area {
-        origin: Point {
-          x,
-          y: y.wrapping_add(26),
-        },
-        size: Size { width, height: 46 },
-      };
-      let Ok(()) = self.text(detail, topic.detail, 15, Face::Body, colors.soft, Lines(2));
-      y = y.wrapping_add(72);
-    }
-
-    Ok(())
   }
 
   fn detail_actions(&mut self, area: Area, actions: &DetailActions<'_, A>) -> Result<(), Never> {

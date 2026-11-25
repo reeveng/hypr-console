@@ -12,13 +12,14 @@ use console_core_never::Never;
 use console_core_number_conversion::toward_zero_u32;
 use console_core_shapes::{Clip, Edge, Line, Shape};
 use console_draw_painting::{self as drawing, Frame};
+use console_draw_surface::KeyPress;
 use console_input_key_symbols::Keysym;
 use console_input_text::{TextField, Typed};
 
 use crate::download_catalog::{Catalog, FileAction, Matches, Record};
 use crate::downloads::{self, Id};
 use crate::settings::{Alignment, label_at};
-use crate::toolbar::{CONTROL, SHIFT, measured, panel, words};
+use crate::toolbar::{CONTROL, CONTROL_SHIFT, SHIFT, edit_press, measured, panel, words};
 
 const ROW_TOP: i32 = 119;
 const ROW_HEIGHT: i32 = 56;
@@ -43,20 +44,7 @@ struct RowMenu {
 enum FileActivity {
   #[default]
   Idle,
-  Working(FileAction),
-  Notice(&'static str),
-}
-
-impl FileActivity {
-  #[must_use]
-  fn message(&self) -> core::result::Result<Option<&'static str>, console_core_never::Never> {
-    Ok(match self {
-      Self::Idle => None,
-      Self::Working(FileAction::Reveal) => Some("Opening file location…"),
-      Self::Working(FileAction::Trash) => Some("Moving to Trash…"),
-      Self::Notice(message) => Some(message),
-    })
-  }
+  Working,
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -219,20 +207,39 @@ impl View {
   #[must_use]
   pub(crate) fn file_busy(&self) -> Result<FileProgress, Never> {
     Ok(match self.file_activity {
-      FileActivity::Working(_) => FileProgress::Working,
-      FileActivity::Idle | FileActivity::Notice(_) => FileProgress::Idle,
+      FileActivity::Working => FileProgress::Working,
+      FileActivity::Idle => FileProgress::Idle,
     })
   }
 
   pub(crate) fn file_started(&mut self, action: FileAction) -> Result<(), Never> {
-    self.file_activity = FileActivity::Working(action);
+    self.file_activity = FileActivity::Working;
+    let message = match action {
+      FileAction::Reveal => "Opening file location…",
+      FileAction::Trash => "Moving to Trash…",
+    };
+    let Ok(()) =
+      console_notifications::notify(console_notifications::Application("Browser"), message, None);
+
     let Ok(()) = self.invalidate();
 
     Ok(())
   }
 
   pub(crate) fn file_finished(&mut self, message: Option<&'static str>) -> Result<(), Never> {
-    self.file_activity = message.map_or(FileActivity::Idle, FileActivity::Notice);
+    self.file_activity = FileActivity::Idle;
+
+    match message {
+      Some(notice) => {
+        let Ok(()) = console_notifications::notify(
+          console_notifications::Application("Browser"),
+          notice,
+          None,
+        );
+      }
+      None => {}
+    }
+
     let Ok(()) = self.invalidate();
 
     Ok(())
@@ -399,8 +406,10 @@ impl View {
         Focus::Folder => Action::Folder,
         Focus::Refresh => Action::Refresh,
       },
-      (Focus::Search, 0 | SHIFT, _, _) => {
-        let Ok(()) = self.edit(key);
+      (Focus::Search, 0 | SHIFT, _, _)
+      | (Focus::Search, CONTROL | CONTROL_SHIFT, Keysym::BackSpace, _) => {
+        let Ok(press) = edit_press(key, mods);
+        let Ok(()) = self.edit(press);
         Action::Handled
       }
       _ => Action::Handled,
@@ -489,8 +498,9 @@ impl View {
     )
   }
 
-  fn edit(&mut self, key: Keysym) -> core::result::Result<(), console_core_never::Never> {
+  fn edit(&mut self, press: KeyPress) -> core::result::Result<(), console_core_never::Never> {
     {
+      let key = press.key;
       let Ok(letter) = key.char();
       let printable = letter.is_some_and(|ch| !ch.is_control());
       let clear = matches!(self.selection, Selection::All)
@@ -513,15 +523,10 @@ impl View {
         ::core::option::Option::None => {}
       }
 
-      let Ok(edited) = self.search.typed(key);
+      let Ok(edited) = self.search.typed_press(press);
 
       match { ::core::primitive::bool::then_some(clear || edited == Typed::Edited, ()) } {
         ::core::option::Option::Some(()) => {
-          match self.file_activity {
-            FileActivity::Notice(_) => self.file_activity = FileActivity::Idle,
-            FileActivity::Idle | FileActivity::Working(_) => {}
-          }
-
           let Ok(()) = self.find();
         }
         ::core::option::Option::None => {}
@@ -938,22 +943,15 @@ impl View {
   ) -> Result<(), Never> {
     let Ok(count) = self.count();
     let Ok(query) = self.search.text();
-    let Ok(file_notice) = self.file_activity.message();
-    let status = match (&self.catalog, file_notice) {
-      (CatalogState::Failed { message, .. }, _) => String::from(*message),
-      (
-        CatalogState::Empty | CatalogState::Ready(_) | CatalogState::Scanning(_),
-        Some(message),
-      ) => String::from(message),
-      (CatalogState::Scanning(_), None) => String::from("Indexing downloads…"),
-      (CatalogState::Empty | CatalogState::Ready(_), None) => {
-        match (count, query.trim().is_empty()) {
-          (0, true) => String::from("No downloads yet"),
-          (0, false) => String::from("No matching downloads"),
-          (1, _) => String::from("1 download"),
-          (_, _) => format!("{count} downloads"),
-        }
-      }
+    let status = match &self.catalog {
+      CatalogState::Failed { message, .. } => String::from(*message),
+      CatalogState::Scanning(_) => String::from("Indexing downloads…"),
+      CatalogState::Empty | CatalogState::Ready(_) => match (count, query.trim().is_empty()) {
+        (0, true) => String::from("No downloads yet"),
+        (0, false) => String::from("No matching downloads"),
+        (1, _) => String::from("1 download"),
+        (_, _) => format!("{count} downloads"),
+      },
     };
 
     label_at(shapes, area, &status, font, palette.soft, Alignment::Start)

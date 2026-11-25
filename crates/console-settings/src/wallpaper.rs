@@ -59,53 +59,86 @@ impl Offered {
 
 pub struct Found<'a> {
   pub pictures: &'a [Offered],
-  pub following: bool,
+  pub scenes: &'a [Offered],
+  pub selection: ActiveWallpaper<'a>,
   pub up: &'a str,
   pub dropped: u32,
+}
+
+#[derive(Clone, Copy)]
+pub enum ActiveWallpaper<'a> {
+  Following,
+  Still,
+  Live(&'a str),
+}
+
+pub enum Choice<'a> {
+  Picture(&'a str),
+  Scene(&'a str),
 }
 
 pub fn wallpaper_rows(
   found: &Found<'_>,
   follow: impl Fn(bool) -> Handler,
-  show: impl Fn(&str) -> Handler,
+  show: impl Fn(Choice<'_>) -> Handler,
   sets: Handler,
   take: Handler,
   find: Handler,
 ) -> Result<Vec<Row>, Never> {
   let &Found {
     pictures,
-    following,
+    scenes,
+    selection,
     up,
     dropped,
   } = found;
+  let (weather_status, enable_following) = match selection {
+    ActiveWallpaper::Following => (NOW, false),
+    ActiveWallpaper::Still | ActiveWallpaper::Live(_) => ("", true),
+  };
   let Ok(weather) = Row::new(
     "Follow time and weather",
-    Aside(match ::core::primitive::bool::then_some(following, ()) {
-      ::core::option::Option::Some(()) => NOW,
-      ::core::option::Option::None => "",
-    }),
-    follow(!following),
+    Aside(weather_status),
+    follow(enable_following),
   );
   let Ok(sets_2) = Row::new(SETS, Aside(""), sets);
   let Ok(sets_3) = sets_2.opening();
   let mut rows = vec![weather, sets_3];
 
+  for offered in scenes {
+    let aside = match matches!(selection, ActiveWallpaper::Live(name) if name == offered.name)
+      .then_some(())
+    {
+      Some(()) => NOW,
+      None => "Live",
+    };
+    let Ok(row) = Row::new(
+      &offered.says,
+      Aside(aside),
+      show(Choice::Scene(&offered.name)),
+    );
+    rows.push(row);
+  }
+
   for picture in pictures {
     let Ok(row) = Row::new(
       &picture.says,
       Aside(
-        match ::core::primitive::bool::then_some(picture.name == up, ()) {
+        match ::core::primitive::bool::then_some(
+          !matches!(selection, ActiveWallpaper::Live(_)) && picture.name == up,
+          (),
+        ) {
           ::core::option::Option::Some(()) => NOW,
           ::core::option::Option::None => picture.by.as_str(),
         },
       ),
-      show(&picture.name),
+      show(Choice::Picture(&picture.name)),
     );
 
     rows.push(row);
   }
 
-  match ::core::primitive::bool::then_some(pictures.is_empty(), ()) {
+  match ::core::primitive::bool::then_some(pictures.is_empty() && scenes.is_empty(), ()) {
     ::core::option::Option::Some(()) => {
       let Ok(row) = Row::placeholder("There are no pictures on this machine");
 
@@ -270,7 +303,8 @@ mod tests {
 
     rows_of(&Found {
       pictures: &set,
-      following: true,
+      scenes: &[],
+      selection: ActiveWallpaper::Following,
       up: "star-ride",
       dropped,
     })
@@ -281,7 +315,8 @@ mod tests {
 
     rows_of(&Found {
       pictures: &set,
-      following: false,
+      scenes: &[],
+      selection: ActiveWallpaper::Still,
       up,
       dropped: 0,
     })
@@ -335,11 +370,33 @@ mod tests {
   }
 
   #[test]
+  fn a_live_scene_with_the_same_name_as_its_fallback_is_marked_by_itself()
+  -> Result<(), &'static str> {
+    let Ok(pictures) = set();
+    let Ok(scene) = Offered::of("star-ride");
+    let Ok(rows) = rows_of(&Found {
+      pictures: &pictures,
+      scenes: &[scene],
+      selection: ActiveWallpaper::Live("star-ride"),
+      up: "star-ride",
+      dropped: 0,
+    });
+    let live = rows.get(2).ok_or(A_ROW)?;
+    let fallback = rows.get(3).ok_or(A_ROW)?;
+
+    assert_eq!(live.now(), Ok(Active::Yes));
+    assert_eq!(fallback.now(), Ok(Active::No));
+
+    Ok(())
+  }
+
+  #[test]
   fn a_picture_that_is_not_up_says_who_drew_it() -> Result<(), &'static str> {
     let Ok(set) = set();
     let Ok(rows) = rows_of(&Found {
       pictures: &set,
-      following: true,
+      scenes: &[],
+      selection: ActiveWallpaper::Following,
       up: "her-own-photo",
       dropped: 0,
     });
@@ -390,7 +447,8 @@ mod tests {
   fn a_machine_with_no_pictures_says_so() {
     let Ok(bare) = rows_of(&Found {
       pictures: &[],
-      following: true,
+      scenes: &[],
+      selection: ActiveWallpaper::Following,
       up: "",
       dropped: 0,
     });

@@ -25,22 +25,9 @@
 //! it names. A file unzipped from a menu is the other half: the menu has gone by
 //! the time it runs, and the file's own row names the command.
 //!
-//! **What comes back is a value, not a callback that acts.** A [`Reply`] is a
-//! function from the program's [`Answer`] to what is worth saying about it, and
-//! where it is said is decided here: a note on the card when one is up, a
-//! notification when none is. A notification raised under a card is drawn behind
-//! the card that raised it, so a reply that went straight to one was a reply
-//! nobody read until the card was put away; and a note held for a card that
-//! closed before reading it becomes a notification rather than nothing.
-//!
-//! **A task can speak while it runs.** A keyboard pairs by having a code typed
-//! on it that bluez makes up halfway through the pairing, and an answer that
-//! only arrives at the end cannot carry it. A task started [`Task::out_loud`]
-//! has each line its program prints put in front of the card as it is printed,
-//! the newest in place of the last, and taken away when the program ends --
-//! where the reply, if it has one, takes its place. With no card up the line is
-//! a notification, and a card put away while a line is up says it as one too,
-//! so a code is never shut away behind a card nobody can see.
+//! A task's reply goes to desktop notifications. An out-loud task can also
+//! keep a transient notification current while it runs, for instructions
+//! such as entering a Bluetooth PIN.
 //!
 //! **A task can be stopped.** A row in progress offers what else can be done
 //! with it, and what can be done is to stop it: "Stop Downloading A Song?",
@@ -55,18 +42,16 @@
 //! to the thread that waits on it rather than let go: an orphaned yt-dlp after
 //! the panel's host has gone is a download no row can see or stop.
 //!
-//! **It outlives an opening.** The host keeps nothing between openings, because
-//! a kept reading is a reading nobody refreshed. This is not a reading: it is
-//! the host's own children, as true as they are alive, and a card opened again
-//! in the middle of a pairing has to see the pairing. A row whose command ended
-//! while no card was up is read again from the machine at the next opening, the
-//! way every row is.
+//! The host keeps running tasks across panel openings so their rows can still
+//! show progress and offer a way to stop them.
 
 use std::thread;
 
 use console_actor::{Actor, SendError};
 use console_core_never::Never;
 use console_core_state_machine::{EffectDependencies, Machine, Queue, Service};
+use console_notifications::Application;
+use console_notifications::saying::LiveNotification;
 use console_operating_system_linux::program_lifetime::ProcessIdentity;
 use console_operating_system_linux::program_runtime::commands::{self, Linux, Timing};
 use console_program_contract::{Answer, Command, ExitStatus, Notification};
@@ -88,6 +73,7 @@ pub struct Task {
   pub command: Command,
   pub then: Reply,
   pub speaks: Speaks,
+  application: Application,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -104,12 +90,20 @@ impl Task {
       command,
       then,
       speaks: Speaks::AtTheEnd,
+      application: Application("Console"),
     })
   }
 
   pub fn out_loud(self) -> Result<Task, Never> {
     Ok(Task {
       speaks: Speaks::OutLoud,
+      ..self
+    })
+  }
+
+  pub fn from_application(self, application: Application) -> Result<Task, Never> {
+    Ok(Task {
+      application,
       ..self
     })
   }
@@ -149,18 +143,9 @@ pub struct Began {
   pub identity: ProcessIdentity,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Printed {
-  pub command: Command,
-  pub line: String,
-}
-
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Running {
   pub started: Vec<Started>,
-  pub cards_up: u32,
-  pub unread: Vec<Notification>,
-  pub printed: Vec<Printed>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -174,18 +159,13 @@ pub enum TaskEvent {
   Start(Started),
   Began(Began),
   Interrupt(Command),
-  Printed(Printed),
   Ended(Ended),
-  CardUp,
-  CardGone,
-  Read,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TaskEffect {
   Run(Started),
   Interrupt(ProcessIdentity, Insistence),
-  Note(Notification),
   Notify(Notification),
 }
 
@@ -193,16 +173,9 @@ impl EffectDependencies for TaskEffect {
   fn services(&self) -> Result<&'static [Service], Never> {
     Ok(match self {
       Self::Run(_) | Self::Interrupt(..) => &[Service::Process],
-      Self::Note(_) => &[Service::Panels],
       Self::Notify(_) => &[Service::Notifications],
     })
   }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Cards {
-  Up,
-  None,
 }
 
 impl Running {
@@ -236,10 +209,6 @@ impl Running {
     )
   }
 
-  pub fn live(&self) -> Result<Option<String>, Never> {
-    Ok(self.printed.last().map(|printed| printed.line.clone()))
-  }
-
   pub fn answered(&self, answer: Answer) -> Result<Answer, Never> {
     let interruption = self
       .started
@@ -254,13 +223,6 @@ impl Running {
     };
 
     Ok(Answer { status, ..answer })
-  }
-
-  fn cards(&self) -> Result<Cards, Never> {
-    Ok(match self.cards_up {
-      0 => Cards::None,
-      1.. => Cards::Up,
-    })
   }
 }
 
@@ -292,14 +254,7 @@ impl Machine for Tasks {
       TaskEvent::Start(started) => start(state, started, effects),
       TaskEvent::Began(began) => begin(state, began, effects),
       TaskEvent::Interrupt(command) => interrupt(state, &command, effects),
-      TaskEvent::Printed(printed) => print(state, printed, effects),
       TaskEvent::Ended(ended) => end(state, ended, effects),
-      TaskEvent::CardUp => Ok(Running {
-        cards_up: state.cards_up.saturating_add(1),
-        ..state
-      }),
-      TaskEvent::CardGone => card_gone(state, effects),
-      TaskEvent::Read => read(state, effects),
     }
   }
 }
@@ -379,128 +334,23 @@ fn interrupt(
   Ok(running)
 }
 
-fn print(
-  state: Running,
-  printed: Printed,
+fn end(
+  mut state: Running,
+  ended: Ended,
   effects: &mut Queue<TaskEffect>,
 ) -> Result<Running, Never> {
-  let Ok(cards) = state.cards();
+  state
+    .started
+    .retain(|task| task.command != ended.answer.command);
 
-  match cards {
-    Cards::Up => {}
-    Cards::None => {
-      let Ok(said) = Notification::of(&printed.line);
-      let Ok(()) = effects.offer(TaskEffect::Notify(said));
+  match ended.notification {
+    Some(notification) => {
+      let Ok(()) = effects.offer(TaskEffect::Notify(notification));
     }
+    None => {}
   }
 
-  let Running {
-    started,
-    cards_up,
-    unread,
-    printed: was,
-  } = state;
-  let mut printed_now: Vec<Printed> = was
-    .into_iter()
-    .filter(|was_2| was_2.command != printed.command)
-    .collect();
-
-  printed_now.push(printed);
-
-  Ok(Running {
-    started,
-    cards_up,
-    unread,
-    printed: printed_now,
-  })
-}
-
-fn end(state: Running, ended: Ended, effects: &mut Queue<TaskEffect>) -> Result<Running, Never> {
-  let Ended {
-    answer,
-    notification,
-  } = ended;
-  let Running {
-    started,
-    cards_up,
-    mut unread,
-    printed,
-  } = state;
-  let started_3 = started
-    .into_iter()
-    .filter(|started_2| started_2.command != answer.command)
-    .collect();
-  let printed_3 = printed
-    .into_iter()
-    .filter(|printed_2| printed_2.command != answer.command)
-    .collect();
-  let running = Running {
-    started: started_3,
-    cards_up,
-    unread: Vec::new(),
-    printed: printed_3,
-  };
-  let Ok(cards) = running.cards();
-
-  match (notification, cards) {
-    (None, Cards::Up | Cards::None) => {}
-    (Some(notification_2), Cards::Up) => unread.push(notification_2),
-    (Some(notification_3), Cards::None) => {
-      let Ok(()) = effects.offer(TaskEffect::Notify(notification_3));
-    }
-  }
-
-  Ok(Running { unread, ..running })
-}
-
-fn card_gone(state: Running, effects: &mut Queue<TaskEffect>) -> Result<Running, Never> {
-  let running = Running {
-    cards_up: state.cards_up.saturating_sub(1),
-    ..state
-  };
-  let Ok(cards) = running.cards();
-
-  match cards {
-    Cards::Up => Ok(running),
-    Cards::None => {
-      let Running {
-        started,
-        cards_up,
-        unread,
-        printed,
-      } = running;
-      let still_up = printed.iter().map(|printed_2| {
-        let Ok(said) = Notification::of(&printed_2.line);
-
-        said
-      });
-      let Ok(()) = effects.offer_all(unread.into_iter().chain(still_up).map(TaskEffect::Notify));
-
-      Ok(Running {
-        started,
-        cards_up,
-        unread: Vec::new(),
-        printed,
-      })
-    }
-  }
-}
-
-fn read(state: Running, effects: &mut Queue<TaskEffect>) -> Result<Running, Never> {
-  let Running {
-    started,
-    cards_up,
-    unread,
-    printed,
-  } = state;
-  let Ok(()) = effects.offer_all(unread.into_iter().map(TaskEffect::Note));
-
-  Ok(Running {
-    started,
-    cards_up,
-    unread: Vec::new(),
-    printed,
-  })
+  Ok(state)
 }
 
 pub fn shown(rows: Vec<Row>, running: &Running) -> Result<Vec<Row>, Never> {
@@ -563,29 +413,16 @@ fn stopping(named: &WhileRunning) -> Result<Act, Never> {
   Ok(stop)
 }
 
-pub fn written(notification: &Notification) -> Result<String, Never> {
-  Ok(match &notification.body {
-    Some(body) => match ::core::primitive::bool::then_some(body.is_empty(), ()) {
-      ::core::option::Option::Some(()) => notification.summary.clone(),
-      ::core::option::Option::None => format!("{}. {body}", notification.summary),
-    },
-    None => notification.summary.clone(),
-  })
-}
-
 pub fn kept() -> Result<console_actor::Booted<Tasks>, console_actor::BootError> {
   console_actor::boot::<Tasks>(())
 }
 
-pub fn start_from(
-  tasks: &Actor<Tasks>,
-  task: Task,
-  row: Option<&Command>,
-) -> Result<Vec<Notification>, Never> {
+pub fn start_from(tasks: &Actor<Tasks>, task: Task, row: Option<&Command>) -> Result<(), Never> {
   let Task {
     command,
     then,
     speaks,
+    application,
   } = task;
   let row_3 = match row {
     Some(row_2) => row_2.clone(),
@@ -594,21 +431,18 @@ pub fn start_from(
   let Ok(started) = Started::of(command, row_3);
   let Ok(effects) = sent(tasks, TaskEvent::Start(started));
 
-  carry(tasks, effects, (&then, speaks))
+  carry(tasks, effects, (&then, speaks, application))
 }
 
-pub fn told(tasks: &Actor<Tasks>, event: TaskEvent) -> Result<Vec<Notification>, Never> {
-  let Ok(effects) = sent(tasks, event);
+pub fn interrupt_from(tasks: &Actor<Tasks>, command: &Command) -> Result<(), Never> {
+  let Ok(effects) = sent(tasks, TaskEvent::Interrupt(command.clone()));
   let Ok(nothing) = nothing_to_reply();
 
-  carry(tasks, effects, (&nothing, Speaks::AtTheEnd))
-}
-
-pub fn interrupt_from(
-  tasks: &Actor<Tasks>,
-  command: &Command,
-) -> Result<Vec<Notification>, Never> {
-  told(tasks, TaskEvent::Interrupt(command.clone()))
+  carry(
+    tasks,
+    effects,
+    (&nothing, Speaks::AtTheEnd, Application("Console")),
+  )
 }
 
 pub fn running_now(tasks: &Actor<Tasks>) -> Result<Running, Never> {
@@ -645,47 +479,30 @@ fn sent(tasks: &Actor<Tasks>, event: TaskEvent) -> Result<Vec<TaskEffect>, Never
 fn carry(
   tasks: &Actor<Tasks>,
   effects: Vec<TaskEffect>,
-  (then, speaks): (&Reply, Speaks),
-) -> Result<Vec<Notification>, Never> {
-  let mut notes = Vec::new();
-
+  (then, speaks, application): (&Reply, Speaks, Application),
+) -> Result<(), Never> {
   for effect in effects {
     match effect {
       TaskEffect::Run(started) => {
-        let Ok(()) = run(tasks, started, (then, speaks));
+        let Ok(()) = run(tasks, started, (then, speaks, application));
       }
       TaskEffect::Interrupt(identity, insistence) => {
         let Ok(_its_answer_is_on_the_way_either_way) = identity.interrupt(insistence);
       }
-      TaskEffect::Note(notification) => notes.push(notification),
-      TaskEffect::Notify(notification) => {
-        let Ok(()) = notify(&notification);
+      TaskEffect::Notify(notice) => {
+        let Ok(()) =
+          console_notifications::notify(application, &notice.summary, notice.body.as_deref());
       }
     }
   }
 
-  Ok(notes)
-}
-
-fn notify(notification: &Notification) -> Result<(), Never> {
-  let body = match &notification.body {
-    Some(body) => body.as_str(),
-    None => "",
-  };
-
-  crate::running::say(
-    "panel",
-    crate::running::Notification {
-      summary: &notification.summary,
-      body,
-    },
-  )
+  Ok(())
 }
 
 fn run(
   tasks: &Actor<Tasks>,
   started: Started,
-  (then, speaks): (&Reply, Speaks),
+  (then, speaks, application): (&Reply, Speaks, Application),
 ) -> Result<(), Never> {
   let tasks_2 = tasks.clone();
   #[cfg_attr(
@@ -698,7 +515,7 @@ fn run(
   let then_2 = then.clone();
 
   let running = thread::spawn(move || {
-    let Ok(ran) = ran(&tasks_2, &started.command, speaks);
+    let Ok(ran) = ran(&tasks_2, &started.command, speaks, application);
     let Ok(running) = running_now(&tasks_2);
     let Ok(answer) = running.answered(ran);
     let Ok(notification) = then_2(&answer);
@@ -710,8 +527,7 @@ fn run(
       }),
     );
     let Ok(nothing) = nothing_to_reply();
-    let Ok(notes) = carry(&tasks_2, effects, (&nothing, Speaks::AtTheEnd));
-    let Ok(()) = said_anyway(notes);
+    let Ok(()) = carry(&tasks_2, effects, (&nothing, Speaks::AtTheEnd, application));
 
     let Ok(()) = crate::frames::tell(crate::frames::Notice::Rows);
   });
@@ -721,29 +537,20 @@ fn run(
   threads::let_go(running)
 }
 
-struct TaskOutput<'a> {
-  tasks: &'a Actor<Tasks>,
-  command: &'a Command,
+struct TaskOutput {
+  live: LiveNotification,
   speaks: Speaks,
   lines: Vec<String>,
 }
 
-impl Reporter for TaskOutput<'_> {
+impl Reporter for TaskOutput {
   fn line(&mut self, line: &str) -> Result<(), Never> {
     let line_2 = line.trim().to_string();
 
     match (self.speaks, line_2.is_empty()) {
       (Speaks::AtTheEnd, true | false) | (Speaks::OutLoud, true) => {}
       (Speaks::OutLoud, false) => {
-        let Ok(said) = told(
-          self.tasks,
-          TaskEvent::Printed(Printed {
-            command: self.command.clone(),
-            line: line_2.clone(),
-          }),
-        );
-        let Ok(()) = said_anyway(said);
-        let Ok(()) = crate::frames::tell(crate::frames::Notice::Rows);
+        let Ok(()) = self.live.update(&line_2);
       }
     }
 
@@ -753,7 +560,12 @@ impl Reporter for TaskOutput<'_> {
   }
 }
 
-fn ran(tasks: &Actor<Tasks>, command: &Command, speaks: Speaks) -> Result<Answer, Never> {
+fn ran(
+  tasks: &Actor<Tasks>,
+  command: &Command,
+  speaks: Speaks,
+  application: Application,
+) -> Result<Answer, Never> {
   let Ok(mut platform) = Linux::new(Timing::Background);
   let starting = match execution_commands::resolve(&mut platform, command) {
     Ok(invocation) => platform.fork(&invocation, Streams::COLLECT),
@@ -782,11 +594,10 @@ fn ran(tasks: &Actor<Tasks>, command: &Command, speaks: Speaks) -> Result<Answer
     }),
   );
   let Ok(nothing) = nothing_to_reply();
-  let Ok(notes) = carry(tasks, began, (&nothing, Speaks::AtTheEnd));
-  let Ok(()) = said_anyway(notes);
+  let Ok(()) = carry(tasks, began, (&nothing, Speaks::AtTheEnd, application));
+  let Ok(live) = LiveNotification::new(application);
   let mut output = TaskOutput {
-    tasks,
-    command,
+    live,
     speaks,
     lines: Vec::new(),
   };
@@ -812,14 +623,6 @@ fn ran(tasks: &Actor<Tasks>, command: &Command, speaks: Speaks) -> Result<Answer
       }
     }
   })
-}
-
-fn said_anyway(notes: Vec<Notification>) -> Result<(), Never> {
-  for note in notes {
-    let Ok(()) = notify(&note);
-  }
-
-  Ok(())
 }
 
 #[cfg(test)]
@@ -1029,191 +832,35 @@ mod tests {
   }
 
   #[test]
-  fn what_a_reply_says_is_a_note_while_a_card_is_up_and_a_notification_when_none_is()
-  -> Result<(), Failure> {
-    let Ok(one) = pairing("A");
-    let started = Started {
-      command: one.clone(),
-      row: one.clone(),
-      identity: None,
-      interruption: Interruption::None,
-    };
-    let Ok(answer) = answered(&one, ExitStatus::Failure(Some(1)));
-    let Ok(failed) = said("Couldn't pair");
-    let ended = TaskEvent::Ended(Ended {
-      answer,
-      notification: Some(failed.clone()),
-    });
+  fn a_task_posts_its_reply_once_for_each_completion_status() {
+    let Ok(command) = pairing("A");
+    let Ok(reply) = said("Pairing ended");
+    let statuses = [
+      ExitStatus::Success,
+      ExitStatus::Failure(Some(1)),
+      ExitStatus::Interrupt,
+    ];
 
-    let Ok(up) = pressed::<Tasks>(
-      &(),
-      &[
-        TaskEvent::CardUp,
-        TaskEvent::Start(started.clone()),
-        ended.clone(),
-        TaskEvent::Read,
-      ],
-    );
+    for status in statuses {
+      let Ok(answer) = answered(&command, status);
+      let Ok(started) = Started::of(command.clone(), command.clone());
+      let Ok(trace) = pressed::<Tasks>(
+        &(),
+        &[
+          TaskEvent::Start(started),
+          TaskEvent::Ended(Ended {
+            answer,
+            notification: Some(reply.clone()),
+          }),
+        ],
+      );
 
-    assert_eq!(
-      up.on(2),
-      Ok(Some([].as_slice())),
-      "a card was up and the reply went behind it"
-    );
-    assert_eq!(
-      up.on(3),
-      Ok(Some([TaskEffect::Note(failed.clone())].as_slice()))
-    );
-
-    let Ok(away) = pressed::<Tasks>(&(), &[TaskEvent::Start(started), ended]);
-
-    assert_eq!(
-      away.on(1),
-      Ok(Some([TaskEffect::Notify(failed)].as_slice()))
-    );
-
-    Ok(())
-  }
-
-  #[test]
-  fn a_note_the_card_closed_before_reading_is_said_anyway() -> Result<(), Failure> {
-    let Ok(one) = pairing("A");
-    let started = Started {
-      command: one.clone(),
-      row: one.clone(),
-      identity: None,
-      interruption: Interruption::None,
-    };
-    let Ok(answer) = answered(&one, ExitStatus::Success);
-    let Ok(paired) = said("Paired");
-    let Ok(gone) = pressed::<Tasks>(
-      &(),
-      &[
-        TaskEvent::CardUp,
-        TaskEvent::Start(started),
-        TaskEvent::Ended(Ended {
-          answer,
-          notification: Some(paired.clone()),
-        }),
-        TaskEvent::CardGone,
-      ],
-    );
-
-    assert_eq!(
-      gone.on(3),
-      Ok(Some([TaskEffect::Notify(paired)].as_slice()))
-    );
-    assert_eq!(gone.state.unread, Vec::new());
-
-    Ok(())
-  }
-
-  #[test]
-  fn a_card_going_while_another_is_up_keeps_the_note_for_it() {
-    let Ok(said) = pressed::<Tasks>(
-      &(),
-      &[TaskEvent::CardUp, TaskEvent::CardUp, TaskEvent::CardGone],
-    );
-
-    assert_eq!(said.state.cards_up, 1);
-    assert_eq!(said.effects(), Ok(Vec::new()));
-  }
-
-  #[test]
-  fn a_line_printed_while_a_card_is_up_is_in_front_of_it_until_the_program_ends() {
-    let Ok(one) = pairing("A");
-    let started = Started {
-      command: one.clone(),
-      row: one.clone(),
-      identity: None,
-      interruption: Interruption::None,
-    };
-    let printed = Printed {
-      command: one.clone(),
-      line: "Type 123456 on the keyboard".to_string(),
-    };
-    let Ok(answer) = answered(&one, ExitStatus::Success);
-    let Ok(said) = pressed::<Tasks>(
-      &(),
-      &[
-        TaskEvent::CardUp,
-        TaskEvent::Start(started),
-        TaskEvent::Printed(printed),
-      ],
-    );
-
-    assert_eq!(
-      said.on(2),
-      Ok(Some([].as_slice())),
-      "a line meant for the card up was raised behind it"
-    );
-    assert_eq!(
-      said.state.live(),
-      Ok(Some("Type 123456 on the keyboard".to_string()))
-    );
-
-    let Ok(after) = Tasks::transition(
-      said.state,
-      TaskEvent::Ended(Ended {
-        answer,
-        notification: None,
-      }),
-    );
-
-    assert_eq!(
-      after.state.live(),
-      Ok(None),
-      "the code stayed up after the pairing ended"
-    );
-  }
-
-  #[test]
-  fn a_line_printed_with_no_card_up_is_a_notification() {
-    let Ok(one) = pairing("A");
-    let started = Started {
-      command: one.clone(),
-      row: one.clone(),
-      identity: None,
-      interruption: Interruption::None,
-    };
-    let printed = Printed {
-      command: one,
-      line: "Type 123456 on the keyboard".to_string(),
-    };
-    let Ok(code) = said("Type 123456 on the keyboard");
-    let Ok(away) = pressed::<Tasks>(
-      &(),
-      &[TaskEvent::Start(started), TaskEvent::Printed(printed)],
-    );
-
-    assert_eq!(away.on(1), Ok(Some([TaskEffect::Notify(code)].as_slice())));
-  }
-
-  #[test]
-  fn a_card_put_away_while_a_line_is_up_says_it_as_a_notification() {
-    let Ok(one) = pairing("A");
-    let started = Started {
-      command: one.clone(),
-      row: one.clone(),
-      identity: None,
-      interruption: Interruption::None,
-    };
-    let printed = Printed {
-      command: one,
-      line: "Type 123456 on the keyboard".to_string(),
-    };
-    let Ok(code) = said("Type 123456 on the keyboard");
-    let Ok(gone) = pressed::<Tasks>(
-      &(),
-      &[
-        TaskEvent::CardUp,
-        TaskEvent::Start(started),
-        TaskEvent::Printed(printed),
-        TaskEvent::CardGone,
-      ],
-    );
-
-    assert_eq!(gone.on(3), Ok(Some([TaskEffect::Notify(code)].as_slice())));
+      assert_eq!(
+        trace.on(1),
+        Ok(Some([TaskEffect::Notify(reply.clone())].as_slice()))
+      );
+      assert!(trace.state.started.is_empty());
+    }
   }
 
   #[test]
@@ -1234,19 +881,17 @@ mod tests {
         interruption: Interruption::None,
       }),
     );
-    let Ok(answer) = ran(&kept.actor, &talking, Speaks::OutLoud);
-    let Ok(running) = running_now(&kept.actor);
+    let Ok(answer) = ran(
+      &kept.actor,
+      &talking,
+      Speaks::AtTheEnd,
+      Application("Console"),
+    );
 
     assert_eq!(started.len(), 1);
     assert_eq!(answer.output, "one\ntwo");
     assert_eq!(answer.error_output, "why");
     assert_eq!(answer.status, ExitStatus::Failure(Some(3)));
-    assert_eq!(
-      running.live(),
-      Ok(Some("two".to_string())),
-      "the newest line is not the one in front"
-    );
-
     let Ok(()) = kept.scope.close();
 
     Ok(())
@@ -1426,23 +1071,6 @@ mod tests {
       unlit
         .first()
         .is_some_and(|idle_row| idle_row.more.is_none())
-    );
-
-    Ok(())
-  }
-
-  #[test]
-  fn a_reply_is_written_on_one_line() -> Result<(), Failure> {
-    let Ok(bare) = said("Connected to Home");
-    let with_why = Notification {
-      summary: "Couldn't connect to Home".to_string(),
-      body: Some("The password was not accepted.".to_string()),
-    };
-
-    assert_eq!(written(&bare), Ok("Connected to Home".to_string()));
-    assert_eq!(
-      written(&with_why),
-      Ok("Couldn't connect to Home. The password was not accepted.".to_string())
     );
 
     Ok(())

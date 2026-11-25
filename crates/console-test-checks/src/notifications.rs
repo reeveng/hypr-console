@@ -35,13 +35,8 @@
 //! in Earlier saying where it came from -- the card itself is touched away, on
 //! the device, the way a thumb would.
 //!
-//! Where the card is is not where its own numbers say. `showing::DOWN` is a
-//! layer-shell margin, and a layer-shell margin is counted from the bottom of
-//! whatever above it is exclusive -- both of waybar's rows are -- so the row
-//! looked at here is the bar's own heights plus that margin. Written from the
-//! screen edge instead it lands in the gap between the bar and the card, which
-//! is the wallpaper, and reads exactly like a card that never came up. It did
-//! that first, and the checks were green and red in the wrong order.
+//! The nested desktop uses the default top bar. The card's top margin is
+//! measured from the bottom of the bar's reserved area.
 //!
 //! Both checks ask the card to stay until dismissed. Otherwise a card that
 //! expires during the touch check could make it pass without a working
@@ -124,7 +119,7 @@ fn inside(stage: &mut Desktop) -> Result<Point<f64>, Unchecked> {
 
   Ok(Point {
     x: f64::from(room.width) - f64::from(showing::IN) - f64::from(showing::PAD),
-    y: under + f64::from(showing::DOWN) + f64::from(showing::PAD),
+    y: under + f64::from(showing::IN) + f64::from(showing::PAD),
   })
 }
 

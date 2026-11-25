@@ -42,7 +42,7 @@ use console_program_contract::{
 };
 use console_weather::conditions::{self as forecast, Weather};
 
-use crate::choose::{self, Outside, Picture, Turn, Wanted};
+use crate::choose::{self, Outside, Picture, Selection, Turn, Wanted};
 use crate::covered::{self, Covered, Worth};
 use crate::rules::{self, Rules};
 
@@ -52,10 +52,16 @@ pub const NOW: Flag = Flag {
   about: "put one picture up and stop, rather than keeping it up to date",
 };
 
+pub const RUN_SCENE: Flag = Flag {
+  spelling: "--run-scene",
+  takes: Takes::None,
+  about: "run the selected live wallpaper for the session's wallpaper service",
+};
+
 pub const COMMAND: Command = Command {
   name: "console-wallpaper",
   about: "the picture behind the desktop, kept up to date with the weather and the time of day",
-  flags: &[NOW],
+  flags: &[NOW, RUN_SCENE],
   operands: Operands::None,
 };
 
@@ -241,7 +247,7 @@ impl<'a> Machine for Sun<'a> {
         event_group: EventGroup::Path(folder),
         text,
       }) => {
-        let Ok(change) = rules_changed(state.rule_directory, &folder, Path::new(&text));
+        let Ok(change) = configuration_changed(state.rule_directory, &folder, Path::new(&text));
 
         match change {
           Worth::Waking => {
@@ -310,7 +316,7 @@ fn opened(state: &Sky<'_>, effects: &mut Effects) -> Result<(), Never> {
   match state.going {
     Going::KeepGoing => {
       let Ok(()) = effects.offer(Effect::Subscribe(COMPOSITOR));
-      let Ok(watch) = rule_watch(state.rule_directory);
+      let Ok(watch) = configuration_watch(state.rule_directory);
 
       match watch {
         Some(subscription) => {
@@ -357,7 +363,7 @@ fn rendered(
   }
 }
 
-fn rule_watch(directory: Option<&Path>) -> Result<Option<Subscription>, Never> {
+fn configuration_watch(directory: Option<&Path>) -> Result<Option<Subscription>, Never> {
   Ok(
     directory
       .and_then(Path::parent)
@@ -365,7 +371,7 @@ fn rule_watch(directory: Option<&Path>) -> Result<Option<Subscription>, Never> {
   )
 }
 
-fn rules_changed(
+fn configuration_changed(
   directory: Option<&Path>,
   folder: &Path,
   changed: &Path,
@@ -374,13 +380,17 @@ fn rules_changed(
     Some(rules) => rules,
     None => return Ok(Worth::Ignoring),
   };
-  let affects_rules = rules.parent() == Some(folder)
+  let scenes = folder.join(crate::scene::DIRECTORY);
+  let affects_wallpaper = rules.parent() == Some(folder)
     && (changed == folder
       || changed == rules
+      || changed == folder.join(crate::place::SELECTION)
+      || changed == scenes
+      || changed.parent() == Some(scenes.as_path())
       || (changed.parent() == Some(rules)
         && changed.extension().is_some_and(|kind| kind == "toml")));
 
-  Ok(match bool::then_some(affects_rules, ()) {
+  Ok(match bool::then_some(affects_wallpaper, ()) {
     Some(()) => Worth::Waking,
     None => Worth::Ignoring,
   })
@@ -391,7 +401,10 @@ fn observe(
   reading: Observation,
   effects: &mut Effects,
 ) -> Result<(), Never> {
-  let pinned = match bool::then_some(reading.pinned_file && !reading.wanted.follow, ()) {
+  let pinned = match bool::then_some(
+    reading.pinned_file && !matches!(reading.wanted.selection, Selection::Following),
+    (),
+  ) {
     ::core::option::Option::Some(()) => Some(reading.wanted.picture.as_str()),
     ::core::option::Option::None => {
       let Ok(pinned) = choose::pinned(state.pictures, &reading.wanted);
@@ -496,7 +509,7 @@ fn stop(state: &mut Sky<'_>, effects: &mut Effects) -> Result<(), Never> {
     ::core::option::Option::Some(()) => {
       let Ok(()) = effects.offer(Effect::Unsubscribe(COMPOSITOR));
 
-      let Ok(watch) = rule_watch(state.rule_directory);
+      let Ok(watch) = configuration_watch(state.rule_directory);
 
       match watch {
         Some(subscription) => {
@@ -643,6 +656,29 @@ mod tests {
   use console_core_state_machine::{Trace, Transition, run_from};
 
   use super::*;
+
+  #[test]
+  fn selecting_or_removing_a_scene_wakes_the_keeper() {
+    let folder = Path::new("/config/console");
+    let rules = folder.join("wallpaper-rules");
+    let scenes = folder.join(crate::scene::DIRECTORY);
+
+    for changed in [
+      folder.join(crate::place::SELECTION),
+      scenes.join("seascape"),
+      scenes,
+    ] {
+      assert!(matches!(
+        configuration_changed(Some(&rules), folder, &changed),
+        Ok(Worth::Waking)
+      ));
+    }
+
+    assert!(matches!(
+      configuration_changed(Some(&rules), folder, &folder.join("status-bar.json")),
+      Ok(Worth::Ignoring)
+    ));
+  }
 
   fn scheduled_look(effects: &[Effect<WallpaperEffect>]) -> Result<Option<Duration>, Never> {
     Ok(effects.iter().find_map(|effect| match effect {

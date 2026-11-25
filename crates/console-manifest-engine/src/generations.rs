@@ -224,6 +224,13 @@ fn one(number: u32, held: &str) -> Result<Generation, Never> {
   })
 }
 
+#[cfg_attr(
+  dylint_lib = "explicit083_no_path_as_root",
+  expect(
+    explicit083_no_path_as_root,
+    reason = "the privileged callers read only the root-owned /var/lib/console/generations path"
+  )
+)]
 pub fn read(at: &Path) -> Result<Vec<Generation>, Unapplied> {
   let entries = match std::fs::read_dir(at) {
     Ok(entries) => entries,
@@ -267,6 +274,13 @@ pub fn read(at: &Path) -> Result<Vec<Generation>, Unapplied> {
   Ok(kept)
 }
 
+#[cfg_attr(
+  dylint_lib = "explicit083_no_path_as_root",
+  expect(
+    explicit083_no_path_as_root,
+    reason = "the privileged callers create only /var/lib/console/generations under root-owned directories"
+  )
+)]
 #[cfg_attr(
   dylint_lib = "explicit086_no_climbing_join",
   expect(

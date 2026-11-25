@@ -19,7 +19,7 @@ use console_draw_surface::KeyboardFocus;
 
 use super::{Beside, Card, HitRegion, Lands, Owner, Panelled, Secret, State, Viewport, nth};
 use crate::frames::{self, Notice};
-use crate::page::{ActionOutcome, Control, Face, Heading, Row};
+use crate::page::{self, ActionOutcome, Control, Face, Heading, Row};
 
 const ROOT: NodeId = NodeId(0);
 const REQUEST_LIMIT: u16 = 16;
@@ -784,6 +784,7 @@ fn hit_row_node(state: &State, lands: Lands, row: &Row) -> Result<Option<Node>, 
 #[must_use]
 fn row_node(row: &Row, selected: &[String]) -> Result<Node, Never> {
   let Ok(heading) = row.heading();
+  let Ok(interaction) = row.interaction();
   let title = row
     .headline
     .as_ref()
@@ -819,9 +820,9 @@ fn row_node(row: &Row, selected: &[String]) -> Result<Node, Never> {
     None => {}
   }
 
-  match heading {
-    Heading::No => node.add_action(Action::Focus),
-    Heading::Yes => {}
+  match interaction {
+    page::Action::Yes => node.add_action(Action::Focus),
+    page::Action::None => {}
   }
 
   match (row.does.is_some() || row.buttons.is_some()).then_some(()) {
@@ -836,7 +837,11 @@ fn row_node(row: &Row, selected: &[String]) -> Result<Node, Never> {
 fn focused(state: &State, lands: Lands) -> Result<KeyboardFocus, Never> {
   let matches = match lands {
     Lands::Row(row) => {
-      state.at == Some(row) && state.beside == Beside::No && state.pressing.is_none()
+      let Ok(focus) = super::selectable_row(&state.rows, row);
+      focus.is_some()
+        && state.at == focus
+        && state.beside == Beside::No
+        && state.pressing.is_none()
     }
     Lands::Else(row) => state.at == Some(row) && state.beside == Beside::Yes,
     Lands::ButtonPress { row, which } => state.pressing == Some((row, which)),
@@ -909,8 +914,13 @@ pub(super) fn perform(
         ..
       })),
     ) => {
+      let Ok(focus) = super::selectable_row(&state.rows, row);
+      let at = match focus {
+        Some(at) => at,
+        None => return Ok(ActionOutcome::Stay),
+      };
       let Ok(()) = state.reveal_focus();
-      state.at = Some(row);
+      state.at = Some(at);
       state.beside = Beside::No;
       state.pressing = None;
       ActionOutcome::Stay
@@ -950,7 +960,7 @@ pub(super) fn perform(
         ::core::option::Option::None => page,
       };
       let y = state.scroll.saturating_add(offset);
-      let Ok(()) = super::scrolled_to(state, Viewport { room, y });
+      let Ok(_dirty) = super::scrolled_to(state, Viewport { room, y });
       ActionOutcome::Stay
     }
     _ => ActionOutcome::Stay,

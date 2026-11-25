@@ -9,11 +9,12 @@ description = "The font faces a machine has, and which of them serves a CSS fami
 [features]
 default = ["std", "fs", "memmap", "fontconfig"]
 std = ["console-core-logging/std"]
-fs = ["std", "dep:console-core-places", "dep:console-core-iteration"]
+fs = ["std", "dep:console-concurrency", "dep:console-core-places", "dep:console-core-iteration"]
 memmap = ["fs"]
 fontconfig = ["fs", "dep:console-core-font-configuration"]
 
 [dependencies]
+console-concurrency = { workspace = true, optional = true }
 console-core-font-configuration = { path = "../console-core-font-configuration", optional = true }
 console-core-font-reading = { path = "../console-core-font-reading", default-features = false }
 console-core-iteration = { workspace = true, optional = true }

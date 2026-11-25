@@ -25,6 +25,7 @@ pub mod tracked;
 pub const MARK: &str = "desktop.conf";
 
 pub const DEVICE_ROOT: &str = "/etc/console";
+pub const RELEASE_MARKER: &str = ".git/console-release";
 
 pub struct RelativePath<'a>(&'a Path);
 

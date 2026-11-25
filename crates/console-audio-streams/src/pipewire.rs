@@ -41,7 +41,7 @@ pub(crate) fn cue(
     Output {
       target,
       properties: target.map(|_| VOLUME_PREVIEW),
-      latency: None,
+      latency: target.map(|_| Duration::from_millis(20)),
     },
   );
 

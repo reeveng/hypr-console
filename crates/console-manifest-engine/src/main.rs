@@ -19,7 +19,6 @@ mod buttons;
 mod confirmation;
 mod device_command;
 mod enough;
-mod generations;
 mod going;
 mod health;
 mod install;
@@ -28,6 +27,7 @@ mod laying;
 mod machine;
 mod migrating;
 mod migration_files;
+mod nix_setup;
 mod packages;
 mod program_staging;
 mod pruning;
@@ -37,7 +37,7 @@ mod snapshot;
 mod units;
 mod up_to_date;
 
-use console_manifest_engine::{machines, manifest, modes, unapplied};
+use console_manifest_engine::{generations, machines, manifest, modes, unapplied};
 use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -500,6 +500,17 @@ fn check(root: &Path, manifest: &Manifest) -> Result<ExitCode, Never> {
     asked_for
   });
   let Ok(named) = manifest.of(Section::Packages);
+  let Ok(unlisted) = packages::missing_packages(named, &have);
+  let provided = match system::unmet_dependencies(&unlisted) {
+    Ok(unmet) => {
+      let unmet_names: std::collections::HashSet<&str> = unmet.iter().map(String::as_str).collect();
+      unlisted.into_iter().filter(|name| !unmet_names.contains(name)).collect()
+    }
+    Err(fault) => {
+      console_core_logging::warn!("console check: checking installed package providers: {fault}");
+      std::collections::HashSet::new()
+    }
+  };
   let Ok(built) = manifest.builds();
   let Ok(files) = manifest.of(Section::Files);
   let Ok(services) = manifest.of(Section::Services);
@@ -508,7 +519,13 @@ fn check(root: &Path, manifest: &Manifest) -> Result<ExitCode, Never> {
   let drift = [
     confirmation::to("packages", || {
       let Ok(drift) = under("packages", named, |package| {
-        let Ok(held) = packages::package_state(&have, &asked_for, package);
+        let held = match provided.contains(package.as_str()).then_some(()) {
+          Some(()) => packages::PackageState::Ok,
+          None => {
+            let Ok(state) = packages::package_state(&have, &asked_for, package);
+            state
+          }
+        };
         let Ok(settled) = held.up_to_date();
         let Ok(name) = held.name();
 
@@ -1227,8 +1244,8 @@ fn migrate(pending: Presence) -> Result<(), Unapplied> {
         }
         Outstanding::Remember(_every_one_of_them) => {
           println!(
-            "this machine has never applied, so nothing is swept and the history is \
-                         marked done by the apply that installs it"
+            "this machine has never applied. The first apply skips historical sweeps and \
+                         runs initial setup after installation"
           );
         }
       }
@@ -1368,7 +1385,7 @@ fn install_generation(
   }: Apply<'_>,
   going: &mut going::Going,
 ) -> Result<(), Unapplied> {
-  packages_held(going, manifest)?;
+  packages_held(going, manifest, programs)?;
 
   let Ok(()) = going.through(going::SWEEPING, || {
     let Ok(()) = swept(manifest);
@@ -1386,7 +1403,7 @@ fn install_generation(
 
   swapped?;
 
-  let Ok(()) = told_the_rest(going);
+  let Ok(()) = told_the_rest(going, manifest);
 
   match ::core::primitive::bool::then_some(
     written.iter().any(|path| path.contains("/systemd/")),
@@ -1672,8 +1689,13 @@ fn enough_to_apply(root: &Path) -> Result<(), Unapplied> {
   Ok(())
 }
 
-fn packages_held(going: &mut going::Going, manifest: &Manifest) -> Result<(), Unapplied> {
+fn packages_held(
+  going: &mut going::Going,
+  manifest: &Manifest,
+  programs: build::Programs,
+) -> Result<(), Unapplied> {
   let Ok(named) = manifest.of(Section::Packages);
+  let Ok(wanted) = packages::for_install(named, programs);
   let Ok(have) = going.through(going::READING, || {
     let Ok(have) = system::installed();
 
@@ -1684,7 +1706,8 @@ fn packages_held(going: &mut going::Going, manifest: &Manifest) -> Result<(), Un
 
     asked_for
   });
-  let Ok(missing) = packages::missing_packages(named, &have);
+  let Ok(unlisted) = packages::missing_packages(&wanted, &have);
+  let missing = system::unmet_dependencies(&unlisted).map_err(Unapplied::PackageCheck)?;
   let Ok(installed) = going.during(going::PACKAGES, |moving| {
     match ::core::primitive::bool::then_some(missing.is_empty(), ()) {
       ::core::option::Option::Some(()) => return true,
@@ -1695,7 +1718,7 @@ fn packages_held(going: &mut going::Going, manifest: &Manifest) -> Result<(), Un
     let Ok(()) = moving.say(&format!("{YELLOW}installing{OFF} {}", missing.join(" ")));
 
     let mut fetching = Fetching { moving, done: 0 };
-    let installed = system::install_with(missing, &mut fetching, |progress, line, said| {
+    let installed = system::install_with(missing.iter().map(String::as_str), &mut fetching, |progress, line, said| {
       let Ok(()) = progress.moving.say(line);
 
       match said {
@@ -1737,7 +1760,7 @@ fn packages_held(going: &mut going::Going, manifest: &Manifest) -> Result<(), Un
     None => return Err(Unapplied::PacmanRefused),
   }
 
-  let Ok(borrowed) = packages::borrowed(named, &have, &asked_for);
+  let Ok(borrowed) = packages::borrowed(&wanted, &have, &asked_for);
   let Ok(kept) = going.through(going::KEEPING, || {
     match ::core::primitive::bool::then_some(borrowed.is_empty(), ()) {
       ::core::option::Option::Some(()) => return true,
@@ -1757,7 +1780,7 @@ fn packages_held(going: &mut going::Going, manifest: &Manifest) -> Result<(), Un
   Ok(())
 }
 
-fn told_the_rest(going: &mut going::Going) -> Result<(), Never> {
+fn told_the_rest(going: &mut going::Going, manifest: &Manifest) -> Result<(), Never> {
   let Ok(()) = going.through(going::ADD_ON, || {
     let Ok(()) = packed_the_add_on();
   });
@@ -1773,6 +1796,15 @@ fn told_the_rest(going: &mut going::Going) -> Result<(), Never> {
     }
   });
   let Ok(()) = going.through(going::SCREEN, || {
+    let Ok(files) = manifest.of(Section::Files);
+
+    match files.iter().find(|path| path.as_str() == screen::BACKLIGHT_RULE) {
+      Some(_) => {
+        let Ok(()) = screen::refresh_backlight();
+      }
+      None => {}
+    }
+
     let Ok(home) = home();
     let Ok(wrote) = screen::wrote(Path::new(&home));
 

@@ -78,7 +78,7 @@ fn every_job_can_be_reached_by_pressing_what_it_is_bound_to() {
       let Ok(found) = table.what(*on, held, pressed, mode);
 
       assert_eq!(
-        found.map(|found_2| found_2.slug),
+        found.map(|found_2| found_2.slug.as_ref()),
         Some(job.slug),
         "{} is unreachable on {pressed}",
         job.slug
@@ -120,8 +120,8 @@ fn the_right_stick_pressed_is_the_same_answer_as_a() {
     let Ok(stick) = table.what(Input::Pad, &[], "r3", mode);
 
     assert_eq!(
-      accepts.map(|job| job.slug),
-      stick.map(|job| job.slug),
+      accepts.map(|job| job.slug.as_ref()),
+      stick.map(|job| job.slug.as_ref()),
       "the right stick pressed and A part company in {mode:?}, \
              so the thumb already on the stick has to move to accept"
     );

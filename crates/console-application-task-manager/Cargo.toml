@@ -10,6 +10,7 @@ name = "console-application-task-manager"
 path = "src/main.rs"
 
 [dependencies]
+console-notifications.workspace = true
 console-actor.workspace = true
 console-applications.workspace = true
 console-compositor.workspace = true

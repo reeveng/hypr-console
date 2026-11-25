@@ -32,7 +32,7 @@ use console_core_external_programs::Program;
 use console_core_iteration::Step;
 use console_core_never::Never;
 use console_core_state_machine::{Machine, Transition};
-use console_panel::running::{Notification, say};
+use console_notifications::saying::Content as Notification;
 
 #[path = "files-unzip/extraction.rs"]
 mod extraction;
@@ -188,7 +188,8 @@ fn perform<E: std::fmt::Display>(
     Effect::Notify(failure) => {
       let Ok(()) = match failure {
         Failure::Detail(why) => notify_failure(archive.name, Why(&why)),
-        Failure::Full => say(
+        Failure::Full => console_notifications::saying::report(
+          console_notifications::Application("Files"),
           KIND,
           Notification {
             summary: archive.name,
@@ -326,7 +327,8 @@ fn inside(unpacking: &Path) -> Result<Vec<(OsString, Is)>, Never> {
 struct Why<'a>(&'a str);
 
 fn notify_failure(named: &str, why: Why<'_>) -> Result<(), Never> {
-  say(
+  console_notifications::saying::report(
+    console_notifications::Application("Files"),
     KIND,
     Notification {
       summary: &format!("Couldn't unzip {named}"),

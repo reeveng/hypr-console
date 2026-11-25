@@ -10,11 +10,17 @@ name = "console-dev-tools"
 required-features = ["tools"]
 
 [features]
+catalogue = ["flatpak", "system", "tools", "user", "dep:console-core-external-programs", "dep:console-core-logging", "dep:console-core-number-conversion"]
+flatpak = ["dep:console-package-manager-flatpak"]
 user = ["dep:console-package-manager-nix"]
 system = ["dep:console-package-manager-pacman"]
 tools = ["dep:console-core-never", "dep:console-package-manager-mise", "dep:console-repository"]
 
 [dependencies]
+console-core-external-programs = { workspace = true, optional = true }
+console-core-logging = { workspace = true, features = ["std"], optional = true }
+console-core-number-conversion = { workspace = true, optional = true }
+console-package-manager-flatpak = { workspace = true, optional = true }
 console-core-never = { workspace = true, optional = true }
 console-package-manager-mise = { workspace = true, optional = true }
 console-package-manager-nix = { workspace = true, optional = true }

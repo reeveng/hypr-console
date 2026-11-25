@@ -135,6 +135,7 @@ ours! {
     FilesUnzip, "files-unzip";
     ForecastPanel, "forecast-panel";
     Habits, "console-application-habits";
+    Hotkey, "console-hotkey";
     KeyboardShow, "keyboard-show";
     KeyboardToggle, "keyboard-toggle";
     LanguageSwitch, "language-switch";
@@ -164,6 +165,7 @@ ours! {
     Resume, "console-resume";
     SettingsLoginPattern, "settings-login-pattern";
     SettingsPanel, "settings-panel";
+    SoundEffect, "console-sound-effect";
     Tap, "console-tap";
     TaskManager, "console-application-task-manager";
     Update, "console-update";

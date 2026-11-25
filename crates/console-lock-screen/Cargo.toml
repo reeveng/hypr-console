@@ -15,12 +15,17 @@ path = "src/bin/lock-screen.rs"
 
 [dependencies]
 console-battery.workspace = true
-console-core-atomic-writes.workspace = true
+console-bus.workspace = true
+console-compositor = { workspace = true, features = ["lock-notify"] }
+console-concurrency.workspace = true
 console-core-color.workspace = true
 console-core-external-programs.workspace = true
 console-core-geometry.workspace = true
+console-core-internal-programs.workspace = true
 console-core-logging = { workspace = true, features = ["std"] }
 console-core-never.workspace = true
+console-core-number-conversion.workspace = true
+console-core-parallel-execution.workspace = true
 console-core-iteration.workspace = true
 console-core-places.workspace = true
 console-core-shapes.workspace = true
@@ -31,11 +36,14 @@ console-draw-surface.workspace = true
 console-events.workspace = true
 console-login-greeter.workspace = true
 console-login-window.workspace = true
+console-operating-system-linux.workspace = true
 console-program-contract.workspace = true
 console-readiness.workspace = true
 console-core-state-machine.workspace = true
 console-core-size.workspace = true
 console-status-bar.workspace = true
+console-wayland = { path = "../console-wayland" }
+rustix.workspace = true
 
 [lints]
 workspace = true

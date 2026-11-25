@@ -48,13 +48,6 @@
     ],
     "explanation": "External runtime dependency declared by the desktop manifest."
   },
-  "hypridle": {
-    "role": "runtime",
-    "nix": [
-      "hypridle"
-    ],
-    "explanation": "External runtime dependency declared by the desktop manifest."
-  },
   "polkit-kde-agent": {
     "role": "runtime",
     "nix": [
@@ -306,6 +299,11 @@
       "spirv-tools"
     ],
     "explanation": "Used by optional external programs; not required to compile the current Console workspace."
+  },
+  "nix": {
+    "role": "system",
+    "nix": [],
+    "explanation": "NixOS supplies the multi-user daemon and the Console module enables the CLI features."
   },
   "rust": {
     "role": "development",

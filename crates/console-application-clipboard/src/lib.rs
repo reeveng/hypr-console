@@ -81,7 +81,11 @@ fn privacy(capture: Capture) -> Result<Row, Never> {
     match reply {
       Some(Reply::Finished) => showing.replace(0),
       Some(Reply::List { .. } | Reply::Text(_) | Reply::Unavailable) | None => {
-        showing.note("Couldn’t change clipboard privacy");
+        let Ok(()) = console_notifications::notify(
+          console_notifications::Application("Clipboard"),
+          "Couldn’t change clipboard privacy",
+          None,
+        );
       }
     }
   });
@@ -162,7 +166,11 @@ fn restore_row(entry: Preview, paste: SyncSender<String>) -> Result<Row, Never> 
         ActionOutcome::Close
       }
       Some(Reply::List { .. } | Reply::Text(_) | Reply::Unavailable) | None => {
-        showing.note("That item is no longer available");
+        let Ok(()) = console_notifications::notify(
+          console_notifications::Application("Clipboard"),
+          "That clipboard item is no longer available",
+          None,
+        );
         showing.replace(0);
         ActionOutcome::Stay
       }
@@ -185,7 +193,11 @@ fn clear_row() -> Result<Row, Never> {
         match reply {
           Some(Reply::Finished) => confirming.replace(0),
           Some(Reply::List { .. } | Reply::Text(_) | Reply::Unavailable) | None => {
-            confirming.note("Couldn’t clear clipboard history");
+            let Ok(()) = console_notifications::notify(
+              console_notifications::Application("Clipboard"),
+              "Couldn’t clear clipboard history",
+              None,
+            );
           }
         }
       }),

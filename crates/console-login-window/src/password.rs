@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_core_number_conversion::{const_u16_index, fitted, index};
+use console_core_text_boundaries::previous_word_start;
 use console_login_session::{Request, Rules, authenticate};
 use console_operating_system_linux::program_lifetime::TimedReadPipe;
 use rustix::fs::{
@@ -106,7 +107,26 @@ impl Password {
     };
     let Ok(length) = fitted::<_, u32>(self.bytes.len());
     let Ok(width) = fitted::<_, u32>(character.len_utf8());
-    let Ok(start) = index(length.saturating_sub(width));
+    self.erase_from(u64::from(length.saturating_sub(width)))
+  }
+
+  pub fn erase_previous_word(&mut self) -> Result<(), Never> {
+    match self.overflow {
+      0 => {}
+      _ => return self.erase(),
+    }
+
+    let text = match std::str::from_utf8(&self.bytes) {
+      Ok(text) => text,
+      Err(_invalid_text) => return Ok(()),
+    };
+    let Ok(from) = previous_word_start(text);
+
+    self.erase_from(from)
+  }
+
+  fn erase_from(&mut self, from: u64) -> Result<(), Never> {
+    let Ok(start) = index(from);
 
     match self.bytes.get_mut(start..) {
       Some(erased) => {
@@ -275,6 +295,18 @@ fn sealed_input(password: &Password) -> io::Result<File> {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn word_deletion_uses_the_same_boundaries_in_passwords() {
+    let mut password = Password::default();
+
+    for letter in "one cafe\u{301}  ".chars() {
+      let Ok(()) = password.push(letter);
+    }
+
+    let Ok(()) = password.erase_previous_word();
+    assert_eq!(password.bytes, b"one ");
+  }
 
   #[test]
   fn long_unicode_passwords_are_kept_whole_and_rejected_by_the_legacy_backend() {

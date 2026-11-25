@@ -442,7 +442,7 @@ fn publish(
       }
       Effect::Custom(
         DownloadsEffect::Replace(_)
-        | DownloadsEffect::Note(_)
+        | DownloadsEffect::Notify(_)
         | DownloadsEffect::ForgetTyping
         | DownloadsEffect::Search { .. }
         | DownloadsEffect::Cancel { .. },

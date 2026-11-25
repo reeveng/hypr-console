@@ -17,9 +17,9 @@ path = "src/main.rs"
 console-core-arguments.workspace = true
 console-core-atomic-writes.workspace = true
 console-core-directory-listing.workspace = true
-console-device-name.workspace = true
 console-core-external-programs.workspace = true
 console-core-never.workspace = true
+console-core-state-machine.workspace = true
 console-repository.workspace = true
 
 [dev-dependencies]

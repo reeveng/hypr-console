@@ -4,10 +4,11 @@ use std::fmt;
 use std::marker::PhantomData;
 
 use console_core_never::Never;
-use serde::Deserialize;
 use serde::de::{self, Error as _, IgnoredAny, SeqAccess, Visitor};
+use serde::ser::SerializeStruct;
+use serde::{Deserialize, Serialize};
 
-use crate::choose::{Picture, Set, Wanted};
+use crate::choose::{Picture, Selection, Set, Wanted};
 use crate::grade::Grade;
 use crate::place::Name;
 use crate::render::Stir;
@@ -154,9 +155,18 @@ impl<'de> Deserialize<'de> for Set {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(
+  dylint_lib = "explicit048_no_unreal_state",
+  allow(
+    explicit048_no_unreal_state,
+    reason = "the persisted format accepts legacy follow and scene keys before converting them to a selection"
+  )
+)]
 struct WantedFields {
   follow: bool,
   picture: Text,
+  #[serde(default)]
+  scene: Option<Text>,
 }
 
 impl<'de> Deserialize<'de> for Wanted {
@@ -170,10 +180,44 @@ impl<'de> Deserialize<'de> for Wanted {
       }
     }
 
+    let scene = match fields.scene {
+      Some(Text(name)) => {
+        let _checked = Name::new(&name).map_err(D::Error::custom)?;
+        Some(name)
+      }
+      None => None,
+    };
+    let selection = match (fields.follow.then_some(()), scene) {
+      (Some(()), _) => Selection::Following,
+      (None, Some(name)) => Selection::Live(name),
+      (None, None) => Selection::Still,
+    };
+
     Ok(Self {
-      follow: fields.follow,
+      selection,
       picture: fields.picture.0,
     })
+  }
+}
+
+impl Serialize for Wanted {
+  fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+    let Ok(scene) = self.scene();
+    let count = match scene {
+      Some(_) => 3_u8,
+      None => 2_u8,
+    };
+    let Ok(length) = console_core_number_conversion::index(count);
+    let mut fields = serializer.serialize_struct("Wanted", length)?;
+    fields.serialize_field("follow", &matches!(self.selection, Selection::Following))?;
+    fields.serialize_field("picture", &self.picture)?;
+
+    match scene {
+      Some(name) => fields.serialize_field("scene", name)?,
+      None => {}
+    }
+
+    fields.end()
   }
 }
 
@@ -189,6 +233,24 @@ mod tests {
 
     assert!(matches!(unknown, Err(_unknown)));
     assert!(matches!(wrong_name, Err(_invalid)));
+  }
+
+  #[test]
+  fn a_live_selection_keeps_its_fallback_and_round_trips() {
+    let Ok(wanted) = Wanted::read("follow = false\npicture = 'river'\nscene = 'seascape'\n");
+    let Ok(stored) = wanted.serialize();
+
+    assert_eq!(wanted.picture, "river");
+    assert_eq!(wanted.scene(), Ok(Some("seascape")));
+    assert_eq!(Wanted::read(&stored), Ok(wanted));
+  }
+
+  #[test]
+  fn a_live_selection_cannot_name_an_executable_outside_its_directory() {
+    let invalid =
+      toml::from_str::<Wanted>("follow = false\npicture = ''\nscene = '../program'\n");
+
+    assert!(matches!(invalid, Err(_invalid_name)));
   }
 
   #[test]

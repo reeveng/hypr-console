@@ -96,10 +96,12 @@ pub fn dropped() -> Result<Option<PathBuf>, Never> {
   Ok(home.map(|at| at.join("Pictures/Wallpapers")))
 }
 
+pub(crate) const SELECTION: &str = "sky.toml";
+
 pub fn config_path() -> Result<Option<PathBuf>, Never> {
   let ours = Base::Configuration.ours()?;
 
-  Ok(ours.map(|at| at.join("sky.toml")))
+  Ok(ours.map(|at| at.join(SELECTION)))
 }
 
 pub fn picture(name: &str) -> Result<Option<(PathBuf, PathBuf)>, Never> {

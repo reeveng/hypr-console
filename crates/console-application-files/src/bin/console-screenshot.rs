@@ -6,7 +6,7 @@ use std::path::Path;
 use std::process::{ExitCode, Stdio};
 
 use console_core_external_programs::{Installed, Program, installed};
-use console_operating_system_linux::notification::{Action, Options};
+use console_notifications::delivery::{Action, Options};
 
 const SEND_KEY: &str = "send";
 const SEND: Action<'static> = Action {

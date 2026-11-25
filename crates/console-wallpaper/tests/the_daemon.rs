@@ -11,7 +11,7 @@ use console_program_contract::{
 };
 use console_program_runtime::simulation::{After, Expected, Simulation};
 use console_program_runtime::{Limit, Subscribed, Wake, execute};
-use console_wallpaper::choose::{Set, Wanted};
+use console_wallpaper::choose::{Selection, Set, Wanted};
 use console_wallpaper::covered::Covered;
 use console_wallpaper::keeping::{
   Chosen, Going, Input, Observation, Rendered, Sun, WallpaperEffect, WallpaperEvent,
@@ -356,7 +356,7 @@ fn a_pinned_picture_can_be_put_up_once_without_a_forecast() -> Result<(), Failur
   "#,
   )?;
   let wanted = Wanted {
-    follow: false,
+    selection: Selection::Still,
     picture: "pinned".to_string(),
   };
   let mut expected = vec![observation(SUNSET, 0, wanted)];
@@ -393,7 +393,7 @@ fn an_imported_picture_can_be_pinned_without_a_catalog_entry() -> Result<(), Fai
       elapsed: Duration::ZERO,
       at: AT,
       wanted: Wanted {
-        follow: false,
+        selection: Selection::Still,
         picture: "my-photo".to_string(),
       },
       pinned_file: true,

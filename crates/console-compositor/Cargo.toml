@@ -15,6 +15,7 @@ path = "src/bin/console-compositor.rs"
 
 [features]
 color-transform = ["dep:console-wayland", "dep:wayland-scanner"]
+lock-notify = ["dep:console-wayland", "dep:wayland-scanner"]
 toplevel-mapping = [
   "dep:console-core-geometry",
   "dep:console-core-iteration",
@@ -25,6 +26,7 @@ toplevel-mapping = [
 
 [dependencies]
 console-core-bounded-reads.workspace = true
+console-core-color.workspace = true
 console-core-external-programs.workspace = true
 console-core-geometry = { workspace = true, optional = true }
 console-core-iteration = { workspace = true, optional = true }

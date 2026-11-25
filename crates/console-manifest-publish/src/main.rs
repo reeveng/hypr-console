@@ -31,6 +31,8 @@ use console_manifest_publish::tree;
 use console_repository::tracked::{Untracked, tracked};
 use console_repository::{InvalidRelativePath, RelativePath};
 
+mod privacy;
+
 fn main() -> ExitCode {
   let said: Vec<String> = std::env::args().skip(1).collect();
   let Ok(code) = console_core_arguments::run_main(&COMMAND, &said, copy, run);
@@ -48,6 +50,7 @@ enum Unpublished {
   NotAName(PathBuf),
   InvalidPath(InvalidRelativePath),
   Untracked(Untracked),
+  PrivacyCheckIncomplete,
 }
 
 impl std::fmt::Display for Unpublished {
@@ -69,6 +72,9 @@ impl std::fmt::Display for Unpublished {
       }
       Unpublished::InvalidPath(fault) => write!(to, "{fault}"),
       Unpublished::Untracked(fault) => write!(to, "{fault}"),
+      Unpublished::PrivacyCheckIncomplete => {
+        to.write_str("The export privacy check did not finish.")
+      }
     }
   }
 }
@@ -86,29 +92,38 @@ const COPY: [&str; 1] = ["COPY"];
 const EXPORT_ONLY: Flag = Flag {
   spelling: "--export-only",
   takes: Takes::None,
-  about: "check the public copy for private names and leave the build to CI",
+  about: "check the public copy for personal identifiers and leave the build to CI",
+};
+
+const PRIVATE_IDENTIFIERS: Flag = Flag {
+  spelling: "--private-identifiers",
+  takes: Takes::Value("FILE"),
+  about: "also check for identifiers from FILE, one per line",
 };
 
 const COMMAND: Command = Command {
   name: "console-manifest-publish",
   about: "build the public copy of this tree at COPY, with no one's name in it",
-  flags: &[EXPORT_ONLY],
+  flags: &[EXPORT_ONLY, PRIVATE_IDENTIFIERS],
   operands: Operands::Named(&COPY),
 };
 
 struct Publication {
   where_: PathBuf,
   export_only: Presence,
+  private_identifiers: Option<PathBuf>,
 }
 
 fn copy(said: &[String]) -> Result<Publication, ValidationError> {
   let line = console_core_arguments::read(&COMMAND, said)?;
   let [at] = line.exactly(COPY)?;
   let Ok(export_only) = line.presence(EXPORT_ONLY);
+  let Ok(private_identifiers) = line.value(PRIVATE_IDENTIFIERS);
 
   Ok(Publication {
     where_: PathBuf::from(at),
     export_only,
+    private_identifiers: private_identifiers.map(PathBuf::from),
   })
 }
 
@@ -116,12 +131,29 @@ fn run(publication: Publication) -> Result<ExitCode, Unpublished> {
   let Publication {
     where_,
     export_only,
+    private_identifiers,
   } = publication;
   let repository = console_repository::root()?;
+  let identifiers = match private_identifiers {
+    Some(file) => {
+      let source = read(&file)?;
+
+      source
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(|line| Watched {
+          name: line.to_owned(),
+          what: "an identifier from the private file",
+        })
+        .collect()
+    }
+    None => Vec::new(),
+  };
 
   publish(&repository, &where_)?;
   println!("built {}", where_.display());
-  check(&repository, &where_, export_only)
+  check(&repository, &where_, export_only, identifiers)
 }
 
 const KEPT: [&str; 2] = [".git", "target"];
@@ -203,39 +235,49 @@ fn check(
   repository: &Path,
   where_: &Path,
   export_only: Presence,
+  identifiers: Vec<Watched>,
 ) -> Result<ExitCode, Unpublished> {
-  let Ok((names, missing)) = names::forbidden_names();
+  let report = privacy::scan(repository, where_, identifiers);
+  let report_2 = report?;
+  let privacy::Report { missing, findings } = report_2;
 
   for said in &missing {
     eprintln!("{said}");
   }
 
-  let said = files_naming(where_, &names)?;
+  match missing.as_slice() {
+    [] => {}
+    [_, ..] => {
+      eprintln!("Export privacy check incomplete. Keep this copy local until the check passes.");
+    }
+  }
 
-  match ::core::primitive::bool::then_some(said.is_empty(), ()) {
-    ::core::option::Option::Some(()) => {}
-    ::core::option::Option::None => {
-      eprintln!("still says too much:");
+  match findings.as_slice() {
+    [] => {}
+    [_, ..] => {
+      eprintln!("The export contains personal identifiers.");
 
-      for (path, watched) in &said {
-        eprintln!(
-          "  {} says {}, which is {}",
-          path.display(),
-          watched.name,
-          watched.what
-        );
+      for (path, category) in findings {
+        let relative = match path.strip_prefix(where_) {
+          Ok(relative) => relative,
+          Err(_outside_the_copy) => path.as_path(),
+        };
+
+        eprintln!("  {} contains {category}", relative.display());
       }
 
       return Ok(ExitCode::FAILURE);
     }
   }
 
-  println!("nothing of anyone's name in it");
-
-  match (export_only, missing.is_empty()) {
-    (Presence::Present, true) => return Ok(ExitCode::SUCCESS),
-    (Presence::Present, false) => return Ok(ExitCode::FAILURE),
-    (Presence::Absent, _) => {}
+  match (export_only, missing.as_slice()) {
+    (Presence::Present, []) => {
+      println!("Export privacy check passed.");
+      return Ok(ExitCode::SUCCESS);
+    }
+    (Presence::Present, [_, ..]) => return Ok(ExitCode::FAILURE),
+    (Presence::Absent, []) => println!("Export privacy check passed."),
+    (Presence::Absent, [_, ..]) => {}
   }
 
   let where_it_builds = [(
@@ -303,10 +345,10 @@ fn ran(
   )
 }
 
-fn files_naming<'a>(
+fn files_naming(
   where_: &Path,
-  names: &'a [Watched],
-) -> Result<Vec<(PathBuf, &'a Watched)>, Unpublished> {
+  names: &[Watched],
+) -> Result<Vec<(PathBuf, &'static str)>, Unpublished> {
   let Ok(listing) = console_core_directory_listing::recursive(where_, |holding| {
     let kept = holding
       .file_name()
@@ -330,7 +372,7 @@ fn files_naming<'a>(
     let Ok(named) = names::leaks(inside_the_copy.as_os_str().as_encoded_bytes(), names);
 
     match named {
-      Some(watched) => said.push((path.clone(), watched)),
+      Some(watched) => said.push((path.clone(), watched.what)),
       None => {}
     }
 
@@ -347,7 +389,7 @@ fn files_naming<'a>(
     let Ok(leaks) = names::leaks(&bytes, names);
 
     match leaks {
-      Some(watched) => said.push((path, watched)),
+      Some(watched) => said.push((path, watched.what)),
       None => {}
     }
   }

@@ -14,12 +14,14 @@ name = "console-asking"
 path = "src/bin/console-asking.rs"
 
 [dependencies]
+console-notifications.workspace = true
 console-compositor.workspace = true
 console-core-atomic-writes.workspace = true
 console-core-internal-programs.workspace = true
 console-core-iteration.workspace = true
 console-core-arguments.workspace = true
 console-core-never.workspace = true
+console-core-logging.workspace = true
 console-core-places.workspace = true
 console-program-contract.workspace = true
 console-input-controller.workspace = true
@@ -38,6 +40,9 @@ console-draw-painting.workspace = true
 console-draw-surface.workspace = true
 console-input-event-devices.workspace = true
 console-core-state-machine.workspace = true
+
+[dev-dependencies]
+console-core-temporary-directories.workspace = true
 
 [lints]
 workspace = true

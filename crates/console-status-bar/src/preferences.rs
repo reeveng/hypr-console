@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 use console_core_never::Never;
 use console_core_places::Base;
+use console_panel::icons::Icon;
 use serde::{Deserialize, Serialize};
 
 use crate::settings::SettingsTab;
@@ -29,6 +30,15 @@ impl Placement {
       Self::Bottom => "Bottom",
       Self::Left => "Left",
       Self::Right => "Right",
+    })
+  }
+
+  pub const fn icon(self) -> Result<Icon, Never> {
+    Ok(match self {
+      Self::Top => Icon::PanelTop,
+      Self::Bottom => Icon::PanelBottom,
+      Self::Left => Icon::PanelLeft,
+      Self::Right => Icon::PanelRight,
     })
   }
 }
@@ -91,6 +101,23 @@ impl Item {
       Self::Battery => "Battery",
       Self::Notifications => "Notification Center",
       Self::UpdateProgress => "Update Progress",
+    })
+  }
+
+  pub const fn icon(self) -> Result<Icon, Never> {
+    Ok(match self {
+      Self::Launcher => Icon::Launcher,
+      Self::Keyboard => Icon::Keyboard,
+      Self::Clipboard => Icon::Clipboard,
+      Self::Workspaces => Icon::Workspaces,
+      Self::Clock => Icon::Clock,
+      Self::Music => Icon::Music,
+      Self::Sound => Icon::Sound,
+      Self::Bluetooth => Icon::Bluetooth,
+      Self::Network => Icon::Wifi,
+      Self::Battery => Icon::Battery,
+      Self::Notifications => Icon::NotificationCenter,
+      Self::UpdateProgress => Icon::Updates,
     })
   }
 }

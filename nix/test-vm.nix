@@ -29,7 +29,7 @@ let
       extraGroups = [ "systemd-journal" ];
     };
     environment.etc."console-test-vm".text = name;
-    hardware.graphics.enable = wayland;
+    hardware.graphics.enable = lib.mkDefault wayland;
     systemd.services."serial-getty@ttyS0".enable = false;
     systemd.services.weston = lib.mkIf wayland {
       environment.XDG_RUNTIME_DIR = runtime;

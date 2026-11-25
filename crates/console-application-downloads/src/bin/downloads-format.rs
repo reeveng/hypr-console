@@ -2,6 +2,7 @@
 //!
 //!     downloads-format                     the music folder and the videos folder
 //!     downloads-format /run/media/stick    whatever is in there
+//!     downloads-format --music-library     audio within the configured music folder
 //!
 //! Sound becomes opus and a film becomes mkv, which are what the fetcher
 //! already writes, so a folder this has been over is a folder one program can
@@ -13,21 +14,24 @@
 //! the same as the Files panel deletes with, so an afternoon's conversion
 //! someone regrets is an afternoon's walk back rather than a loss.
 //!
-//! One folder, not the tree under it. A folder is what someone is standing in
-//! and what they asked about; a tree is a thing that runs for an hour over
-//! places they were not thinking of.
+//! The folder command works on the selected directory. Music Library walks
+//! album subfolders as well and converts regular audio files.
 
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Output};
 
-use console_core_arguments::{Operands, read};
+use console_core_arguments::{Flag, Operands, Presence, Takes, read};
+use console_core_directory_listing::Descend;
+use console_core_internal_programs::InternalProgram;
 
 use console_application_downloads::getting;
 use console_application_downloads::same::{self, Wants};
 use console_application_downloads::store::{self, Kind};
 use console_core_never::Never;
-use console_panel::running::{Notification, say};
+use console_music_player::selection::Selection;
+use console_notifications::saying::Content as Notification;
 
 const THERE: &str = "there";
 
@@ -45,10 +49,22 @@ enum Ran {
   Badly,
 }
 
+#[derive(Clone, Copy)]
+enum Purpose {
+  MusicLibrary,
+  Folder,
+}
+
+const MUSIC_LIBRARY: Flag = Flag {
+  spelling: "--music-library",
+  takes: Takes::None,
+  about: "convert audio in the configured Music Library and its album folders to Opus",
+};
+
 const COMMAND: console_core_arguments::Command = console_core_arguments::Command {
   name: "downloads-format",
   about: "make everything in FOLDER the one format this device keeps; with no FOLDER, the music folder and the videos folder",
-  flags: &[],
+  flags: &[MUSIC_LIBRARY],
   operands: Operands::Optional("FOLDER"),
 };
 
@@ -93,7 +109,22 @@ fn main() -> ExitCode {
     }
   };
   let Ok(operands) = line.operands();
-  let Ok(()) = format(operands.first().map(Path::new));
+  let Ok(music) = line.presence(MUSIC_LIBRARY);
+
+  match (music, operands.first()) {
+    (Presence::Present, Some(_)) => {
+      eprintln!("--music-library uses the configured library folder; omit FOLDER");
+
+      return ExitCode::from(2);
+    }
+    (Presence::Present, None) => {
+      let Ok(library) = getting::into(Kind::Sound);
+      let Ok(()) = format_music(&library);
+    }
+    (Presence::Absent, chosen) => {
+      let Ok(()) = format(chosen.map(Path::new));
+    }
+  }
 
   ExitCode::SUCCESS
 }
@@ -110,25 +141,114 @@ fn format(folder: Option<&Path>) -> Result<(), Never> {
       })
       .collect(),
   };
-  let mut made: u32 = 0;
-  let mut left: u32 = 0;
+  let mut converted = Converted::default();
 
   for folder_2 in &where_ {
     let Ok(wanting) = wanting(folder_2);
 
     for path in wanting {
-      let Ok(made_one) = made_one(&path);
+      let Ok(wanted) = same::wants_at(&path);
+      let Ok(result) = match what(&path, wanted) {
+        Ok(Some(kind)) => made_one(&path, kind, Purpose::Folder),
+        Ok(None) => Ok(Made::None),
+        Err(fault) => {
+          console_core_logging::warn!("probing {} for conversion: {fault}", path.display());
 
-      match made_one {
-        Made::It => made = made.saturating_add(1),
-        Made::None => left = left.saturating_add(1),
+          Ok(Made::None)
+        }
+      };
+      let Ok(()) = converted.record(result);
+    }
+  }
+
+  notify(converted, &where_)
+}
+
+fn format_music(folder: &Path) -> Result<(), Never> {
+  let Ok(listed) = console_core_directory_listing::recursive(folder, |path| {
+    let Ok(descend) = visible_entry(path);
+
+    descend
+  });
+  let mut converted = Converted::default();
+
+  for entry in listed {
+    let path = match entry {
+      Ok(path) => path,
+      Err(fault) => {
+        console_core_logging::warn!("listing tracks for conversion: {fault}");
+        let Ok(()) = converted.record(Made::None);
+
+        continue;
+      }
+    };
+
+    match music_candidate(&path) {
+      Ok(Some(kind)) => {
+        let Ok(result) = made_one(&path, kind, Purpose::MusicLibrary);
+        let Ok(()) = converted.record(result);
+      }
+      Ok(None) => {}
+      Err(fault) => {
+        console_core_logging::warn!("checking {} for conversion: {fault}", path.display());
+        let Ok(()) = converted.record(Made::None);
       }
     }
   }
 
-  let Ok(()) = notify(Converted { made, left }, &where_);
+  match converted.made {
+    0 => {}
+    _ => {
+      let Ok(()) = refresh_music_catalog();
+    }
+  }
+
+  notify(converted, &[folder.to_path_buf()])
+}
+
+fn refresh_music_catalog() -> Result<(), Never> {
+  let Ok(mut index) = InternalProgram::MusicIndex.command();
+
+  match index.status() {
+    Ok(status) => match status.success().then_some(()) {
+      Some(()) => {}
+      None => console_core_logging::warn!("refreshing the converted Music Library: {status}"),
+    },
+    Err(fault) => console_core_logging::warn!("refreshing the converted Music Library: {fault}"),
+  }
 
   Ok(())
+}
+
+fn visible_entry(path: &Path) -> Result<Descend, Never> {
+  Ok(match path.file_name().map(OsStr::as_encoded_bytes) {
+    Some(name) => match name.starts_with(b".").then_some(()) {
+      Some(()) => Descend::Past,
+      None => Descend::Into,
+    },
+    None => Descend::Into,
+  })
+}
+
+fn music_candidate(path: &Path) -> std::io::Result<Option<Kind>> {
+  let Ok(visibility) = visible_entry(path);
+  let Ok(wanted) = same::wants_at(path);
+
+  match (visibility, wanted) {
+    (Descend::Into, Wants::Made(Kind::Sound) | Wants::Ask) => {}
+    (Descend::Past, _) | (Descend::Into, _) => return Ok(None),
+  }
+
+  let metadata = std::fs::symlink_metadata(path)?;
+
+  match metadata.is_file().then_some(()) {
+    Some(()) => {}
+    None => return Ok(None),
+  }
+
+  let kind = what(path, wanted)?;
+
+  Ok(kind.filter(|media| *media == Kind::Sound))
 }
 
 fn wanting(folder: &Path) -> Result<Vec<PathBuf>, Never> {
@@ -158,14 +278,12 @@ fn wanting(folder: &Path) -> Result<Vec<PathBuf>, Never> {
   Ok(found)
 }
 
-fn what(path: &Path) -> Result<Option<Kind>, Never> {
-  let Ok(named) = same::wants_at(path);
-
-  Ok(match named {
+fn what(path: &Path, wanted: Wants) -> std::io::Result<Option<Kind>> {
+  Ok(match wanted {
     Wants::Made(kind) => Some(kind),
     Wants::Ask => {
       let Ok(about) = same::about(path);
-      let Ok(said) = run_output(&about);
+      let said = run_output(&about)?;
       let Ok(inside) = same::inside(&said);
 
       Some(inside)
@@ -174,12 +292,7 @@ fn what(path: &Path) -> Result<Option<Kind>, Never> {
   })
 }
 
-fn made_one(path: &Path) -> Result<Made, Never> {
-  let Ok(kind) = what(path);
-  let conversion = match kind {
-    Some(kind_2) => kind_2,
-    None => return Ok(Made::None),
-  };
+fn made_one(path: &Path, conversion: Kind, purpose: Purpose) -> Result<Made, Never> {
   let Ok(to) = same::beside(path, conversion);
 
   match std::fs::symlink_metadata(&to) {
@@ -223,11 +336,45 @@ fn made_one(path: &Path) -> Result<Made, Never> {
     prepared: &part,
     destination: &to,
   };
+  let original = match std::fs::symlink_metadata(path) {
+    Ok(original) => match (purpose, original.is_file().then_some(())) {
+      (Purpose::MusicLibrary, None) => return Ok(Made::None),
+      (Purpose::Folder, _) | (Purpose::MusicLibrary, Some(())) => {
+        let Ok(revision) = FileRevision::of(&original);
+
+        revision
+      }
+    },
+    Err(fault) => {
+      console_core_logging::warn!("reading {} before conversion: {fault}", path.display());
+
+      return Ok(Made::None);
+    }
+  };
   let Ok(converted) = convert(&files, conversion);
 
   match converted {
-    Ran::Fine => put_in_place(&files),
+    Ran::Fine => put_in_place(&files, original, purpose),
     Ran::Badly => Ok(Made::None),
+  }
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+struct FileRevision {
+  device: u64,
+  inode: u64,
+  changed: i64,
+  nanos: i64,
+}
+
+impl FileRevision {
+  fn of(info: &std::fs::Metadata) -> Result<Self, Never> {
+    Ok(Self {
+      device: info.dev(),
+      inode: info.ino(),
+      changed: info.ctime(),
+      nanos: info.ctime_nsec(),
+    })
   }
 }
 
@@ -254,7 +401,33 @@ fn convert(files: &Conversion<'_>, kind: Kind) -> Result<Ran, Never> {
   }
 }
 
-fn put_in_place(files: &Conversion<'_>) -> Result<Made, Never> {
+fn put_in_place(
+  files: &Conversion<'_>,
+  revision: FileRevision,
+  purpose: Purpose,
+) -> Result<Made, Never> {
+  let editable = match std::fs::symlink_metadata(files.original) {
+    Ok(file) => {
+      let Ok(current) = FileRevision::of(&file);
+
+      (current == revision).then_some(())
+    }
+    Err(fault) => {
+      console_core_logging::warn!("checking {} after conversion: {fault}", files.original.display());
+
+      return Ok(Made::None);
+    }
+  };
+
+  match editable {
+    Some(()) => {}
+    None => {
+      console_core_logging::warn!("{} changed during conversion", files.original.display());
+
+      return Ok(Made::None);
+    }
+  }
+
   let to = files.destination;
 
   match console_core_atomic_writes::rename_without_overwriting(files.prepared, to) {
@@ -266,9 +439,9 @@ fn put_in_place(files: &Conversion<'_>) -> Result<Made, Never> {
     }
   }
 
-  match console_gio::trash(files.original) {
+  match replace_original(files, purpose) {
     Err(fault) => {
-      eprintln!("trashing {}: {fault}", files.original.display());
+      console_core_logging::warn!("replacing {}: {fault}", files.original.display());
 
       match store::remove_if_present(to) {
         Ok(()) => {}
@@ -283,6 +456,17 @@ fn put_in_place(files: &Conversion<'_>) -> Result<Made, Never> {
     }
     Ok(()) => Ok(Made::It),
   }
+}
+
+fn replace_original(files: &Conversion<'_>, purpose: Purpose) -> std::io::Result<()> {
+  match purpose {
+    Purpose::MusicLibrary => {
+      Selection::copy_decision(files.original, files.destination)?;
+    }
+    Purpose::Folder => {}
+  }
+
+  console_gio::trash(files.original)
 }
 
 fn cover(files: &Conversion<'_>) -> Result<Option<String>, Never> {
@@ -336,28 +520,30 @@ fn ran(arguments: &[OsString]) -> Result<Ran, Never> {
   })
 }
 
-fn run_output(arguments: &[OsString]) -> Result<String, Never> {
-  Ok(match invoke(arguments) {
-    Ok(done) => match String::from_utf8(done.stdout) {
-      Ok(text) => text,
-      Err(fault) => {
-        eprintln!("the format probe returned output that is not UTF-8: {fault}");
+fn run_output(arguments: &[OsString]) -> std::io::Result<String> {
+  let done = invoke(arguments)?;
 
-        String::new()
-      }
-    },
-    Err(fault) => {
-      eprintln!("the format probe could not start: {fault}");
-
-      String::new()
-    }
-  })
+  match done.status.success().then_some(()) {
+    Some(()) => String::from_utf8(done.stdout).map_err(std::io::Error::other),
+    None => Err(std::io::Error::other(format!("format probe exited with {}", done.status))),
+  }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 struct Converted {
   made: u32,
   left: u32,
+}
+
+impl Converted {
+  fn record(&mut self, result: Made) -> Result<(), Never> {
+    match result {
+      Made::It => self.made = self.made.saturating_add(1),
+      Made::None => self.left = self.left.saturating_add(1),
+    }
+
+    Ok(())
+  }
 }
 
 fn notify(converted: Converted, where_: &[PathBuf]) -> Result<(), Never> {
@@ -382,8 +568,8 @@ fn notify(converted: Converted, where_: &[PathBuf]) -> Result<(), Never> {
       made = made_3
     ),
   };
-  let options = console_operating_system_linux::notification::Options {
-    app_name: Some("Console"),
+  let options = console_notifications::delivery::Options {
+    app_name: Some("Downloads"),
     icon: Some("folder-music"),
     ..Default::default()
   };
@@ -400,7 +586,8 @@ fn notify(converted: Converted, where_: &[PathBuf]) -> Result<(), Never> {
 
   match ::core::primitive::bool::then_some(left > 0 && made == 0, ()) {
     ::core::option::Option::Some(()) => {
-      let Ok(()) = say(
+      let Ok(()) = console_notifications::saying::report(
+        console_notifications::Application("Downloads"),
         KIND,
         Notification {
           summary: &format!("Couldn't convert {}", folders.join(" and ")),

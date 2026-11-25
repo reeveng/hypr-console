@@ -94,12 +94,17 @@ fn sidebar_items_fit_and_use_their_drawn_hit_regions_on_both_edges() -> Result<(
   for placement in [Placement::Left, Placement::Right] {
     let Ok(drawn) = showing::sidebar(&bar, &applets, &wearing, room, placement);
     assert_eq!(drawn.room, room);
-    assert!(
-      drawn
-        .shapes
-        .iter()
-        .any(|shape| matches!(shape, Shape::Text(text) if text.said == "12:59 pm"))
-    );
+    assert_eq!(room.width, 48);
+
+    for part in ["12:59", "pm"] {
+      assert!(
+        drawn
+          .shapes
+          .iter()
+          .any(|shape| matches!(shape, Shape::Text(text) if text.said == part))
+      );
+    }
+
     assert!(
       drawn
         .touching
@@ -205,56 +210,13 @@ fn sample_state() -> Result<BarState, Never> {
   Ok(held)
 }
 
-fn measure(slots: &[Slot], fitting: Fitting) -> Result<Vec<Measured>, Never> {
-  Ok(
-    slots
-      .iter()
-      .map(|slot| {
-        let runs = slot
-          .spans
-          .iter()
-          .map(|span| {
-            let Ok(font) = fitting.font(span.face);
-            let Ok(weight) = span.face.weight();
-            let Ok(size) = measure_text(
-              Run {
-                said: &span.text,
-                weight,
-                width: u32::MAX,
-              },
-              &font,
-            );
-
-            size
-          })
-          .collect();
-
-        Measured {
-          slot: slot.clone(),
-          runs,
-        }
-      })
-      .collect(),
-  )
-}
-
 fn bar(filling: Filling) -> Result<(Bar, Fitting), Never> {
   let Ok(fitting) = Fitting::of_em();
   let Ok(state) = sample_state();
   let Ok(layout) = state.layout(filling);
-  let Ok(left) = measure(&layout.left, fitting);
-  let Ok(middle) = measure(&layout.middle, fitting);
-  let Ok(right) = measure(&layout.right, fitting);
+  let Ok(bar) = measuring::sized(&layout, fitting);
 
-  Ok((
-    Bar {
-      left,
-      middle,
-      right,
-      filling,
-    },
-    fitting,
-  ))
+  Ok((bar, fitting))
 }
 
 fn sidebar_fixture() -> Result<(Bar, Vec<Measured>, Fitting, Size<u32>), Never> {
@@ -273,9 +235,7 @@ fn sidebar_fixture() -> Result<(Bar, Vec<Measured>, Fitting, Size<u32>), Never> 
     width,
     height: SCREEN.height,
   };
-  let text_width = width
-    .saturating_sub(fitting.thin)
-    .saturating_sub(fitting.margin.saturating_mul(2));
+  let Ok(text_width) = fitting.sidebar_content_width(width);
   let Ok(mut slots) = state.settings_applets(&preferences);
   slots.push(Slot {
     spans: vec![Span {

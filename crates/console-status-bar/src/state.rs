@@ -19,16 +19,12 @@
 //! first number no one was on, which put the new one in whatever gap a closed
 //! window had left rather than under the + that was tapped.
 //!
-//! A workspace is shown by where it stands and not by the compositor's number
-//! for it. The compositor never reuses a gap on its own -- close the window on
-//! 4 of five and what is left is 1, 2, 3 and 5, and a + tapped on an empty
-//! desktop is a 2 with nothing before it -- so its numbers say what happened
-//! rather than what there is. What a person counts is the row, and the row
-//! always starts at one.
+//! Numbered workspaces use consecutive labels in compositor ID order. The
+//! Console shortcuts use that order as well, while clicks keep the actual ID.
 //! Asking the machine is the program's, because it is the half that needs a
 //! machine.
 
-use console_compositor::Workspace;
+use console_compositor::{Workspace, WorkspaceKind};
 use console_core_never::Never;
 use console_core_state_machine::{Machine, Transition};
 
@@ -66,6 +62,14 @@ pub struct BarState {
   pub workspaces: Vec<Workspace>,
   pub front: Option<i64>,
   pub panels: Panels,
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+pub enum FocusUpdate {
+  #[default]
+  Unchanged,
+  NoWorkspace,
+  Workspace(Workspace),
 }
 
 pub fn music(paused: Paused, playing: Playing) -> Result<Reading, Never> {
@@ -123,6 +127,45 @@ fn reading(reading: &Reading, lit: Lit, action: BarAction) -> Result<Slot, Never
 }
 
 impl BarState {
+  pub fn observed_workspaces(
+    &mut self,
+    workspaces: Option<Vec<Workspace>>,
+    front: FocusUpdate,
+  ) -> Result<(), Never> {
+    match workspaces {
+      Some(observed) => self.workspaces = observed,
+      None => {}
+    }
+
+    match front {
+      FocusUpdate::Workspace(workspace) => {
+        let Ok(kind) = WorkspaceKind::of(&workspace.named);
+
+        match kind {
+          WorkspaceKind::Special => return Ok(()),
+          WorkspaceKind::Regular => {}
+        }
+
+        self.front = Some(workspace.id);
+
+        match self
+          .workspaces
+          .binary_search_by_key(&workspace.id, |one| one.id)
+        {
+          Ok(_already_listed) => {}
+          Err(_not_listed) => {
+            self.workspaces.push(workspace);
+            self.workspaces.sort_by_key(|one| one.id);
+          }
+        }
+      }
+      FocusUpdate::NoWorkspace => self.front = None,
+      FocusUpdate::Unchanged => {}
+    }
+
+    Ok(())
+  }
+
   pub fn told(&mut self, event: PanelEvent) -> Result<Vec<PanelEffect>, Never> {
     let panels = std::mem::take(&mut self.panels);
     let Ok(Transition { state, effects }) = Panels::transition(panels, event);
@@ -192,10 +235,15 @@ impl BarState {
   }
 
   pub fn layout(&self, filling: Filling) -> Result<Layout, Never> {
-    self.layout_with_clock(filling, &self.clock)
+    self.layout_with_clock(filling, &self.clock, Face::Clock)
   }
 
-  fn layout_with_clock(&self, filling: Filling, clock: &str) -> Result<Layout, Never> {
+  fn layout_with_clock(
+    &self,
+    filling: Filling,
+    clock: &str,
+    face: Face,
+  ) -> Result<Layout, Never> {
     let Ok(launcher) = self.panels.lit(Panel::Launcher);
     let Ok(keyboard) = self.panels.lit(Panel::Keyboard);
     let Ok(clipboard) = self.panels.lit(Panel::Clipboard);
@@ -209,6 +257,13 @@ impl BarState {
     let mut counted: u32 = 0;
 
     for workspace in &self.workspaces {
+      let Ok(kind) = WorkspaceKind::of(&workspace.named);
+
+      match kind {
+        WorkspaceKind::Special => continue,
+        WorkspaceKind::Regular => {}
+      }
+
       let named = match ::core::primitive::bool::then_some(workspace.id > 0, ()) {
         ::core::option::Option::Some(()) => {
           counted = counted.saturating_add(1);
@@ -248,11 +303,9 @@ impl BarState {
 
     let Ok(calendar) = self.panels.lit(Panel::Calendar);
 
+    let Ok(clock_spans) = clock_spans(clock, face);
     let middle = vec![Slot {
-      spans: vec![Span {
-        text: clock.to_owned(),
-        face: Face::Clock,
-      }],
+      spans: clock_spans,
       tone: Tone::Plain,
       lit: calendar,
       action: Some(BarAction::Calendar),
@@ -289,15 +342,15 @@ impl BarState {
   }
 
   pub fn configured(&self, preferences: &Preferences, filling: Filling) -> Result<Layout, Never> {
-    let clock = match preferences.placement {
-      Placement::Top | Placement::Bottom => &self.clock,
+    let (clock, face) = match preferences.placement {
+      Placement::Top | Placement::Bottom => (self.clock.as_str(), Face::Clock),
       Placement::Left | Placement::Right => {
         let Ok(time) = crate::clock::time_only(&self.clock);
 
-        time
+        (time, Face::SideClock)
       }
     };
-    let Ok(mut layout) = self.layout_with_clock(filling, clock);
+    let Ok(mut layout) = self.layout_with_clock(filling, clock, face);
 
     for group in [&mut layout.left, &mut layout.middle, &mut layout.right] {
       group.retain(|slot| match slot.action {
@@ -330,12 +383,13 @@ impl BarState {
         })
         .map(|tab| {
           let Ok(lit) = self.panels.lit(Panel::Settings(tab));
-          let Ok(text) = tab.title();
+          let Ok(icon) = tab.icon();
+          let Ok(glyph) = icon.glyph();
 
           Slot {
             spans: vec![Span {
-              text,
-              face: Face::Reading,
+              text: glyph.to_owned(),
+              face: Face::Icon,
             }],
             tone: Tone::Plain,
             lit,
@@ -345,6 +399,25 @@ impl BarState {
         .collect(),
     )
   }
+}
+
+fn clock_spans(clock: &str, face: Face) -> Result<Vec<Span>, Never> {
+  let (time, suffix) = match (face, clock.split_once(' ')) {
+    (Face::SideClock, Some((time, suffix))) => (time, Some(suffix)),
+    (Face::Icon | Face::Clock | Face::Reading | Face::Small, _) | (Face::SideClock, None) => {
+      (clock, None)
+    }
+  };
+
+  Ok(
+    std::iter::once(time)
+      .chain(suffix)
+      .map(|part| Span {
+        text: part.to_owned(),
+        face,
+      })
+      .collect(),
+  )
 }
 
 fn item(action: BarAction) -> Result<Option<Item>, Never> {
@@ -468,29 +541,88 @@ mod tests {
   }
 
   #[test]
-  fn the_workspaces_are_counted_from_one_whatever_the_compositor_numbered_them() {
+  fn an_empty_workspace_can_light_before_the_full_list_arrives() {
+    let Ok(mut state) = sample_state();
+    let Ok(()) = state.observed_workspaces(
+      None,
+      FocusUpdate::Workspace(Workspace {
+        id: 9,
+        named: "9".to_owned(),
+        windows: Some(0),
+      }),
+    );
+    let Ok(layout) = state.layout(Filling::None);
+    let lit = layout
+      .left
+      .iter()
+      .find(|slot| slot.action == Some(BarAction::Workspace(9)));
+
+    assert_eq!(lit.map(|slot| slot.lit), Some(Lit::Yes));
+  }
+
+  #[test]
+  fn workspace_labels_skip_special_workspaces_and_clicks_keep_the_underlying_id() {
     let Ok(state) = sample_state();
     let held = BarState {
-      workspaces: [-98, 2, 3, 5]
-        .iter()
-        .map(|id| Workspace {
-          id: *id,
-          named: format!("was {id}"),
-          windows: Some(1),
-        })
-        .collect(),
+      workspaces: [
+        (-1337, "Project"),
+        (-99, "special"),
+        (-98, "special:console-quick"),
+        (2, "2"),
+        (3, "3"),
+        (5, "5"),
+      ]
+      .iter()
+      .map(|(id, name)| Workspace {
+        id: *id,
+        named: (*name).to_owned(),
+        windows: Some(1),
+      })
+      .collect(),
       ..state
     };
     let Ok(layout) = held.layout(Filling::None);
-    let named: Vec<&str> = layout
+    let named: Vec<_> = layout
       .left
       .iter()
-      .filter(|slot| matches!(slot.action, Some(BarAction::Workspace(_))))
-      .filter_map(|slot| slot.spans.first())
-      .map(|span| span.text.as_str())
+      .filter_map(|slot| match (slot.action, slot.spans.first()) {
+        (Some(BarAction::Workspace(id)), Some(span)) => Some((span.text.as_str(), id)),
+        _ => None,
+      })
       .collect();
 
-    assert_eq!(named, ["was -98", "1", "2", "3", ANOTHER]);
+    assert_eq!(
+      named,
+      [
+        ("Project", -1337),
+        ("1", 2),
+        ("2", 3),
+        ("3", 5),
+        (ANOTHER, 6)
+      ]
+    );
+  }
+
+  #[test]
+  fn opening_a_special_workspace_keeps_the_underlying_workspace_lit() {
+    let Ok(mut state) = sample_state();
+    let Ok(()) = state.observed_workspaces(
+      None,
+      FocusUpdate::Workspace(Workspace {
+        id: -98,
+        named: "special:console-quick".to_owned(),
+        windows: Some(1),
+      }),
+    );
+    let Ok(layout) = state.layout(Filling::None);
+
+    assert_eq!(state.front, Some(2));
+    assert!(
+      layout
+        .left
+        .iter()
+        .all(|slot| slot.action != Some(BarAction::Workspace(-98)))
+    );
   }
 
   #[test]
@@ -621,13 +753,21 @@ mod tests {
       let action = BarAction::Settings(tab);
       let Ok(opening) = state.pressed(action);
       let Ok(open_applets) = state.settings_applets(&preferences);
+      let Ok(icon) = tab.icon();
+      let Ok(glyph) = icon.glyph();
 
       assert_eq!(opening, [action]);
-      assert_eq!(open_applets.len(), 1);
-      assert!(
-        open_applets
-          .iter()
-          .any(|slot| slot.action == Some(action) && slot.lit == Lit::Yes)
+      assert_eq!(
+        open_applets,
+        [Slot {
+          spans: vec![Span {
+            text: glyph.to_owned(),
+            face: Face::Icon,
+          }],
+          tone: Tone::Plain,
+          lit: Lit::Yes,
+          action: Some(action),
+        }],
       );
 
       let Ok(_ended) = state.told(PanelEvent::Ended(Panel::Settings(tab)));

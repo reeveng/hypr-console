@@ -24,6 +24,13 @@ pub enum IdOutput {
   Requested,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum History {
+  #[default]
+  Keep,
+  Transient,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct Action<'a> {
   pub key: &'a str,
@@ -38,6 +45,7 @@ pub struct Options<'a> {
   pub urgency: Urgency,
   pub synchronous_key: Option<&'a str>,
   pub id_output: IdOutput,
+  pub history: History,
   pub replace_id: Option<u32>,
   pub value: Option<i64>,
 }
@@ -55,11 +63,16 @@ impl Options<'_> {
       IdOutput::Omitted => None,
       IdOutput::Requested => Some("--print-id".to_string()),
     };
+    let history = match self.history {
+      History::Keep => None,
+      History::Transient => Some("--hint=int:transient:1".to_string()),
+    };
 
     let mut options: Vec<String> = [
       self.app_name.map(|name| format!("--app-name={name}")),
       self.icon.map(|icon| format!("--icon={icon}")),
       print_id,
+      history,
       urgency,
       self.expire_ms.map(|time| format!("--expire-time={time}")),
       self

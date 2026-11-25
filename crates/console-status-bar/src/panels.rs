@@ -10,14 +10,12 @@
 //!
 //! Here every panel has a phase of its own. A press moves it to `Opening` or
 //! `Closing` and asks for its program; what the compositor says moves it on
-//! when it agrees and is waited past when it does not. An opening waits until
+//! when it agrees. An opening waits until
 //! the program it started ends, because a panel's program lives exactly as
 //! long as its surface: ended, it either drew and went or never drew, and the
-//! compositor's next word is taken as it stands. A closing waits for the
-//! compositor alone. The program that puts a panel away ends once the screen is
-//! let go, but the compositor may still be listing the surface when it does,
-//! and taking that answer is the slot lighting again under the thumb that put
-//! it out.
+//! compositor's next word is taken as it stands. The old picker stays dark
+//! while a close or replacement is pending. A later observation restores the
+//! indicator when the attempt ended and the old picker is still visible.
 //! The keyboard is the one whose program does not: it asks the keyboard that is
 //! always running and leaves, so its ending says nothing and only the
 //! compositor does. A slot is lit while its panel is `Opening` or `Open`.
@@ -60,7 +58,13 @@ pub enum Phase {
   Closed,
   Opening(Requested),
   Open,
-  Closing,
+  Closing(Closing),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Closing {
+  ByPress(Requested),
+  ForPicker(Panel),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -150,7 +154,7 @@ impl Panels {
 
     Ok(match phase {
       Phase::Opening(_) | Phase::Open => Lit::Yes,
-      Phase::Closed | Phase::Closing => Lit::No,
+      Phase::Closed | Phase::Closing(_) => Lit::No,
     })
   }
 
@@ -159,7 +163,7 @@ impl Panels {
       Phase::Closed => {
         let _was = self.phases.remove(&panel);
       }
-      Phase::Opening(_) | Phase::Open | Phase::Closing => {
+      Phase::Opening(_) | Phase::Open | Phase::Closing(_) => {
         let _was = self.phases.insert(panel, phase);
       }
     }
@@ -178,7 +182,7 @@ impl Panels {
           .into_iter()
           .map(|(panel, phase)| {
             let Ok(drawn_2) = panel.drawn();
-            let Ok(next) = displaced(phase, drawn_2);
+            let Ok(next) = displaced(phase, drawn_2, coming);
 
             (panel, next)
           })
@@ -203,52 +207,71 @@ impl Panels {
           ::core::option::Option::Some(()) => Up::OnScreen,
           ::core::option::Option::None => Up::NotThere,
         };
-        let Ok(seen) = seen(phase, standing);
+        let Ok(seen) = self.seen(panel, phase, standing, &up_2);
 
         match seen {
           Phase::Closed => None,
-          Phase::Opening(_) | Phase::Open | Phase::Closing => Some((panel, seen)),
+          Phase::Opening(_) | Phase::Open | Phase::Closing(_) => Some((panel, seen)),
         }
       })
       .collect();
 
     Ok(Panels { phases })
   }
+
+  fn seen(
+    &self,
+    panel: Panel,
+    phase: Phase,
+    standing: Up,
+    up: &BTreeSet<Panel>,
+  ) -> Result<Phase, Never> {
+    let Ok(drawn) = panel.drawn();
+
+    Ok(match (phase, standing, drawn) {
+      (Phase::Opening(Requested::Running), Up::NotThere, _)
+      | (
+        Phase::Closing(Closing::ByPress(Requested::Running)),
+        Up::OnScreen,
+        Presentation::AsAPicker,
+      ) => phase,
+      (Phase::Closing(Closing::ForPicker(replacing)), Up::OnScreen, _) => {
+        let Ok(replacement) = self.phase(replacing);
+
+        match (replacement, up.contains(&replacing).then_some(())) {
+          (Phase::Opening(Requested::Running), _) | (_, Some(())) => phase,
+          (_, None) => Phase::Open,
+        }
+      }
+      (_, Up::OnScreen, _) => Phase::Open,
+      (_, Up::NotThere, _) => Phase::Closed,
+    })
+  }
 }
 
 fn pressed(phase: Phase) -> Result<Phase, Never> {
   Ok(match phase {
-    Phase::Closed | Phase::Closing => Phase::Opening(Requested::Running),
-    Phase::Open | Phase::Opening(_) => Phase::Closing,
+    Phase::Closed | Phase::Closing(_) => Phase::Opening(Requested::Running),
+    Phase::Open | Phase::Opening(_) => Phase::Closing(Closing::ByPress(Requested::Running)),
   })
 }
 
-fn displaced(phase: Phase, drawn: Presentation) -> Result<Phase, Never> {
+fn displaced(phase: Phase, drawn: Presentation, coming: Panel) -> Result<Phase, Never> {
   Ok(match (phase, drawn) {
-    (Phase::Open | Phase::Opening(_), Presentation::AsAPicker) => Phase::Closing,
-    (Phase::Closed | Phase::Closing, Presentation::AsAPicker)
-    | (
-      Phase::Closed | Phase::Open | Phase::Opening(_) | Phase::Closing,
-      Presentation::ByTheKeyboard,
-    ) => phase,
+    (
+      Phase::Open | Phase::Opening(_) | Phase::Closing(Closing::ForPicker(_)),
+      Presentation::AsAPicker,
+    ) => Phase::Closing(Closing::ForPicker(coming)),
+    (Phase::Closed | Phase::Closing(Closing::ByPress(_)), Presentation::AsAPicker)
+    | (_, Presentation::ByTheKeyboard) => phase,
   })
 }
 
 fn ended(phase: Phase) -> Result<Phase, Never> {
   Ok(match phase {
     Phase::Opening(_) => Phase::Opening(Requested::Ended),
-    Phase::Closed | Phase::Open | Phase::Closing => phase,
-  })
-}
-
-fn seen(phase: Phase, standing: Up) -> Result<Phase, Never> {
-  Ok(match (phase, standing) {
-    (Phase::Opening(Requested::Running), Up::NotThere) | (Phase::Closing, Up::OnScreen) => phase,
-    (Phase::Closed | Phase::Open | Phase::Opening(_), Up::OnScreen) => Phase::Open,
-    (
-      Phase::Closed | Phase::Open | Phase::Closing | Phase::Opening(Requested::Ended),
-      Up::NotThere,
-    ) => Phase::Closed,
+    Phase::Closing(Closing::ByPress(_)) => Phase::Closing(Closing::ByPress(Requested::Ended)),
+    Phase::Closed | Phase::Open | Phase::Closing(Closing::ForPicker(_)) => phase,
   })
 }
 
@@ -280,7 +303,7 @@ impl Machine for Panels {
         let Ok(()) = effects.offer(PanelEffect::Start(panel));
         let Ok(cleared) = match next {
           Phase::Opening(_) => panels.displaced_by(panel),
-          Phase::Closed | Phase::Open | Phase::Closing => Ok(panels),
+          Phase::Closed | Phase::Open | Phase::Closing(_) => Ok(panels),
         };
 
         cleared.with(panel, next)
@@ -425,11 +448,10 @@ mod tests {
   }
 
   #[test]
-  fn a_panel_put_away_stays_dark_while_the_screen_still_shows_it() {
+  fn a_panel_dims_on_press_and_closes_when_it_leaves_the_screen() {
     let Ok(panels) = after(&[
       PanelEvent::Shown(vec![Panel::Notifications]),
       PanelEvent::Pressed(Panel::Notifications),
-      PanelEvent::Shown(vec![Panel::Notifications]),
     ]);
 
     assert_eq!(panels.lit(Panel::Notifications), Ok(Lit::No));
@@ -444,26 +466,60 @@ mod tests {
   }
 
   #[test]
-  fn a_panel_put_away_is_not_lit_again_by_a_compositor_that_is_still_listing_it() {
+  fn a_launcher_that_is_still_visible_after_a_close_attempt_lights_again() {
     let Ok(panels) = after(&[
-      PanelEvent::Shown(vec![Panel::Calendar]),
-      PanelEvent::Pressed(Panel::Calendar),
-      PanelEvent::Ended(Panel::Calendar),
-      PanelEvent::Shown(vec![Panel::Calendar]),
+      PanelEvent::Shown(vec![Panel::Launcher]),
+      PanelEvent::Pressed(Panel::Launcher),
+      PanelEvent::Ended(Panel::Launcher),
+      PanelEvent::Shown(vec![Panel::Launcher]),
     ]);
 
-    assert_eq!(panels.lit(Panel::Calendar), Ok(Lit::No));
+    assert_eq!(panels.phase(Panel::Launcher), Ok(Phase::Open));
+  }
+
+  #[test]
+  fn a_launcher_close_stays_dark_while_the_compositor_still_lists_it() {
+    let Ok(pending) = after(&[
+      PanelEvent::Shown(vec![Panel::Launcher]),
+      PanelEvent::Pressed(Panel::Launcher),
+      PanelEvent::Shown(vec![Panel::Launcher]),
+    ]);
+    assert_eq!(pending.lit(Panel::Launcher), Ok(Lit::No));
+  }
+
+  #[test]
+  fn a_picker_replacement_lights_only_the_incoming_slot_during_handoff() {
+    let settings = Panel::Settings(SettingsTab::Display);
+    let Ok(during) = after(&[
+      PanelEvent::Shown(vec![settings]),
+      PanelEvent::Pressed(Panel::Launcher),
+      PanelEvent::Shown(vec![settings]),
+      PanelEvent::Shown(vec![settings, Panel::Launcher]),
+    ]);
+
+    assert_eq!(during.lit(settings), Ok(Lit::No));
+    assert_eq!(during.lit(Panel::Launcher), Ok(Lit::Yes));
+  }
+
+  #[test]
+  fn a_settings_panel_that_stays_visible_after_a_failed_replacement_lights_again() {
+    let settings = Panel::Settings(SettingsTab::Display);
+    let Ok(panels) = after(&[
+      PanelEvent::Shown(vec![settings]),
+      PanelEvent::Pressed(Panel::Launcher),
+      PanelEvent::Ended(Panel::Launcher),
+      PanelEvent::Shown(vec![settings]),
+    ]);
+
+    assert_eq!(panels.lit(settings), Ok(Lit::Yes));
+    assert_eq!(panels.lit(Panel::Launcher), Ok(Lit::No));
   }
 
   #[test]
   fn a_tab_pressed_puts_out_the_tab_it_replaces_at_once() {
     let sound = Panel::Settings(SettingsTab::Sound);
     let display = Panel::Settings(SettingsTab::Display);
-    let Ok(panels) = after(&[
-      PanelEvent::Shown(vec![sound]),
-      PanelEvent::Pressed(display),
-      PanelEvent::Shown(vec![sound]),
-    ]);
+    let Ok(panels) = after(&[PanelEvent::Shown(vec![sound]), PanelEvent::Pressed(display)]);
 
     assert_eq!(panels.lit(display), Ok(Lit::Yes));
     assert_eq!(panels.lit(sound), Ok(Lit::No));

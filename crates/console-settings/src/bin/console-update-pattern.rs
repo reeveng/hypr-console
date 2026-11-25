@@ -247,8 +247,8 @@ fn submit(request: &str, secret: &Secret) -> Result<Output, DialogError> {
 fn notice(
   Notice { title, message }: Notice<'_>,
 ) -> ::core::result::Result<(), ::console_core_never::Never> {
-  let Ok(mut notify) = console_operating_system_linux::notification::Options::default()
-    .command(title, Some(message));
+  let Ok(mut notify) =
+    console_notifications::delivery::Options::default().command(title, Some(message));
   let _status = notify.status();
   ::core::result::Result::Ok(())
 }

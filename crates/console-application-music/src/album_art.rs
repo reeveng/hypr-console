@@ -9,6 +9,9 @@ use std::time::{Duration, SystemTime};
 use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_core_places::Base;
+use console_core_state_machine::{
+  EffectDependencies, Service, SingleEffectMachine, SingleTransition,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::albums::{Album, Key, release_id};
@@ -21,8 +24,18 @@ const AGENT: &str = concat!(
 const MAX_ART: u32 = 8 * 1024 * 1024;
 const SIDE: u32 = 256;
 const QUALITY: u8 = 58;
+const COVER_NAMES: [&str; 4] = ["cover.jpg", "cover.png", "folder.jpg", "front.jpg"];
 
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(deny_unknown_fields)]
+#[allow(
+  unknown_lints,
+  reason = "Explicit Rust checks this type before cfg_attr is expanded"
+)]
+#[expect(
+  explicit064_no_unvalidated_input,
+  reason = "music-index decodes the argument with an explicit 128 KiB limit"
+)]
 pub struct Lookup {
   pub album: Key,
   pub artist: String,
@@ -51,18 +64,41 @@ fn location(key: &Key) -> Result<Option<PathBuf>, Never> {
       (sum ^ u64::from(byte)).wrapping_mul(0x100_0000_01b3)
     });
 
-  Ok(cache.map(|root| {
+  #[cfg_attr(
+    dylint_lib = "explicit086_no_climbing_join",
+    expect(
+      explicit086_no_climbing_join,
+      reason = "the filename is a locally formatted 16-digit hash with a fixed extension"
+    )
+  )]
+  let destination = cache.map(|root| {
     root
       .join("music")
       .join("album-art-v2")
       .join(format!("{hash:016x}.jpg"))
-  }))
+  });
+
+  Ok(destination)
 }
 
 pub fn cached(key: &Key) -> Result<Option<PathBuf>, Never> {
-  let candidate = location(key)?;
+  let Ok(candidate) = location(key);
 
-  Ok(candidate.filter(|path| path.is_file()))
+  Ok(candidate.filter(|path| matches!(cached_cover(path), Ok(Some(())))))
+}
+
+fn cached_cover(path: &Path) -> Result<Option<()>, Never> {
+  match console_core_atomic_writes::read_prefix(path, 0) {
+    Ok(_) => Ok(Some(())),
+    Err(fault) => match (fault.kind() == io::ErrorKind::NotFound).then_some(()) {
+      Some(()) => Ok(None),
+      None => {
+        console_core_logging::debug!("could not open cached cover {}: {fault}", path.display());
+
+        Ok(None)
+      }
+    },
+  }
 }
 
 pub(crate) fn forget(key: &Key) -> io::Result<()> {
@@ -93,11 +129,11 @@ fn save(destination: &Path, bytes: &[u8]) -> io::Result<Cover> {
         .parent()
         .ok_or_else(|| io::Error::other("album artwork has no cache directory"))?;
       let image = thumbnail(parent, bytes)?;
-      let image = match image {
-        Some(image) => image,
+      let image_3 = match image {
+        Some(image_2) => image_2,
         None => return Ok(Cover::Unavailable),
       };
-      console_core_atomic_writes::whole_with_folders(destination, &image)
+      console_core_atomic_writes::whole_with_folders(destination, &image_3)
         .map_err(io::Error::other)?;
 
       Ok(Cover::Saved)
@@ -125,7 +161,8 @@ fn thumbnail(cache: &Path, bytes: &[u8]) -> io::Result<Option<Vec<u8>>> {
   let path = staged.0.join("image");
   console_core_atomic_writes::whole(&path, bytes).map_err(io::Error::other)?;
   let size = console_pictures::measure(&path).map_err(io::Error::other)?;
-  match size.filter(|size| size.width.max(size.height) <= 8192) {
+
+  match size.filter(|size_2| size_2.width.max(size_2.height) <= 8192) {
     Some(_) => {}
     None => return Ok(None),
   }
@@ -142,11 +179,11 @@ fn thumbnail(cache: &Path, bytes: &[u8]) -> io::Result<Option<Vec<u8>>> {
     Some(pixels) => pixels,
     None => return Ok(None),
   };
-  let Ok(size) = pixels.size();
+  let Ok(size_3) = pixels.size();
   let Ok(quality) = console_core_jpeg_files::Quality::percent(QUALITY);
   let jpeg = console_core_jpeg_files::encoded(
     &console_core_jpeg_files::Picture {
-      size,
+      size: size_3,
       bytes: pixels.bytes,
     },
     quality,
@@ -162,6 +199,7 @@ pub fn local(albums: &[Album<'_>]) -> Result<(), Never> {
   for album in albums {
     for parent in album.tracks.iter().filter_map(|song| song.path.parent()) {
       let owner = folders.entry(parent).or_insert(Some(&album.key));
+
       match (*owner).filter(|key| *key == &album.key) {
         Some(_) => {}
         None => *owner = None,
@@ -177,10 +215,11 @@ pub fn local(albums: &[Album<'_>]) -> Result<(), Never> {
 }
 
 fn local_album(album: &Album<'_>, folders: &BTreeMap<&Path, Option<&Key>>) -> Result<(), Never> {
-  let destination = match location(&album.key)? {
-    Some(destination) => match destination.is_file().then_some(()) {
-      Some(()) => return Ok(()),
-      None => destination,
+  let Ok(location) = location(&album.key);
+  let destination = match location {
+    Some(destination) => match cached_cover(&destination) {
+      Ok(Some(())) => return Ok(()),
+      Ok(None) => destination,
     },
     None => return Ok(()),
   };
@@ -199,7 +238,11 @@ fn local_album(album: &Album<'_>, folders: &BTreeMap<&Path, Option<&Key>>) -> Re
         .iter()
         .filter_map(|song| song.path.parent())
         .filter(|parent| folders.get(parent).copied() == Some(Some(&album.key)))
-        .find_map(sidecar)
+        .find_map(|parent| {
+          let Ok(cover) = sidecar(parent);
+
+          cover
+        })
     });
 
   match cover {
@@ -213,26 +256,65 @@ fn local_album(album: &Album<'_>, folders: &BTreeMap<&Path, Option<&Key>>) -> Re
   Ok(())
 }
 
-fn sidecar(parent: &Path) -> Option<Vec<u8>> {
-  ["cover.jpg", "cover.png", "folder.jpg", "front.jpg"]
-    .into_iter()
-    .find_map(|name| {
-      let bytes =
-        console_core_atomic_writes::read_prefix(&parent.join(name), MAX_ART.saturating_add(1))
-          .ok()?;
-      let Ok(valid) = is_cover(&bytes);
+fn sidecar(parent: &Path) -> Result<Option<Vec<u8>>, Never> {
+  for name in COVER_NAMES {
+    #[cfg_attr(
+      dylint_lib = "explicit086_no_climbing_join",
+      expect(
+        explicit086_no_climbing_join,
+        reason = "COVER_NAMES holds four literal file basenames"
+      )
+    )]
+    let candidate = parent.join(name);
+    let bytes =
+      match console_core_atomic_writes::read_prefix(&candidate, MAX_ART.saturating_add(1)) {
+        Ok(bytes) => bytes,
+        Err(fault) => {
+          match (fault.kind() == io::ErrorKind::NotFound).then_some(()) {
+            Some(()) => {}
+            None => console_core_logging::debug!(
+              "could not read cover {}: {fault}",
+              candidate.display()
+            ),
+          }
 
-      valid.map(|()| bytes)
-    })
+          continue;
+        }
+      };
+    let Ok(valid) = is_cover(&bytes);
+
+    match valid {
+      Some(()) => return Ok(Some(bytes)),
+      None => {}
+    }
+  }
+
+  Ok(None)
 }
 
 #[derive(Deserialize)]
+#[allow(
+  unknown_lints,
+  reason = "Explicit Rust checks this type before cfg_attr is expanded"
+)]
+#[expect(
+  explicit064_no_unvalidated_input,
+  reason = "MusicBrainz includes response metadata outside the fields used here, and curl bounds the response body"
+)]
 struct Search {
   #[serde(rename = "release-groups")]
   groups: Vec<Group>,
 }
 
 #[derive(Deserialize)]
+#[allow(
+  unknown_lints,
+  reason = "Explicit Rust checks this type before cfg_attr is expanded"
+)]
+#[expect(
+  explicit064_no_unvalidated_input,
+  reason = "MusicBrainz adds unrelated release-group fields, and curl bounds the response body"
+)]
 struct Group {
   id: String,
   title: String,
@@ -241,21 +323,36 @@ struct Group {
 }
 
 #[derive(Deserialize)]
+#[allow(
+  unknown_lints,
+  reason = "Explicit Rust checks this type before cfg_attr is expanded"
+)]
+#[expect(
+  explicit064_no_unvalidated_input,
+  reason = "MusicBrainz includes artist metadata outside the credit text used here, and curl bounds the response body"
+)]
 struct Credit {
   name: String,
   #[serde(default)]
   joinphrase: String,
 }
 
-fn normalized(said: &str) -> String {
-  said
-    .split_whitespace()
-    .collect::<Vec<_>>()
-    .join(" ")
-    .to_lowercase()
+fn normalized(said: &str) -> Result<String, Never> {
+  Ok(
+    said
+      .split_whitespace()
+      .collect::<Vec<_>>()
+      .join(" ")
+      .to_lowercase(),
+  )
 }
 
-fn match_group(search: Search, artist: &str, title: &str) -> Result<Option<String>, Never> {
+struct NamedRelease<'a> {
+  artist: &'a str,
+  title: &'a str,
+}
+
+fn match_group(search: Search, wanted: NamedRelease<'_>) -> Result<Option<String>, Never> {
   let mut matches = search.groups.into_iter().filter_map(|group| {
     let author: String = group
       .credit
@@ -263,11 +360,10 @@ fn match_group(search: Search, artist: &str, title: &str) -> Result<Option<Strin
       .flat_map(|credit| [credit.name, credit.joinphrase])
       .collect();
     let Ok(id) = release_id(&group.id);
+    let Ok(artist) = normalized(&author);
+    let Ok(title) = normalized(&group.title);
 
-    match (
-      id,
-      normalized(&author) == artist && normalized(&group.title) == title,
-    ) {
+    match (id, artist == wanted.artist && title == wanted.title) {
       (Some(_valid), true) => Some(group.id),
       (None, _) | (_, false) => None,
     }
@@ -279,37 +375,64 @@ fn match_group(search: Search, artist: &str, title: &str) -> Result<Option<Strin
   })
 }
 
-pub(crate) fn requests(cache: &Path, observed: SystemTime) -> io::Result<Option<std::fs::File>> {
+pub(crate) enum RequestSlot {
+  Granted(std::fs::File),
+  Busy,
+  CoolingDown,
+}
+
+pub(crate) fn requests(cache: &Path, observed: SystemTime) -> io::Result<RequestSlot> {
   use std::fs::TryLockError;
 
   std::fs::create_dir_all(cache)?;
-  let mut lock = std::fs::OpenOptions::new()
-    .create(true)
-    .append(true)
-    .open(cache.join("musicbrainz-rate"))?;
+  let lock = console_core_atomic_writes::open_lock_file(&cache.join("musicbrainz-rate"))?;
 
   match lock.try_lock() {
     Ok(()) => {}
-    Err(TryLockError::WouldBlock) => return Ok(None),
+    Err(TryLockError::WouldBlock) => return Ok(RequestSlot::Busy),
     Err(TryLockError::Error(fault)) => return Err(fault),
   }
 
-  let info = lock.metadata()?;
-  let last = info.modified()?;
-  let recent = observed
-    .duration_since(last)
-    .is_ok_and(|age| age < Duration::from_secs(1));
+  let stamp = cache.join("musicbrainz-last-request");
+  let previous = last_request(&lock, &stamp)?;
 
-  match (info.len() > 0 && recent).then_some(()) {
-    Some(()) => Ok(None),
-    None => {
-      lock.set_len(0)?;
-      use std::io::Write;
-      lock.write_all(b"1")?;
-
-      Ok(Some(lock))
-    }
+  match previous.filter(|last| {
+    observed
+      .duration_since(*last)
+      .is_ok_and(|age| age < Duration::from_secs(1))
+  }) {
+    Some(_) => return Ok(RequestSlot::CoolingDown),
+    None => {}
   }
+
+  console_core_atomic_writes::publish(&stamp, b"1").map_err(io::Error::other)?;
+
+  Ok(RequestSlot::Granted(lock))
+}
+
+fn last_request(lock: &std::fs::File, stamp: &Path) -> io::Result<Option<SystemTime>> {
+  let legacy = lock.metadata()?;
+  let legacy_time = match legacy.len() {
+    0 => None,
+    _ => {
+      let modified = legacy.modified()?;
+
+      Some(modified)
+    }
+  };
+  let stamp_time = match std::fs::metadata(stamp) {
+    Ok(info) => {
+      let modified = info.modified()?;
+
+      Some(modified)
+    }
+    Err(fault) => match (fault.kind() == io::ErrorKind::NotFound).then_some(()) {
+      Some(()) => None,
+      None => return Err(fault),
+    },
+  };
+
+  Ok(legacy_time.max(stamp_time))
 }
 
 pub(crate) fn curl(arguments: &[&str]) -> io::Result<Option<Vec<u8>>> {
@@ -338,7 +461,20 @@ pub(crate) fn curl(arguments: &[&str]) -> io::Result<Option<Vec<u8>>> {
     .stdin(Stdio::null())
     .output()?;
 
-  let (body, code) = reply.stdout.split_at(reply.stdout.len().saturating_sub(3));
+  let (body, code) = reply
+    .stdout
+    .split_at_checked(reply.stdout.len().saturating_sub(3))
+    .ok_or_else(|| io::Error::other("album artwork request returned an invalid response"))?;
+  let Ok(body_bytes) = console_core_number_conversion::fixed_index(body.len());
+
+  match (body_bytes <= u64::from(MAX_ART)).then_some(()) {
+    Some(()) => {}
+    None => {
+      return Err(io::Error::other(
+        "album artwork response exceeded its size limit",
+      ));
+    }
+  }
 
   match (reply.status.success(), code) {
     (true, b"200") => Ok(Some(body.to_vec())),
@@ -350,7 +486,11 @@ pub(crate) fn curl(arguments: &[&str]) -> io::Result<Option<Vec<u8>>> {
   }
 }
 
-fn route(key: &Key, cache: &Path) -> io::Result<Option<String>> {
+fn route(
+  key: &Key,
+  cache: &Path,
+  observe: &mut impl FnMut() -> SystemTime,
+) -> io::Result<Option<String>> {
   let (kind, id) = match key {
     Key::Release(id) => {
       let Ok(valid) = release_id(id);
@@ -366,11 +506,11 @@ fn route(key: &Key, cache: &Path) -> io::Result<Option<String>> {
         None => {}
       }
 
-      let lock = requests(cache, SystemTime::now())?;
+      let slot = requests(cache, observe())?;
 
-      let _guard = match lock {
-        Some(lock) => lock,
-        None => {
+      let _guard = match slot {
+        RequestSlot::Granted(lock) => lock,
+        RequestSlot::Busy | RequestSlot::CoolingDown => {
           return Err(io::Error::new(
             io::ErrorKind::WouldBlock,
             "MusicBrainz is busy, try again in a moment",
@@ -394,10 +534,10 @@ fn route(key: &Key, cache: &Path) -> io::Result<Option<String>> {
         "https://musicbrainz.org/ws/2/release-group/",
       ])?;
       let search = match bytes {
-        Some(bytes) => serde_json::from_slice(&bytes).map_err(io::Error::other)?,
+        Some(bytes_2) => serde_json::from_slice(&bytes_2).map_err(io::Error::other)?,
         None => return Ok(None),
       };
-      let Ok(group) = match_group(search, artist, title);
+      let Ok(group) = match_group(search, NamedRelease { artist, title });
 
       match group {
         Some(id) => ("release-group", id),
@@ -410,17 +550,65 @@ fn route(key: &Key, cache: &Path) -> io::Result<Option<String>> {
 }
 
 #[derive(Deserialize)]
+#[allow(
+  unknown_lints,
+  reason = "Explicit Rust checks this type before cfg_attr is expanded"
+)]
+#[expect(
+  explicit064_no_unvalidated_input,
+  reason = "Cover Art Archive includes release metadata outside the image list, and curl bounds the response body"
+)]
 struct Archive {
   images: Vec<Image>,
 }
 
 #[derive(Deserialize)]
+#[allow(
+  unknown_lints,
+  reason = "Explicit Rust checks this type before cfg_attr is expanded"
+)]
+#[expect(
+  explicit064_no_unvalidated_input,
+  reason = "Cover Art Archive includes image metadata outside these fields, and curl bounds the response body"
+)]
 struct Image {
-  front: bool,
-  approved: bool,
+  front: ImageSide,
+  approved: Approval,
   image: String,
   #[serde(default)]
   thumbnails: BTreeMap<String, String>,
+}
+
+#[derive(Deserialize, PartialEq, Eq)]
+#[serde(from = "bool")]
+enum ImageSide {
+  Front,
+  Other,
+}
+
+impl From<bool> for ImageSide {
+  fn from(value: bool) -> Self {
+    match value {
+      true => Self::Front,
+      false => Self::Other,
+    }
+  }
+}
+
+#[derive(Deserialize, PartialEq, Eq)]
+#[serde(from = "bool")]
+enum Approval {
+  Approved,
+  Unapproved,
+}
+
+impl From<bool> for Approval {
+  fn from(value: bool) -> Self {
+    match value {
+      true => Self::Approved,
+      false => Self::Unapproved,
+    }
+  }
 }
 
 fn archive_cover(bytes: &[u8]) -> io::Result<Option<String>> {
@@ -428,47 +616,62 @@ fn archive_cover(bytes: &[u8]) -> io::Result<Option<String>> {
   let front = archive
     .images
     .iter()
-    .find(|image| image.front && image.approved);
+    .find(|image| image.front == ImageSide::Front && image.approved == Approval::Approved);
   let name = match front {
-    Some(image) => image
+    Some(image) => match image
       .thumbnails
       .get("250")
       .or_else(|| image.thumbnails.get("small"))
-      .unwrap_or(&image.image),
+    {
+      Some(thumbnail) => thumbnail,
+      None => &image.image,
+    },
     None => return Ok(None),
   };
   let site = name
     .strip_prefix("http://")
     .or_else(|| name.strip_prefix("https://"));
-  let url = match site.and_then(|site| site.split_once('/')) {
+  let url = match site.and_then(|site_2| site_2.split_once('/')) {
     Some(("coverartarchive.org" | "archive.org", _)) => site,
     Some((host, _)) => site.filter(|_| host.ends_with(".archive.org")),
     None => None,
   };
 
-  Ok(url.map(|url| format!("https://{url}")))
+  Ok(url.map(|url_2| format!("https://{url}", url = url_2)))
 }
 
-fn official_cover(key: &Key, cache: &Path) -> io::Result<Option<Vec<u8>>> {
-  let route = route(key, cache)?;
-  let route = match route {
-    Some(route) => route,
+fn official_cover(
+  key: &Key,
+  cache: &Path,
+  observe: &mut impl FnMut() -> SystemTime,
+) -> io::Result<Option<Vec<u8>>> {
+  let route = route(key, cache, observe)?;
+  let route_3 = match route {
+    Some(route_2) => route_2,
     None => return Ok(None),
   };
-  let listing = curl(&[&route])?;
-  let listing = match listing {
+  let listing = curl(&[&route_3])?;
+  let listing_2 = match listing {
     Some(bytes) => bytes,
     None => return Ok(None),
   };
-  let url = archive_cover(&listing)?;
+  let url = archive_cover(&listing_2)?;
 
   match url {
-    Some(url) => curl(&[&url]),
+    Some(url_2) => curl(&[&url_2]),
     None => Ok(None),
   }
 }
 
 #[derive(Deserialize)]
+#[allow(
+  unknown_lints,
+  reason = "Explicit Rust checks this type before cfg_attr is expanded"
+)]
+#[expect(
+  explicit064_no_unvalidated_input,
+  reason = "yt-dlp returns extra video metadata, and fallback_cover bounds the reply before decoding"
+)]
 struct Video {
   id: String,
   title: String,
@@ -477,25 +680,31 @@ struct Video {
 }
 
 fn matches_album(video: &Video, lookup: &Lookup) -> Result<Option<()>, Never> {
-  let artist = normalized(&lookup.artist);
-  let album = normalized(&lookup.title);
+  let Ok(artist) = normalized(&lookup.artist);
+  let Ok(album) = normalized(&lookup.title);
   let credit = video
     .channel
     .as_deref()
     .or(video.uploader.as_deref())
-    .map(normalized)
-    .unwrap_or_default();
+    .map(normalized);
+  let credit_3 = match credit {
+    Some(Ok(credit_2)) => credit_2,
+    None => String::new(),
+  };
   let topic = format!("{artist} - topic");
-  let title = normalized(&video.title);
-  let title = title
+  let Ok(title) = normalized(&video.title);
+  let trimmed = title
     .strip_suffix(" (full album)")
-    .or_else(|| title.strip_suffix(" [full album]"))
-    .unwrap_or(&title);
+    .or_else(|| title.strip_suffix(" [full album]"));
+  let title_2 = match trimmed {
+    Some(trimmed_2) => trimmed_2,
+    None => title.as_str(),
+  };
   let expected = [format!("{artist} - {album}"), format!("{artist} – {album}")];
 
   Ok(
-    ((credit == artist || credit == topic)
-      && (title == album || expected.iter().any(|title_match| title == title_match)))
+    ((credit_3 == artist || credit_3 == topic)
+      && (title_2 == album || expected.iter().any(|title_match| title_2 == title_match)))
     .then_some(()),
   )
 }
@@ -526,15 +735,35 @@ fn fallback_cover(lookup: &Lookup) -> io::Result<Option<Vec<u8>>> {
     .arg(search)
     .stdin(Stdio::null())
     .output()?;
+
   match output.status.success().then_some(()) {
     Some(()) => {}
     None => return Err(io::Error::other("YouTube artwork search failed")),
   }
 
+  let Ok(output_bytes) = console_core_number_conversion::fixed_index(output.stdout.len());
+
+  match (output_bytes <= u64::from(MAX_ART)).then_some(()) {
+    Some(()) => {}
+    None => {
+      return Err(io::Error::other(
+        "artwork search response exceeded its size limit",
+      ));
+    }
+  }
+
   let video = output
     .stdout
     .split(|byte| *byte == b'\n')
-    .filter_map(|line| serde_json::from_slice::<Video>(line).ok())
+    .filter(|line| !line.is_empty())
+    .filter_map(|line| match serde_json::from_slice::<Video>(line) {
+      Ok(video) => Some(video),
+      Err(fault) => {
+        console_core_logging::debug!("could not decode an artwork search reply: {fault}");
+
+        None
+      }
+    })
     .find(|video| {
       let Ok(matched) = matches_album(video, lookup);
       let Ok(length) = console_core_number_conversion::fixed_index(video.id.len());
@@ -548,46 +777,184 @@ fn fallback_cover(lookup: &Lookup) -> io::Result<Option<Vec<u8>>> {
     });
 
   match video {
-    Some(video) => curl(&[&format!(
+    Some(video_2) => curl(&[&format!(
       "https://i.ytimg.com/vi/{}/hqdefault.jpg",
-      video.id
+      video_2.id
     )]),
     None => Ok(None),
   }
 }
 
-pub fn fetch(lookup: &Lookup) -> io::Result<Cover> {
+enum FetchState {
+  CheckingArchive,
+  SavingArchive,
+  CheckingFallback,
+  SavingFallback,
+  Done(io::Result<Cover>),
+}
+
+enum FetchEffect {
+  FindArchive,
+  FindFallback,
+  Save(Vec<u8>),
+}
+
+impl EffectDependencies for FetchEffect {
+  fn services(&self) -> Result<&'static [Service], Never> {
+    Ok(match self {
+      Self::FindArchive => &[
+        Service::FileSystem,
+        Service::Network,
+        Service::Process,
+        Service::Clock,
+      ],
+      Self::FindFallback => &[Service::Network, Service::Process],
+      Self::Save(_) => &[Service::FileSystem],
+    })
+  }
+}
+
+enum FetchReply {
+  Archive(Option<Vec<u8>>),
+  Fallback(io::Result<Option<Vec<u8>>>),
+  Saved(io::Result<Cover>),
+}
+
+struct Fetch;
+
+type FetchTurn = SingleTransition<FetchState, FetchEffect>;
+
+impl SingleEffectMachine for Fetch {
+  type Input = ();
+  type State = FetchState;
+  type Request = FetchReply;
+  type Effect = FetchEffect;
+
+  fn initialize(_input: &(), _previous: Option<FetchState>) -> Result<FetchTurn, Never> {
+    Ok(FetchTurn {
+      state: FetchState::CheckingArchive,
+      effect: Some(FetchEffect::FindArchive),
+    })
+  }
+
+  fn handle(state: FetchState, request: FetchReply) -> Result<FetchTurn, Never> {
+    let (state_2, effect) = match (state, request) {
+      (FetchState::CheckingArchive, FetchReply::Archive(Some(bytes))) => {
+        (FetchState::SavingArchive, Some(FetchEffect::Save(bytes)))
+      }
+      (FetchState::CheckingArchive, FetchReply::Archive(None))
+      | (FetchState::SavingArchive, FetchReply::Saved(Ok(Cover::Unavailable))) => (
+        FetchState::CheckingFallback,
+        Some(FetchEffect::FindFallback),
+      ),
+      (FetchState::CheckingFallback, FetchReply::Fallback(Ok(Some(bytes)))) => {
+        (FetchState::SavingFallback, Some(FetchEffect::Save(bytes)))
+      }
+      (FetchState::CheckingFallback, FetchReply::Fallback(Ok(None))) => {
+        (FetchState::Done(Ok(Cover::Unavailable)), None)
+      }
+      (FetchState::CheckingFallback, FetchReply::Fallback(Err(fault))) => {
+        (FetchState::Done(Err(fault)), None)
+      }
+      (FetchState::SavingArchive, FetchReply::Saved(result))
+      | (FetchState::SavingFallback, FetchReply::Saved(result)) => {
+        (FetchState::Done(result), None)
+      }
+      (unchanged, _) => (unchanged, None),
+    };
+
+    Ok(FetchTurn {
+      state: state_2,
+      effect,
+    })
+  }
+}
+
+pub fn fetch(lookup: &Lookup, mut observe: impl FnMut() -> SystemTime) -> io::Result<Cover> {
   let Ok(destination) = location(&lookup.album);
-  let destination =
+  let destination_2 =
     destination.ok_or_else(|| io::Error::other("album art cache is unavailable"))?;
-  let cache = destination
+  let cache = destination_2
     .parent()
     .ok_or_else(|| io::Error::other("album art cache has no parent"))?;
 
-  match official_cover(&lookup.album, cache) {
-    Ok(Some(bytes)) => {
-      let cover = save(&destination, &bytes)?;
-      match cover {
-        Cover::Saved => return Ok(cover),
-        Cover::Unavailable => {}
-      }
-    }
-    Ok(None) => {}
-    Err(fault) => {
-      console_core_logging::debug!("could not get Cover Art Archive artwork: {fault}")
-    }
-  }
+  let Ok(start) = Fetch::initialize(&(), None);
+  let settled = Fetch::run_effects(start, 4, &mut observe, |observe_2, effect| match effect {
+    FetchEffect::FindArchive => {
+      let bytes = match official_cover(&lookup.album, cache, observe_2) {
+        Ok(bytes) => bytes,
+        Err(fault) => {
+          console_core_logging::debug!("could not get Cover Art Archive artwork: {fault}");
 
-  let cover = fallback_cover(lookup)?;
-  match cover {
-    Some(bytes) => save(&destination, &bytes),
-    None => Ok(Cover::Unavailable),
+          None
+        }
+      };
+
+      FetchReply::Archive(bytes)
+    }
+    FetchEffect::FindFallback => FetchReply::Fallback(fallback_cover(lookup)),
+    FetchEffect::Save(bytes) => FetchReply::Saved(save(&destination_2, &bytes)),
+  });
+
+  match settled {
+    Ok(FetchState::Done(result)) => result,
+    Ok(
+      FetchState::CheckingArchive
+      | FetchState::SavingArchive
+      | FetchState::CheckingFallback
+      | FetchState::SavingFallback,
+    )
+    | Err(_) => Err(io::Error::other("album artwork lookup did not finish")),
   }
 }
 
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn unusable_archive_art_falls_back_and_saves_the_second_image() {
+    let Ok(start) = Fetch::initialize(&(), None);
+    let mut attempted = Vec::new();
+    let result = Fetch::run_effects(start, 4, &mut attempted, |attempts, effect| match effect {
+      FetchEffect::FindArchive => FetchReply::Archive(Some(vec![1])),
+      FetchEffect::FindFallback => FetchReply::Fallback(Ok(Some(vec![2]))),
+      FetchEffect::Save(bytes) => {
+        let outcome = match bytes.as_slice() {
+          [2] => Cover::Saved,
+          _ => Cover::Unavailable,
+        };
+        attempts.push(bytes);
+
+        FetchReply::Saved(Ok(outcome))
+      }
+    });
+
+    assert_eq!(attempted, [vec![1], vec![2]]);
+    assert!(matches!(result, Ok(FetchState::Done(Ok(Cover::Saved)))));
+  }
+
+  #[test]
+  fn saving_failure_is_returned_before_fallback() {
+    let Ok(start) = Fetch::initialize(&(), None);
+    let mut fallback = Vec::new();
+    let result = Fetch::run_effects(start, 4, &mut fallback, |attempts, effect| match effect {
+      FetchEffect::FindArchive => FetchReply::Archive(Some(vec![1])),
+      FetchEffect::FindFallback => {
+        attempts.push(());
+
+        FetchReply::Fallback(Ok(None))
+      }
+      FetchEffect::Save(_) => {
+        FetchReply::Saved(Err(io::Error::from(io::ErrorKind::PermissionDenied)))
+      }
+    });
+
+    assert!(fallback.is_empty());
+    assert!(
+      matches!(result, Ok(FetchState::Done(Err(fault))) if fault.kind() == io::ErrorKind::PermissionDenied)
+    );
+  }
 
   #[test]
   fn video_art_requires_release_and_channel_to_agree() {

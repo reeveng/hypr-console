@@ -9,6 +9,7 @@ let
   inherit (pkgs) lib;
   runVM = import ./test-vm.nix { inherit pkgs; };
   source = import ./source.nix { inherit lib src; };
+  focused = import ./focused-tests.nix { inherit pkgs runVM source src; };
   archive = pkgs.rustPlatform.buildRustPackage {
     pname = "console-test-binaries";
     version = "0.1.0";
@@ -75,29 +76,98 @@ let
     systemd.services.console-test = {
       requires = [ "user@1000.service" ];
       after = [ "user@1000.service" ];
-      path = with pkgs; [ hyprland grim procps wtype ];
+      path = with pkgs; [ alacritty grim hyprland libnotify p7zip procps wtype ];
       environment = {
         XDG_RUNTIME_DIR = "/run/user/1000";
         DBUS_SESSION_BUS_ADDRESS = "unix:path=/run/user/1000/bus";
       };
     };
   };
+  waylandModule = let
+    runtime = "/run/console-test-hyprland";
+    config = pkgs.writeText "console-test-hyprland.lua" ''
+      hl.monitor({ output = "", mode = "preferred", position = "auto", scale = 1 })
+    '';
+    ready = pkgs.writeShellScript "console-test-hyprland-ready" ''
+      for ((attempt = 0; attempt < 600; attempt++)); do
+        for socket in ${runtime}/wayland-*; do
+          if [ -S "$socket" ]; then
+            exec ${pkgs.coreutils}/bin/ln -s "$socket" ${runtime}/display
+          fi
+        done
+        ${pkgs.coreutils}/bin/sleep 0.1
+      done
+      echo 'Hyprland did not create a Wayland socket' >&2
+      exit 1
+    '';
+  in {
+    imports = [ desktopModule ];
+    systemd.services.console-test = {
+      requires = [ "console-test-hyprland.service" ];
+      after = [ "console-test-hyprland.service" ];
+      environment.WAYLAND_DISPLAY = lib.mkForce "${runtime}/display";
+    };
+    systemd.services.console-test-hyprland = {
+      requires = [ "weston.service" "user@1000.service" ];
+      after = [ "weston.service" "user@1000.service" ];
+      environment = {
+        XDG_RUNTIME_DIR = runtime;
+        WAYLAND_DISPLAY = "/run/console-test-wayland/wayland-console";
+        DBUS_SESSION_BUS_ADDRESS = "unix:path=/run/user/1000/bus";
+        LIBGL_ALWAYS_SOFTWARE = "1";
+      };
+      serviceConfig = {
+        User = "console-test";
+        RuntimeDirectory = "console-test-hyprland";
+        RuntimeDirectoryMode = "0700";
+        ExecStart = "${pkgs.hyprland}/bin/Hyprland --config ${config}";
+        ExecStartPost = ready;
+        TimeoutStartSec = 75;
+        StandardOutput = "tty";
+        StandardError = "inherit";
+        TTYPath = "/dev/ttyS0";
+      };
+    };
+  };
+  mediaModule = {
+    systemd.services.console-test.path = with pkgs; [ ffmpeg pipewire pulseaudio wireplumber ];
+    systemd.tmpfiles.rules = with pkgs; [
+      "L /usr/share/pipewire - - - - ${pipewire}/share/pipewire"
+      "L /usr/share/wireplumber - - - - ${wireplumber}/share/wireplumber"
+    ];
+  };
 
   wpewebkit = pkgs.callPackage ./wpewebkit.nix {
     webkitBubblewrapPatch = pkgs.path + "/pkgs/by-name/we/webkitgtk_6_0/fix-bubblewrap-paths.patch";
   };
-  webkitWorker = pkgs.callPackage ./browser-webkit-worker.nix { inherit wpewebkit src; };
+  webkitWorker = pkgs.callPackage ./browser-webkit-worker.nix {
+    inherit wpewebkit src;
+    withTests = true;
+  };
   chromiumWorker = pkgs.callPackage ./browser-chromium-worker.nix { inherit src; };
-  browserCheck = { webkit }: import ./browser-test.nix {
-    inherit pkgs runVM webkit;
+  servoWorker = pkgs.callPackage ./browser-servo-worker.nix { inherit src; };
+  browserCheck = engine: import ./browser-test.nix {
+    inherit pkgs runVM engine;
     browser = pkgs.callPackage ./browser.nix ({ inherit chromiumWorker src; }
-      // lib.optionalAttrs webkit { inherit webkitWorker; });
+      // lib.optionalAttrs (engine == "webkit") { inherit webkitWorker; });
+    servo = if engine == "servo" then servoWorker else null;
+    webkitTests = if engine == "webkit" then "${webkitWorker}/libexec/console-webkit-tests" else null;
   };
 in
 {
-  night-light = import ./night-light-test.nix { inherit pkgs source src; };
+  inherit (focused) kernel-gpu-checksums night-light rasterizer system-gpu-compute;
   unit = rustVM { name = "unit"; };
-  integration = builtins.deepSeq (import ./tests.nix) (rustVM { name = "integration"; });
+  integration = rustVM {
+    name = "integration";
+    module.systemd.services.console-test.preStart = ''
+      fixture=$(mktemp -d)
+      trap 'rm -rf -- "$fixture"' EXIT
+      ${pkgs.nix}/bin/nix-instantiate --store "local?root=$fixture" \
+        --eval --read-write-mode --strict --json ${source}/nix/tests.nix
+    '';
+  };
+  architecture = rustVM { name = "architecture"; };
+  vocabulary = rustVM { name = "vocabulary"; };
   e2e-desktop = rustVM { name = "e2e-desktop"; wayland = true; module = desktopModule; };
   e2e-panels = rustVM {
     name = "e2e-panels";
@@ -117,6 +187,9 @@ in
       };
     };
   };
-  browser = browserCheck { webkit = true; };
-  browser-chromium = browserCheck { webkit = false; };
+  e2e-wayland = rustVM { name = "e2e-wayland"; wayland = true; module = waylandModule; };
+  e2e-media = rustVM { name = "e2e-media"; module = mediaModule; };
+  browser = browserCheck "webkit";
+  browser-chromium = browserCheck "chromium";
+  browser-servo = browserCheck "servo";
 }

@@ -59,7 +59,11 @@ fn key_builder(key: &Key) -> Result<BuilderKey, Never> {
     .collect();
   let Ok(()) = trim_vacant_tail(&mut groups);
 
-  Ok(BuilderKey { groups, redirect })
+  Ok(BuilderKey {
+    groups,
+    redirect,
+    repeat: key.repeat,
+  })
 }
 
 fn group_builder(group: &KeyGroup) -> Result<BuilderGroup, Never> {

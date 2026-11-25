@@ -96,12 +96,13 @@ use console_core_internal_programs::InternalProgram;
 use console_core_iteration::{Endless, Step, iterate};
 use console_core_line::LineSegment;
 use console_core_never::Never;
-use console_core_number_conversion::{fitted, toward_zero_i32};
+use console_core_number_conversion::{fitted, index, toward_zero_i32};
 use console_core_shapes::{Edge, Font, Panel, Picture, Pixels, Round, Shape, Text, Weight};
 use console_core_state_machine::{Machine, Transition};
+use console_core_text_boundaries::previous_word_start;
 use console_draw_painting::Run;
 use console_draw_surface::standing::{Closed, PointerEvent, Window};
-use console_draw_surface::{Activation, Keysym, Surface};
+use console_draw_surface::{Activation, KeyPress, KeyPressKind, Keysym, Surface};
 use console_events::subscription::Received;
 use console_operating_system_linux::program_lifetime::BoundToParent;
 use console_panel::pictures::{self as store, Side};
@@ -966,7 +967,8 @@ impl App {
     Ok(Update::Redraw)
   }
 
-  fn library_key_pressed(&mut self, key: Keysym, room: Size<u32>) -> Result<Update, Never> {
+  fn library_key_pressed(&mut self, press: KeyPress, room: Size<u32>) -> Result<Update, Never> {
+    let key = press.key;
     let Ok(direction) = direction(key);
 
     match direction {
@@ -976,14 +978,27 @@ impl App {
 
     Ok(match (key, self.library.search.is_empty()) {
       (Keysym::Return | Keysym::KP_Enter, _) => self.activate_cover(Activation::Focused)?,
-      (Keysym::Escape, true) | (Keysym::BackSpace, true) => Update::Exit,
+      (Keysym::Escape, true) => Update::Exit,
       (Keysym::Escape, false) => {
         self.library.search.clear();
 
         self.reset_selection()?
       }
-      (Keysym::BackSpace, false) => {
-        let _ = self.library.search.pop();
+      (Keysym::BackSpace, empty) => {
+        match (press.modifiers & KeyPress::CONTROL != 0).then_some(()) {
+          Some(()) => {
+            let Ok(from) = previous_word_start(&self.library.search);
+            let Ok(start) = index(from);
+            self.library.search.truncate(start);
+          }
+          None => match (empty.then_some(()), press.kind) {
+            (Some(()), KeyPressKind::Initial) => return Ok(Update::Exit),
+            (Some(()), KeyPressKind::Repeated) => return Ok(Update::None),
+            (None, _) => {
+              let _ = self.library.search.pop();
+            }
+          },
+        }
 
         self.reset_selection()?
       }
@@ -1060,12 +1075,13 @@ impl App {
     Ok(Update::Redraw)
   }
 
-  fn reader_key_pressed(&mut self, key: Keysym, room: Size<u32>) -> Result<Update, Never> {
+  fn reader_key_pressed(&mut self, press: KeyPress, room: Size<u32>) -> Result<Update, Never> {
     match self.annotations.writing {
-      Some(_) => return self.write_key(key),
+      Some(_) => return self.write_key(press),
       None => {}
     }
 
+    let key = press.key;
     let Ok(turn) = turn_of(key);
 
     let Ok(meant) = console_panel::keys::meaning(key, console_panel::keys::Driving::Panel);
@@ -1102,10 +1118,13 @@ impl App {
     }
   }
 
-  fn write_key(&mut self, key: Keysym) -> Result<Update, Never> {
-    let typed = match key {
+  fn write_key(&mut self, press: KeyPress) -> Result<Update, Never> {
+    let typed = match press.key {
       Keysym::Escape => Some(Typed::Finished),
-      Keysym::BackSpace => Some(Typed::Backspace),
+      Keysym::BackSpace => Some(match (press.modifiers & KeyPress::CONTROL != 0).then_some(()) {
+        Some(()) => Typed::BackspaceWord,
+        None => Typed::Backspace,
+      }),
       Keysym::Return | Keysym::KP_Enter => Some(Typed::Newline),
       key_2 => {
         let Ok(written) = key_2.char();
@@ -1514,11 +1533,21 @@ impl App {
 
 impl Responder for App {
   fn key_pressed(&mut self, key: Keysym, room: Size<u32>) -> Result<Update, Never> {
+    let Ok(press) = KeyPress::unmodified(key);
+
+    self.key_pressed_with_modifiers(press, room)
+  }
+
+  fn key_pressed_with_modifiers(
+    &mut self,
+    press: KeyPress,
+    room: Size<u32>,
+  ) -> Result<Update, Never> {
     let Ok(screen) = self.screen();
 
     match screen {
-      Screen::Library => self.library_key_pressed(key, room),
-      Screen::Reader => self.reader_key_pressed(key, room),
+      Screen::Library => self.library_key_pressed(press, room),
+      Screen::Reader => self.reader_key_pressed(press, room),
     }
   }
 

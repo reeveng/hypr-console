@@ -41,7 +41,10 @@ pub enum Unapplied {
   AsRoot(&'static str),
   PacmanRefused,
   PacmanUntold,
+  PackageCheck(std::io::Error),
   PackageRemoval(&'static str, std::io::Error),
+  NixStoreOwnership(PathBuf),
+  NixSetup { command: String, diagnostic: String },
   Restore(Vec<String>),
   CargoRefused,
   NoProgram,
@@ -134,9 +137,17 @@ impl fmt::Display for Unapplied {
       Unapplied::PacmanUntold => {
         write!(to, "pacman would not be told the desktop asks for these.")
       }
+      Unapplied::PackageCheck(fault) => write!(to, "could not check installed package providers: {fault}"),
       Unapplied::PackageRemoval(package, fault) => {
         write!(to, "pacman could not remove {package}: {fault}")
       }
+      Unapplied::NixStoreOwnership(path) => write!(
+        to,
+        "{} needs root-controlled ownership and permissions before the Nix daemon can use it. \
+         Preserve the existing store and convert it to multi-user Nix before retrying console apply.",
+        path.display()
+      ),
+      Unapplied::NixSetup { command, diagnostic } => write!(to, "{command} failed: {diagnostic}"),
       Unapplied::Restore(fell) => write!(
         to,
         "put back: {} would not run what this was about to install.",

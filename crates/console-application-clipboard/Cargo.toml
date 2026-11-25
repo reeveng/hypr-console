@@ -10,6 +10,7 @@ name = "console-application-clipboard"
 path = "src/main.rs"
 
 [dependencies]
+console-notifications.workspace = true
 console-wayland = { path = "../console-wayland" }
 console-compositor.workspace = true
 console-core-arguments.workspace = true

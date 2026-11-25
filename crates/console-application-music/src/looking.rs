@@ -36,17 +36,27 @@ use console_music_player::tags::{Album, Tags};
 
 const MAX_RECORDS: u32 = 65_536;
 const MAX_FIELD_BYTES: u32 = 64 * 1024;
+pub(crate) const CATALOG_FILE: &str = "songs.json";
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Song {
   pub path: PathBuf,
   pub name: String,
   pub tags: Tags,
-  pub read: bool,
-  pub revision: Option<FileRevision>,
+  tag_state: TagState,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum TagState {
+  #[default]
+  Unobserved,
+  Unread(FileRevision),
+  Cached(FileRevision),
+  LegacyCache,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, serde::Serialize, Eq, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct FileRevision {
   device: u64,
   inode: u64,
@@ -80,6 +90,32 @@ impl FileRevision {
 }
 
 impl Song {
+  pub fn tag_state(&self) -> Result<TagState, Never> {
+    Ok(self.tag_state)
+  }
+
+  pub fn revision(&self) -> Result<Option<FileRevision>, Never> {
+    Ok(match self.tag_state {
+      TagState::Unobserved | TagState::LegacyCache => None,
+      TagState::Unread(revision) | TagState::Cached(revision) => Some(revision),
+    })
+  }
+
+  pub fn record_tags(&mut self, tags: Tags, observed: Option<FileRevision>) -> Result<(), Never> {
+    let Ok(expected) = self.revision();
+    let verified = match observed.filter(|revision| Some(*revision) == expected) {
+      Some(revision) => TagState::Cached(revision),
+      None => match expected {
+        Some(revision) => TagState::Unread(revision),
+        None => TagState::Unobserved,
+      },
+    };
+    self.tags = tags;
+    self.tag_state = verified;
+
+    Ok(())
+  }
+
   pub fn of(path: &Path) -> Result<Self, Never> {
     let name = match path.file_name() {
       Some(name) => visible_name(name)?,
@@ -177,13 +213,18 @@ pub fn songs(
     let revision = FileRevision::of(&path)?;
     let song = match known_2
       .get(path.as_path())
-      .filter(|song| song.revision == revision)
+      .filter(|song| song.revision() == Ok(revision))
     {
       Some(song) => (*song).clone(),
       None => {
         let song = Song::of(&path)?;
 
-        Song { revision, ..song }
+        let tag_state = match revision {
+          Some(revision_2) => TagState::Unread(revision_2),
+          None => TagState::Unobserved,
+        };
+
+        Song { tag_state, ..song }
       }
     };
 
@@ -194,11 +235,20 @@ pub fn songs(
 }
 
 pub fn unread(songs: &[Song]) -> Result<u32, Never> {
-  console_core_number_conversion::fitted(songs.iter().filter(|song| !song.read).count())
+  let ::core::result::Result::Ok(unread) = ::console_core_number_conversion::fixed_index(
+    songs
+      .iter()
+      .filter(|song| matches!(song.tag_state, TagState::Unobserved | TagState::Unread(_)))
+      .count(),
+  );
+
+  console_core_number_conversion::fitted(match ::console_core_number_conversion::index(unread) {
+    ::core::result::Result::Ok(native_position) => native_position,
+  })
 }
 
 pub fn at(cache: &Path) -> Result<PathBuf, Never> {
-  Ok(cache.join("console").join("music").join("songs.json"))
+  Ok(cache.join("console").join("music").join(CATALOG_FILE))
 }
 
 pub fn lock_catalog(cache: &Path) -> std::io::Result<std::fs::File> {
@@ -233,8 +283,9 @@ pub fn serialize(songs: &[Song]) -> Result<String, Never> {
 pub fn serialize_records<'a>(songs: impl IntoIterator<Item = &'a Song>) -> Result<String, Never> {
   let held: Vec<Value> = songs
     .into_iter()
-    .filter(|song| song.read)
+    .filter(|song| matches!(song.tag_state, TagState::Cached(_) | TagState::LegacyCache))
     .map(|song| {
+      let Ok(revision) = song.revision();
       let (path_key, path) = match song.path.to_str() {
         Some(text) => ("path", text.to_owned()),
         None => {
@@ -254,7 +305,7 @@ pub fn serialize_records<'a>(songs: impl IntoIterator<Item = &'a Song>) -> Resul
           "release_id": song.tags.album.release_id,
           "disc": song.tags.album.disc,
           "track": song.tags.album.track,
-          "revision": song.revision,
+          "revision": revision,
       })
     })
     .collect();
@@ -391,9 +442,12 @@ pub fn parse(said: &str) -> Result<Vec<Song>, Never> {
     };
 
     let song = Song::of(&at)?;
+    let tag_state = match recorded.revision {
+      Some(revision) => TagState::Cached(revision),
+      None => TagState::LegacyCache,
+    };
     kept.push(Song {
-      read: true,
-      revision: recorded.revision,
+      tag_state,
       tags: Tags {
         title: recorded.title.0,
         artist: recorded.artist.0,
@@ -543,7 +597,7 @@ mod tests {
     let Ok(song) = Song::of(Path::new(name));
 
     Ok(Song {
-      read: true,
+      tag_state: TagState::LegacyCache,
       tags,
       ..song
     })
@@ -644,12 +698,34 @@ mod tests {
     };
 
     assert_eq!(first.says(), Ok("505"));
-    assert!(first.read);
+    assert_eq!(first.tag_state(), Ok(TagState::LegacyCache));
     assert_eq!(second.says(), Ok("aruarian dance"));
-    assert!(!second.read);
+    assert_eq!(second.tag_state(), Ok(TagState::Unobserved));
     assert_eq!(unread(&songs), Ok(1));
 
     Ok(())
+  }
+
+  #[test]
+  fn a_song_changed_during_the_read_keeps_its_original_revision_and_stays_unread() {
+    let before = FileRevision {
+      device: 1,
+      inode: 2,
+      bytes: 3,
+      changed: 4,
+      nanos: 5,
+    };
+    let changed = FileRevision { bytes: 4, ..before };
+    let mut song = Song {
+      tag_state: TagState::Unread(before),
+      ..Song::default()
+    };
+
+    let Ok(()) = song.record_tags(Tags::default(), Some(changed));
+    assert_eq!(song.tag_state(), Ok(TagState::Unread(before)));
+
+    let Ok(()) = song.record_tags(Tags::default(), Some(before));
+    assert_eq!(song.tag_state(), Ok(TagState::Cached(before)));
   }
 
   #[test]
@@ -698,7 +774,10 @@ mod tests {
 
     let path = Path::new(std::ffi::OsStr::from_bytes(b"/music/a\xff.opus"));
     let Ok(song) = Song::of(path);
-    let record = Song { read: true, ..song };
+    let record = Song {
+      tag_state: TagState::LegacyCache,
+      ..song
+    };
     let Ok(written) = serialize(std::slice::from_ref(&record));
 
     assert_eq!(parse(&written), Ok(vec![record]));

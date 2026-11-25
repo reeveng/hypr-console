@@ -80,7 +80,7 @@ pub enum MusicEvent {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MusicEffect {
   Replace(u32),
-  Note(String),
+  Notify(String),
   ForgetTyping,
   Shuffle(Order),
   Repeat(Over),
@@ -91,7 +91,8 @@ pub enum MusicEffect {
 impl EffectDependencies for MusicEffect {
   fn services(&self) -> Result<&'static [Service], Never> {
     Ok(match self {
-      Self::Replace(_) | Self::Note(_) | Self::ForgetTyping => &[Service::Panels],
+      Self::Notify(_) => &[Service::Notifications],
+      Self::Replace(_) | Self::ForgetTyping => &[Service::Panels],
       Self::Shuffle(_) | Self::Repeat(_) => &[Service::MediaPlayer, Service::Panels],
       Self::Play(_) => &[Service::FileSystem, Service::MediaPlayer, Service::Process],
       Self::Manage(work) => match work {
@@ -209,7 +210,10 @@ fn decide(
             read: Read::Requested,
             ..state.clone()
           },
-          vec![Effect::Custom(MusicEffect::Note(note)), Effect::Run(index)],
+          vec![
+            Effect::Custom(MusicEffect::Notify(note)),
+            Effect::Run(index),
+          ],
         )
       }
     },
@@ -257,7 +261,7 @@ fn decide(
       let Ok((management, work)) = state.management.clone().update(request.clone());
       let effects = work
         .into_iter()
-        .map(|work| Effect::Custom(MusicEffect::Manage(work)))
+        .map(|work_2| Effect::Custom(MusicEffect::Manage(work_2)))
         .collect();
 
       Transition::new(
@@ -373,7 +377,7 @@ mod tests {
 
     assert_eq!(
       after.effects().map(|effects| effects.first().cloned()),
-      Ok(Some(Effect::Custom(MusicEffect::Note(
+      Ok(Some(Effect::Custom(MusicEffect::Notify(
         "Updating 1 song…".to_string()
       ))))
     );

@@ -62,7 +62,7 @@ use console_default_applications::engines;
 use console_home_screen::shape::Shape;
 use console_home_screen::{HomeScreen, Spot};
 use console_panel::card::{Card, Door};
-use console_panel::page::{ActionOutcome, Aside, Handler, Page, Picture, Row, Rows};
+use console_panel::page::{ActionOutcome, Aside, Handler, LoadedRows, Page, Picture, Row, Rows};
 use console_panel::picker::Again;
 
 pub const WHO: &str = "launcher";
@@ -111,7 +111,7 @@ fn command_line(arguments: &[String]) -> Result<Option<CommandLine<NoSubcommand>
 pub fn card(arguments: &[String]) -> Result<Card, Never> {
   let Ok(going) = asked_for(arguments);
 
-  Card::supervised::<Word, _>((), move |typed| {
+  Card::supervised::<Menu, _>((), move |typed| {
     let Ok(page) = menu_page(typed, going);
 
     Ok(vec![page])
@@ -124,48 +124,81 @@ struct Everything {
   order: Vec<String>,
 }
 
-struct Word;
+struct Menu;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Narrowed {
-  Same,
-  Different,
+#[derive(Clone, Copy, Default)]
+enum Catalog {
+  #[default]
+  Cached,
+  Live,
 }
 
-impl EffectDependencies for Narrowed {
+#[derive(Clone, Default)]
+struct View {
+  word: String,
+  catalog: Catalog,
+}
+
+enum Request {
+  Typed(String),
+  PreviewShown,
+}
+
+#[derive(PartialEq, Eq)]
+enum Effect {
+  FocusFirst,
+  RefreshRows,
+}
+
+impl EffectDependencies for Effect {
   fn services(&self) -> Result<&'static [Service], Never> {
     Ok(match self {
-      Self::Same | Self::Different => &[],
+      Self::FocusFirst | Self::RefreshRows => &[Service::Panels],
     })
   }
 }
 
-impl Machine for Word {
+impl Machine for Menu {
   type Input = ();
-  type State = String;
-  type Request = String;
-  type Effect = Narrowed;
+  type State = View;
+  type Request = Request;
+  type Effect = Effect;
 
   fn initialize(
     _input: &(),
-    _previous: Option<String>,
-    _effects: &mut Queue<Narrowed>,
-  ) -> Result<String, Never> {
-    Ok(String::new())
+    _previous: Option<View>,
+    _effects: &mut Queue<Effect>,
+  ) -> Result<View, Never> {
+    Ok(View::default())
   }
 
-  fn handle(said: String, word: String, effects: &mut Queue<Narrowed>) -> Result<String, Never> {
-    let narrowed = match ::core::primitive::bool::then_some(said == word, ()) {
-      ::core::option::Option::Some(()) => Narrowed::Same,
-      ::core::option::Option::None => Narrowed::Different,
-    };
-    let Ok(()) = effects.offer(narrowed);
+  fn handle(
+    mut view: View,
+    request: Request,
+    effects: &mut Queue<Effect>,
+  ) -> Result<View, Never> {
+    match request {
+      Request::Typed(word) => match (view.word != word).then_some(()) {
+        Some(()) => {
+          view.word = word;
+          let Ok(()) = effects.offer(Effect::FocusFirst);
+        }
+        None => {}
+      },
+      Request::PreviewShown => match view.catalog {
+        Catalog::Cached => {
+          view.catalog = Catalog::Live;
+          let Ok(()) = effects.offer(Effect::RefreshRows);
+        }
+        Catalog::Live => {}
+      },
+    }
 
-    Ok(word)
+    Ok(view)
   }
 }
 
-type Typed = Actor<Word>;
+type MenuActor = Actor<Menu>;
 
 const ABOUT: &str = "Type to narrow the list";
 
@@ -209,6 +242,12 @@ fn shape() -> Result<Shape, Never> {
 }
 
 fn home() -> Result<HomeScreen, Never> {
+  let Ok(known) = found::load_cached();
+
+  home_with(&known.applications)
+}
+
+fn home_with(applications: &BTreeMap<String, entry::Application>) -> Result<HomeScreen, Never> {
   let Ok(found) = console_core_places::home();
 
   let hers = match found {
@@ -222,8 +261,7 @@ fn home() -> Result<HomeScreen, Never> {
   match held {
     console_core_atomic_writes::Stored::Text(said) => {
       let Ok(mut home) = HomeScreen::read(&said);
-      let Ok(known) = found::load_cached();
-      let Ok(()) = home.update_application_names(|name| known.applications.contains_key(name));
+      let Ok(()) = home.update_application_names(|name| applications.contains_key(name));
       Ok(home)
     }
     console_core_atomic_writes::Stored::Absent => Ok(HomeScreen::default()),
@@ -303,12 +341,6 @@ fn everything() -> Result<Everything, Never> {
   with_counts(machine)
 }
 
-fn everything_before() -> Result<Everything, Never> {
-  let remembered = found::load_cached()?;
-
-  with_counts(remembered)
-}
-
 fn with_counts(found: found::Found) -> Result<Everything, Never> {
   let names: Vec<String> = found.applications.keys().cloned().collect();
 
@@ -383,14 +415,9 @@ fn looking_up_row(said: &str) -> Result<Row, Never> {
   row.picturing(Picture::Space)
 }
 
-fn rows(typed: &Typed, all: &Everything, going: For) -> Result<Vec<Row>, Never> {
-  let word = match typed.get() {
-    Ok(said) => said,
-    Err(_the_actor_has_gone) => String::new(),
-  };
-
-  let Ok(on) = home();
-  let standing = narrow::matching(&all.order, &word)?;
+fn rows(word: &str, all: &Everything, going: For) -> Result<Vec<Row>, Never> {
+  let Ok(on) = home_with(&all.applications);
+  let standing = narrow::matching(&all.order, word)?;
   let mut rows: Vec<Row> = standing
     .iter()
     .map(|name| {
@@ -420,42 +447,100 @@ fn title(going: For) -> Result<&'static str, Never> {
   })
 }
 
-fn menu_page(typed: &Typed, going: For) -> Result<Page, Never> {
+#[derive(Default)]
+struct Catalogs {
+  cached: OnceLock<Everything>,
+  live: OnceLock<Everything>,
+}
+
+impl Catalogs {
+  fn cached(&self) -> Result<Option<&Everything>, Never> {
+    let remembered = self.cached.get_or_init(|| {
+      let Ok(found) = found::load_cached();
+      let Ok(all) = with_counts(found);
+
+      all
+    });
+
+    Ok((!remembered.order.is_empty()).then_some(remembered))
+  }
+
+  fn live(&self) -> Result<&Everything, Never> {
+    Ok(self.live.get_or_init(|| {
+      let Ok(all) = everything();
+
+      all
+    }))
+  }
+}
+
+fn menu_rows(held: &MenuActor, catalogs: &Catalogs, going: For) -> Result<LoadedRows, Never> {
+  let view = match held.get() {
+    Ok(view) => view,
+    Err(_closed) => View::default(),
+  };
+  let cache = match view.catalog {
+    Catalog::Cached => catalogs.cached()?,
+    Catalog::Live => None,
+  };
+  let Ok(all) = match cache {
+    Some(cached) => Ok(cached),
+    None => catalogs.live(),
+  };
+  let listed = rows(&view.word, all, going)?;
+  let Ok(loaded) = LoadedRows::new(listed);
+
+  match cache {
+    Some(_) => {
+      let after = held.clone();
+
+      loaded.then(move |_| match after.send(Request::PreviewShown) {
+        Ok(effects) | Err(SendError::MachineDefect(effects)) => {
+          match effects.contains(&Effect::RefreshRows).then_some(()) {
+            Some(()) => {
+              let Ok(()) = console_panel::frames::tell(console_panel::frames::Notice::Rows);
+            }
+            None => {}
+          }
+        }
+        Err(SendError::Closed) => {
+          console_core_logging::debug!("launcher: the menu closed before its preview was read")
+        }
+      })
+    }
+    None => Ok(loaded),
+  }
+}
+
+fn menu_page(typed: &MenuActor, going: For) -> Result<Page, Never> {
   let listing = typed.clone();
-  let waiting = typed.clone();
   let typing = typed.clone();
-  let reading = OnceLock::new();
-  let remembered = OnceLock::new();
+  let catalogs = Catalogs::default();
 
   let Ok(heading) = title(going);
+  let identity = match going {
+    For::Opening => "launcher loading",
+    For::Placing(_) => "launcher placement loading",
+  };
 
-  let Ok(asked) = Rows::computed(move || {
-    let all = reading.get_or_init(|| {
-      let Ok(found) = everything();
+  let Ok(asked) = Rows::with_completion(move || {
+    let Ok(loaded) = menu_rows(&listing, &catalogs, going);
 
-      found
-    });
-    let Ok(rows) = rows(&listing, all, going);
-
-    rows
+    loaded
   });
   let Ok(page) = Page::new(heading, asked);
-  let Ok(with_preview) = page.meanwhile(move || {
-    let cached = remembered.get_or_init(|| {
-      let Ok(found) = everything_before();
+  let Ok(opening) = page.fixed_opening(identity);
+  let Ok(with_preview) = opening.meanwhile(|| {
+    let Ok(loading) = Row::placeholder("Loading apps…");
 
-      found
-    });
-    let Ok(preview) = rows(&waiting, cached, going);
-
-    preview
+    vec![loading]
   });
   with_preview.searching(ABOUT, move |showing, word| {
-    let narrowed = typing.send(word.to_string());
+    let narrowed = typing.send(Request::Typed(word.to_string()));
 
     match narrowed {
       Ok(effects) => match effects.as_slice() {
-        [Narrowed::Different] => showing.replace(0),
+        [Effect::FocusFirst] => showing.replace(0),
         _ => {}
       },
       Err(SendError::Closed | SendError::MachineDefect(_)) => showing.replace(0),
@@ -533,6 +618,15 @@ fn looked_up(said: &str) -> Result<(), Never> {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn presenting_the_cache_requests_the_live_catalog_once() {
+    let Ok(initial) = Menu::initial_transition(&(), None);
+    let Ok(first) = Menu::transition(initial.state, Request::PreviewShown);
+    assert!(matches!(first.effects.as_slice(), [Effect::RefreshRows]));
+    let Ok(refresh) = Menu::transition(first.state, Request::PreviewShown);
+    assert!(refresh.effects.is_empty());
+  }
 
   const GRID: Shape = Shape::USUAL;
 

@@ -63,7 +63,7 @@ pub const MODIFIERS: [(&str, &str, u64, KeyCode, KeyCode); 4] = [
   ("alt", "ALT", 8, KeyCode::KEY_LEFTALT, KeyCode::KEY_RIGHTALT),
 ];
 
-const NAMED: [&str; 35] = [
+const NAMED: [&str; 43] = [
   "space",
   "enter",
   "tab",
@@ -94,23 +94,38 @@ const NAMED: [&str; 35] = [
   "print",
   "power",
   "mute",
+  "mic-mute",
   "volume-up",
   "volume-down",
   "brightness-up",
   "brightness-down",
   "calculator",
+  "display-switch",
+  "performance",
+  "selective-screenshot",
+  "play-pause",
+  "next-track",
+  "previous-track",
+  "touchpad-toggle",
 ];
 
-const CALLED: [(&str, &str); 9] = [
+const CALLED: [(&str, &str); 16] = [
   ("escape", "esc"),
   ("period", "dot"),
   ("return", "enter"),
   ("print", "sysrq"),
+  ("mic-mute", "micmute"),
   ("volume-up", "volumeup"),
   ("volume-down", "volumedown"),
   ("brightness-up", "brightnessup"),
   ("brightness-down", "brightnessdown"),
   ("calculator", "calc"),
+  ("display-switch", "switchvideomode"),
+  ("selective-screenshot", "selective_screenshot"),
+  ("play-pause", "playpause"),
+  ("next-track", "nextsong"),
+  ("previous-track", "previoussong"),
+  ("touchpad-toggle", "touchpad_toggle"),
 ];
 
 const LETTERS: &str = "abcdefghijklmnopqrstuvwxyz";

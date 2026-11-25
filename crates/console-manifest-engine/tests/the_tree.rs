@@ -757,21 +757,19 @@ fn the_compositors_file_binds_nothing() -> Result<(), Failure> {
 }
 
 #[test]
-fn putting_the_screen_back_puts_the_panel_on_before_it_reads_the_note() -> Result<(), Failure> {
+fn waking_the_display_does_not_require_a_backlight() -> Result<(), Failure> {
   let said = read("crates/console-settings/src/bin/console-brightness.rs")?;
-  let (_, from) = said.split_once("fn undim(").ok_or("undim")?;
+  let (_, from) = said
+    .split_once("fn main(")
+    .ok_or("brightness entry point")?;
   let body = from.split_once("\nfn ").map_or(from, |(body, _)| body);
-  let (before_the_note, _) = body
-    .split_once("remembered()")
-    .ok_or("undim does not read the note")?;
+  let (before_probe, _) = body
+    .split_once("screen::here()")
+    .ok_or("backlight lookup")?;
 
   assert!(
-    body.contains("panel_on()"),
-    "undim does not put the panel on"
-  );
-  assert!(
-    before_the_note.contains("panel_on()"),
-    "the panel is put on only after a note that can send undim home early"
+    before_probe.contains("panel_on()"),
+    "undim must wake the display before probing the backlight"
   );
 
   let unit = read("files/etc/systemd/user/console-idle.service")?;
@@ -788,27 +786,14 @@ fn putting_the_screen_back_puts_the_panel_on_before_it_reads_the_note() -> Resul
   assert!(
     unit
       .lines()
-      .any(|line| line == "ExecStopPost=-/usr/local/bin/console-compositor display-on"),
-    "the idle unit no longer restores the display when it stops"
+      .any(|line| line == "ExecStopPost=-/usr/local/bin/console-brightness undim"),
+    "the idle unit no longer restores display power and brightness when it stops"
   );
-
-  assert!(unit.lines().any(|line| line
-    == concat!(
-      "ExecStartPre=/usr/local/bin/lock-screen idle-config ",
-      "/etc/console/hypridle.conf %t/console/hypridle.conf"
-    )));
   assert!(
     unit
       .lines()
-      .any(|line| { line == "ExecStart=/usr/bin/hypridle --config %t/console/hypridle.conf" })
-  );
-
-  let idle = read("files/etc/console/hypridle.conf")?;
-  assert!(
-    idle.lines().any(|line| {
-      line.trim() == "on-timeout = /usr/local/bin/console-compositor display-off"
-    }),
-    "hypridle no longer blanks the display through the compositor adapter"
+      .any(|line| line == "ExecStart=/usr/local/bin/lock-screen idle"),
+    "the idle unit no longer starts Console's idle daemon"
   );
 
   Ok(())
@@ -921,32 +906,6 @@ fn every_key_a_dispatch_hands_the_compositor_is_one_it_reads() -> Result<(), Fai
          once it has been seen working:\n{}",
     unread.join("\n")
   );
-
-  Ok(())
-}
-
-#[test]
-fn one_thing_puts_the_panel_back_on_when_the_machine_wakes() -> Result<(), Failure> {
-  let held = read("files/etc/console/hypridle.conf")?;
-  let waking: Vec<&str> = held
-    .lines()
-    .map(str::trim)
-    .filter(|line| line.starts_with("on-resume"))
-    .collect();
-
-  assert!(
-    !waking.is_empty(),
-    "nothing in hypridle answers a machine waking up"
-  );
-
-  for line in waking {
-    assert!(
-      line.contains("console-brightness undim"),
-      "{line}\nhypridle resumes every listener that timed out at the same instant, and \
-             `console-brightness undim` already puts the panel on with this dispatch. A second \
-             one races it: both say ok, the compositor reads as on, and the screen stays dark."
-    );
-  }
 
   Ok(())
 }

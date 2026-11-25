@@ -128,8 +128,10 @@ impl<'a> Reconciliation<'a> {
 
 #[must_use]
 fn original_file(song: &Song) -> Result<Option<loudness::FileId>, Never> {
-  Ok(song.revision.map(|revision| {
-    let Ok(file) = revision.file();
+  let Ok(revision) = song.revision();
+
+  Ok(revision.map(|revision_2| {
+    let Ok(file) = revision_2.file();
 
     file
   }))

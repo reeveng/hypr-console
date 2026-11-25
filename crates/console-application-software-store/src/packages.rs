@@ -10,30 +10,62 @@ use std::path::PathBuf;
 use std::process::Output;
 
 use console_core_external_programs::{Installed, Program, installed, path_entries};
-use console_core_number_conversion::fitted;
 use console_core_places::Base;
-use console_package_manager::user::{self, Activation, Profile, ProfileEntry, SearchMatch};
+use console_package_manager::user::{Activation, Profile, ProfileEntry};
 
-use crate::catalogue::{self, Category, Package};
+use crate::catalogue::{self, Package, Source};
 
-pub struct Matches {
-  pub packages: Vec<Package>,
-  pub total: u32,
-}
+pub mod sources;
 
 #[derive(Clone, Debug)]
 pub struct Local {
   pub package: Package,
-  pub entry: ProfileEntry,
+  entry: Option<ProfileEntry>,
   launcher: Option<PathBuf>,
   executable: Option<PathBuf>,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Removal {
+  Optional,
+  Required,
+}
+
 impl Local {
+  pub fn packaged(package: Package, launcher: Option<PathBuf>) -> Result<Self, Infallible> {
+    Ok(Self {
+      package,
+      entry: None,
+      launcher,
+      executable: None,
+    })
+  }
+
+  pub fn removable(&self) -> Result<Removal, Infallible> {
+    Ok(match &self.package.source {
+      Source::Pacman(name) => match name.as_str() {
+        "nix" | "pacman" => Removal::Required,
+        _ => Removal::Optional,
+      },
+      Source::Nix(_) | Source::Aur(_) | Source::Flatpak(_) | Source::Mise { .. } => {
+        Removal::Optional
+      }
+    })
+  }
+
+  pub fn remove(&self, profile: &Profile) -> io::Result<()> {
+    self.package.source.remove(profile, self.entry.as_ref())
+  }
+
   #[must_use]
   pub fn launch_label(
     &self,
   ) -> core::result::Result<Option<&'static str>, core::convert::Infallible> {
+    match matches!(&self.package.source, Source::Flatpak(_)).then_some(()) {
+      Some(()) => return Ok(Some("Open")),
+      None => {}
+    }
+
     Ok(
       match bool::then_some(
         self.launcher.is_some() && console_gio::availability() == Ok(Installed::Yes),
@@ -52,6 +84,30 @@ impl Local {
   }
 
   pub fn launch(&self) -> io::Result<()> {
+    match &self.package.source {
+      Source::Flatpak(reference) => {
+        let mut command = reference.launch()?;
+        let title = self.package.title.clone();
+        let worker = std::thread::Builder::new()
+          .name("store-open-flatpak".to_owned())
+          .spawn(move || match command.output().and_then(checked) {
+            Ok(()) => {}
+            Err(fault) => {
+              let summary = format!("{title} could not be opened.");
+              let Ok(()) = console_notifications::notify(
+                console_notifications::Application("Console Store"),
+                &summary,
+                Some(&fault.to_string()),
+              );
+            }
+          })?;
+        let Ok(()) = console_program_lifetime::threads::let_go(worker);
+
+        return Ok(());
+      }
+      Source::Nix(_) | Source::Pacman(_) | Source::Aur(_) | Source::Mise { .. } => {}
+    }
+
     match self
       .launcher
       .as_ref()
@@ -60,8 +116,8 @@ impl Local {
       Some(launcher) => {
         let mut bins: Vec<_> = self
           .entry
-          .outputs
           .iter()
+          .flat_map(|entry| &entry.outputs)
           .map(|path| path.join("bin"))
           .collect();
 
@@ -110,69 +166,13 @@ pub fn profile() -> io::Result<Profile> {
   Ok(profile)
 }
 
-pub fn search(query: &str) -> io::Result<Matches> {
-  let entries = user::search(query)?;
-  let Ok(matches) = rank(entries, query);
-
-  Ok(matches)
-}
-
-#[must_use]
-fn rank(entries: Vec<SearchMatch>, query: &str) -> Result<Matches, Infallible> {
-  let mut packages: Vec<_> = entries
-    .into_iter()
-    .map(|entry| {
-      let Ok(mut row) = catalogue::package(&entry.installable.attribute);
-
-      match (row.category == Category::All).then_some(()) {
-        Some(()) => {
-          row.title = entry.name;
-          row.description = entry.description;
-        }
-        None => {}
-      }
-
-      row.version = entry.version;
-      row.installable = entry.installable;
-      row
-    })
-    .collect();
-  let normalized_query = query.to_lowercase();
-  packages.sort_by_cached_key(|row| {
-    let title = row.title.to_lowercase();
-    let attribute = row.installable.attribute.to_lowercase();
-    let place = match bool::then_some(
-      title == normalized_query || attribute == normalized_query,
-      (),
-    ) {
-      Some(()) => 0,
-      None => match bool::then_some(
-        title.starts_with(&normalized_query) || attribute.starts_with(&normalized_query),
-        (),
-      ) {
-        Some(()) => 1,
-        None => match bool::then_some(
-          title.contains(&normalized_query) || attribute.contains(&normalized_query),
-          (),
-        ) {
-          Some(()) => 2,
-          None => 3,
-        },
-      },
-    };
-    (place, row.category == Category::All, attribute)
-  });
-  let Ok(total) = fitted::<_, u32>(packages.len());
-  packages.truncate(150);
-  Ok(Matches { packages, total })
-}
-
 pub fn list(profile: &Profile) -> io::Result<Vec<Local>> {
   let entries = profile.list()?;
   let mut rows: Vec<_> = entries
     .into_iter()
     .map(|entry| {
-      let Ok(package) = catalogue::package(&entry.attribute);
+      let Ok(raw) = console_package_manager::catalogue::name_in_profile(&entry);
+      let Ok(package) = catalogue::present(raw);
       let (launcher, executable) = match entry.activation {
         Activation::Enabled => {
           let Ok(launcher) = desktop(&entry.outputs, &entry.attribute);
@@ -183,7 +183,7 @@ pub fn list(profile: &Profile) -> io::Result<Vec<Local>> {
       };
 
       Local {
-        entry,
+        entry: Some(entry),
         package,
         launcher,
         executable,
@@ -243,14 +243,7 @@ fn desktop(
   entries.retain(|path| {
     path.extension() == Some(OsStr::new("desktop"))
       && fs::read_to_string(path).is_ok_and(|entry| {
-        let header = entry
-          .lines()
-          .skip_while(|line| line.trim() != "[Desktop Entry]")
-          .skip(1)
-          .take_while(|line| !line.trim_start().starts_with('['));
-        let values: BTreeMap<_, _> = header
-          .filter_map(|line| line.trim().split_once('='))
-          .collect();
+        let Ok(values) = desktop_fields(&entry);
         values.get("Type") == Some(&"Application")
           && !["Hidden", "NoDisplay", "Terminal"]
             .iter()
@@ -265,6 +258,18 @@ fn desktop(
     name != attribute && name != "libreoffice-startcenter" && name != "com.obsproject.Studio"
   });
   Ok(entries.into_iter().next())
+}
+
+fn desktop_fields(entry: &str) -> Result<BTreeMap<&str, &str>, Infallible> {
+  Ok(
+    entry
+      .lines()
+      .skip_while(|line| line.trim() != "[Desktop Entry]")
+      .skip(1)
+      .take_while(|line| !line.trim_start().starts_with('['))
+      .filter_map(|line| line.trim().split_once('='))
+      .collect(),
+  )
 }
 
 #[must_use]
@@ -332,28 +337,41 @@ fn files_in(
 #[must_use]
 pub fn problem(
   fault: &io::Error,
-) -> core::result::Result<&'static str, core::convert::Infallible> {
+) -> core::result::Result<Option<&'static str>, core::convert::Infallible> {
   let error = fault.to_string();
+  let kind = fault.kind();
+  let access_denied = |diagnostic: &str| {
+    diagnostic.contains("Permission denied") || diagnostic.contains("Operation not permitted")
+  };
+  let denied = kind == io::ErrorKind::PermissionDenied || access_denied(&error);
+  let daemon = error
+    .lines()
+    .find(|line| line.contains("connect to socket") && line.contains("daemon-socket/socket"));
+  let daemon_denied = daemon.is_some_and(access_denied);
+  let daemon_missing = daemon.is_some_and(|line| line.contains("No such file or directory"));
+  let download = error.contains("unable to download") || error.contains("failed to download");
+  let read_only =
+    kind == io::ErrorKind::ReadOnlyFilesystem || error.contains("Read-only file system");
+  let full = kind == io::ErrorKind::StorageFull || error.contains("No space left on device");
+
+  let known = [
+    (daemon_denied, "Access to the Nix daemon socket was denied."),
+    (daemon_missing, "The Nix daemon socket is missing."),
+    (daemon.is_some(), "Could not connect to the Nix daemon."),
+    (full, "The filesystem is out of space."),
+    (read_only, "The filesystem the store needs is read-only."),
+    (download, "Nix could not download the required files."),
+    (denied, "The store was denied access."),
+    (
+      kind == io::ErrorKind::NotFound,
+      "A required program or file is missing.",
+    ),
+  ];
 
   Ok(
-    match bool::then_some(fault.kind() == io::ErrorKind::NotFound, ()) {
-      Some(()) => "Nix isn't available. Install Nix and reopen the store.",
-      None => match bool::then_some(
-        error.contains("Permission denied") || error.contains("Read-only file system"),
-        (),
-      ) {
-        Some(()) => "Nix cannot access its store. Check that the Nix service is running.",
-        None => match bool::then_some(
-          error.contains("could not connect") || error.contains("failed to download"),
-          (),
-        ) {
-          Some(()) => {
-            "Nix couldn't download what it needed. Check your connection and try again."
-          }
-          None => "Open Details to see what Nix reported.",
-        },
-      },
-    },
+    known
+      .into_iter()
+      .find_map(|(matched, detail)| matched.then_some(detail)),
   )
 }
 
@@ -364,31 +382,65 @@ mod tests {
   use super::*;
 
   #[test]
-  fn search_ranks_curated_matches() -> io::Result<()> {
-    let Ok(obs_cli) = Installable::nixpkgs("obs-cli");
-    let Ok(obs_studio) = Installable::nixpkgs("obs-studio");
-    let entries = vec![
-      SearchMatch {
-        installable: obs_cli,
-        name: String::from("obs-cli"),
-        description: String::new(),
-        version: String::new(),
-      },
-      SearchMatch {
-        installable: obs_studio,
-        name: String::from("obs-studio"),
-        description: String::from("Screen recorder"),
-        version: String::from("32.0"),
-      },
+  fn package_failures_describe_the_reported_cause() {
+    let cases = [
+      (
+        "error: opening lock file '/nix/var/nix/db/big-lock': Read-only file system",
+        Some("The filesystem the store needs is read-only."),
+      ),
+      (
+        "error: opening lock file '/nix/var/nix/db/big-lock': Permission denied",
+        Some("The store was denied access."),
+      ),
+      (
+        "error: cannot connect to socket at '/nix/var/nix/daemon-socket/socket': No such file or directory",
+        Some("The Nix daemon socket is missing."),
+      ),
+      (
+        "error: cannot connect to socket at '/nix/var/nix/daemon-socket/socket': Permission denied",
+        Some("Access to the Nix daemon socket was denied."),
+      ),
+      (
+        "error: cannot connect to socket at '/nix/var/nix/daemon-socket/socket': Operation not permitted",
+        Some("Access to the Nix daemon socket was denied."),
+      ),
+      (
+        "error: cannot connect to socket at '/nix/var/nix/daemon-socket/socket': Connection refused",
+        Some("Could not connect to the Nix daemon."),
+      ),
+      (
+        "error: unable to download 'https://cache.nixos.org/nix-cache-info': Timeout was reached",
+        Some("Nix could not download the required files."),
+      ),
+      (
+        "error: writing to file: No space left on device",
+        Some("The filesystem is out of space."),
+      ),
+      ("error: could not connect to a build helper", None),
     ];
-    let Ok(matches) = rank(entries, "obs");
-    assert_eq!(matches.total, 2);
-    let first = matches
-      .packages
-      .first()
-      .ok_or_else(|| io::Error::other("Missing OBS Studio search result"))?;
-    assert_eq!(first.title, "OBS Studio");
-    assert_eq!(first.version, "32.0");
-    Ok(())
+
+    for (diagnostic, expected) in cases {
+      assert_eq!(problem(&io::Error::other(diagnostic)), Ok(expected));
+    }
+
+    assert_eq!(
+      problem(&io::Error::from(io::ErrorKind::NotFound)),
+      Ok(Some("A required program or file is missing."))
+    );
+  }
+
+  #[test]
+  fn curated_presentation_keeps_the_shared_source_and_version() {
+    let Ok(source) = Installable::nixpkgs("obs-studio");
+    let Ok(presented) = catalogue::present(Package {
+      source: Source::Nix(source.clone()),
+      title: "obs-studio".to_owned(),
+      description: String::new(),
+      version: "31".to_owned(),
+    });
+
+    assert_eq!(presented.title, "OBS Studio");
+    assert_eq!(presented.version, "31");
+    assert_eq!(presented.source, Source::Nix(source));
   }
 }

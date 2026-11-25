@@ -533,6 +533,25 @@ impl PixmapMut<'_> {
       explicit_value
     };
 
+    const OPAQUE_OPACITY: u32 = 1.0_f32.to_bits();
+
+    let direct = mask.is_none()
+      && paint.blend_mode == BlendMode::SourceOver
+      && paint.quality == FilterQuality::Nearest
+      && paint.opacity.to_bits() == OPAQUE_OPACITY;
+
+    match direct.then_some(()) {
+      Some(()) => {
+        let Ok(drawn) = crate::nearest_pixmap::draw(self, pixmap, rect, [patt_transform, transform]);
+
+        match drawn {
+          crate::nearest_pixmap::Drawing::Drawn => return Ok(()),
+          crate::nearest_pixmap::Drawing::Unsupported => {}
+        }
+      }
+      None => {}
+    }
+
     let paint_2 = Paint {
       shader: ({
         let Ok(explicit_value) = Pattern::new(
@@ -879,7 +898,7 @@ pub(crate) struct DrawTiler {
 impl DrawTiler {
   const MAX_DIMENSIONS: u32 = 8192 - 1;
 
-  fn required(size: IntSize) -> Result<crate::RequiredAnswer, Never> {
+  pub(crate) fn required(size: IntSize) -> Result<crate::RequiredAnswer, Never> {
     let Ok((width, height)) = size.dimensions();
 
     Ok(

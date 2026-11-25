@@ -1,4 +1,4 @@
-//! A native Console window for finding and installing Nix packages.
+//! A native Console window for finding and managing packages.
 
 #![forbid(unsafe_code)]
 
@@ -7,26 +7,34 @@ mod packages;
 mod view;
 
 use std::cmp::Ordering;
+use std::collections::{BTreeMap, BTreeSet};
 use std::convert::Infallible;
 use std::io;
 use std::process::ExitCode;
 use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::time::{Duration, Instant};
 
-use catalogue::{Category, Package};
+use catalogue::{Category, Package, Source};
 use console_core_external_programs::Installed;
 use console_core_geometry::{Containment, Point, Size};
 use console_core_iteration::{Step, iterate};
 use console_core_number_conversion::toward_zero_i32;
+use console_core_state_machine::SingleEffectMachine;
 use console_draw_surface::{
-  Closed, InputContent, KeyPress, Keysym, PointerEvent, Scale, Surface, Surrounding,
-  TextInputChange, TextInputState, Window,
+  Closed, InputContent, KeyPress, KeyboardFocus, Keysym, PhysicalKeyPress, PointerEvent, Scale,
+  Surface, Surrounding, TextInputChange, TextInputState, Window,
 };
 use console_input_text::{InputDeletion, TextField, Typed};
-use console_package_manager::user::{self, Profile};
+use console_package_manager::catalogue::{Catalogue, Manager, Matches};
+use console_package_manager::user::Profile;
 use console_panel::canvas::{AreaLayout, FocusDirection};
+use console_panel::keys::{
+  Driving, Meaning, Navigation, NavigationEffect, NavigationInput, NavigationKeys, TabMotion,
+};
+use console_panel::scrolling::{self, LogicalPixels};
+use console_panel::strip::{self, Stop};
 use console_program_lifetime::threads::let_go;
-use packages::{Local, Matches};
+use packages::{Local, sources};
 use view::{Frame, Theme};
 
 const APP_ID: &str = "console-application-software-store";
@@ -42,25 +50,33 @@ enum Page {
   Installed,
 }
 
+impl Page {
+  fn index(self) -> Result<u32, Infallible> {
+    Ok(match self {
+      Self::Browse => 0,
+      Self::Installed => 1,
+    })
+  }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Action {
   Page(Page),
+  SelectTab(u32),
+  PreviousTab,
+  NextTab,
   Category(Category),
   Search,
   ClearSearch,
   Details(u32),
-  Featured,
   Back,
   Install,
   Open,
   Remove,
   ConfirmRemove,
-  ErrorDetails,
   SearchDetails,
-  Dismiss,
   RetrySearch,
   Refresh,
-  Help,
   Close,
 }
 
@@ -69,13 +85,17 @@ enum Overlay {
   Package(Package),
   Remove(Local),
   Error { summary: String, text: String },
-  Help,
 }
 
 struct Notice {
   title: String,
   detail: Option<String>,
   error: Option<String>,
+}
+
+enum FailureSource {
+  Application,
+  PackageManager,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -144,12 +164,12 @@ struct ChangedPackage {
   name: String,
   operation: Operation,
   outcome: io::Result<()>,
-  profile: io::Result<Vec<Local>>,
+  inventory: sources::Inventory,
 }
 
 enum Reply {
-  Search(SearchId, io::Result<Matches>),
-  Profile(io::Result<Vec<Local>>),
+  Search(Manager, SearchId, io::Result<Matches>),
+  Profile(sources::Inventory),
   Change(ChangedPackage),
   Open(io::Result<()>),
 }
@@ -161,29 +181,53 @@ struct Shop {
   preedit: String,
   deadline: Option<Instant>,
   request: SearchId,
-  search_in_flight: Option<SearchId>,
+  queued_searches: BTreeSet<Manager>,
+  search_in_flight: BTreeMap<Manager, SearchId>,
   search_problem: Option<Notice>,
-  matches: Vec<Package>,
-  match_count: u32,
+  suggestions: Vec<Package>,
+  results: BTreeMap<Manager, Matches>,
+  catalogue: Catalogue,
+  cached_results: Matches,
+  pacman_changes: Installed,
+  terminal: Installed,
   installed: Vec<Local>,
   profile: Profile,
   profile_status: ProfileStatus,
   launching: LaunchStatus,
   nix_available: Installed,
-  scroll: i32,
+  scroll: ScrollPositions,
+  wheel: scrolling::Position,
   focus: Option<Action>,
+  navigation: Navigation,
   hover: Option<Action>,
   overlay: Option<Overlay>,
-  notice: Option<Notice>,
   send: SyncSender<Reply>,
   replies: Receiver<Reply>,
+}
+
+#[derive(Default)]
+struct ScrollPositions {
+  browse: i32,
+  installed: i32,
+  search: i32,
+}
+
+impl ScrollPositions {
+  fn current(&mut self, page: view::PageView) -> Result<&mut i32, Infallible> {
+    Ok(match page {
+      view::PageView::Browse => &mut self.browse,
+      view::PageView::Installed => &mut self.installed,
+      view::PageView::Search => &mut self.search,
+    })
+  }
 }
 
 impl Shop {
   fn new() -> io::Result<Self> {
     let (send, replies) = mpsc::sync_channel(4);
     let profile = packages::profile()?;
-    let Ok(nix_available) = user::availability();
+    let Ok(nix_available) = Manager::Nix.availability();
+    let Ok(catalogue) = Catalogue::detecting();
     let mut shop = Self {
       page: Page::Browse,
       category: Category::All,
@@ -191,20 +235,26 @@ impl Shop {
       preedit: String::new(),
       deadline: None,
       request: SearchId(0),
-      search_in_flight: None,
+      queued_searches: BTreeSet::new(),
+      search_in_flight: BTreeMap::new(),
       search_problem: None,
-      matches: Vec::new(),
-      match_count: 0,
+      suggestions: Vec::new(),
+      results: BTreeMap::new(),
+      catalogue,
+      cached_results: Matches::default(),
+      pacman_changes: Installed::No,
+      terminal: Installed::No,
       installed: Vec::new(),
       profile,
       profile_status: ProfileStatus::Unavailable,
       launching: LaunchStatus::Idle,
       nix_available,
-      scroll: 0,
+      scroll: ScrollPositions::default(),
+      wheel: scrolling::Position::default(),
       focus: None,
+      navigation: Navigation::Ready,
       hover: None,
       overlay: None,
-      notice: None,
       send,
       replies,
     };
@@ -223,8 +273,11 @@ impl Shop {
   fn searching(&self) -> Result<SearchStatus, Infallible> {
     let Ok(query) = self.query();
     let pending = !query.trim().is_empty()
-      && (self.deadline.is_some() || self.search_in_flight.is_some())
-      && self.search_problem.is_none();
+      && (!self.queued_searches.is_empty()
+        || self
+          .search_in_flight
+          .values()
+          .any(|request| *request == self.request));
 
     Ok(match pending.then_some(()) {
       Some(()) => SearchStatus::Searching,
@@ -238,7 +291,7 @@ impl Shop {
 
     match bool::then_some(!query.trim().is_empty(), ()) {
       Some(()) => {
-        return Ok(self.matches.clone());
+        return self.results_for_view();
       }
       None => {}
     }
@@ -256,6 +309,51 @@ impl Shop {
     })
   }
 
+  fn results_for_view(&self) -> Result<Vec<Package>, Infallible> {
+    let remote = self
+      .results
+      .values()
+      .flat_map(|result| &result.packages)
+      .filter(|package| {
+        let Ok(included) = self.catalogue.includes(package);
+
+        included.is_some()
+      });
+    let mut packages: Vec<_> = self
+      .cached_results
+      .packages
+      .iter()
+      .chain(remote)
+      .cloned()
+      .map(|raw| {
+        let Ok(package) = catalogue::present(raw);
+
+        package
+      })
+      .collect();
+    let present: BTreeSet<_> = packages.iter().map(|package| &package.source).collect();
+    let suggestions: Vec<_> = self
+      .suggestions
+      .iter()
+      .filter(|suggestion| !present.contains(&suggestion.source))
+      .cloned()
+      .collect();
+    packages.extend(suggestions);
+
+    Ok(packages)
+  }
+
+  fn match_count(&self) -> Result<u32, Infallible> {
+    Ok(
+      self
+        .results
+        .values()
+        .fold(self.cached_results.total, |total, result| {
+          total.saturating_add(result.total)
+        }),
+    )
+  }
+
   #[must_use]
   fn local(
     &self,
@@ -265,7 +363,7 @@ impl Shop {
       self
         .installed
         .iter()
-        .find(|row| row.entry.attribute == package.installable.attribute),
+        .find(|row| row.package.source == package.source),
     )
   }
 
@@ -274,43 +372,68 @@ impl Shop {
     self.profile_status.availability()
   }
 
-  fn can_change(&self) -> Result<ProfileAvailability, Infallible> {
-    Ok(match (self.nix_available, self.profile_status) {
-      (Installed::Yes, ProfileStatus::Ready) => ProfileAvailability::Ready,
-      _ => ProfileAvailability::Unavailable,
+  fn can_change(&self, source: &Source) -> Result<ProfileAvailability, Infallible> {
+    match self.profile_status {
+      ProfileStatus::Reading(_) | ProfileStatus::Changing => {
+        return Ok(ProfileAvailability::Unavailable);
+      }
+      ProfileStatus::Unavailable | ProfileStatus::Ready => {}
+    }
+
+    let supported = match source {
+      Source::Nix(_) => {
+        self.nix_available == Installed::Yes && self.profile_status == ProfileStatus::Ready
+      }
+      Source::Pacman(_) => self.pacman_changes == Installed::Yes,
+      Source::Aur(_) => self.terminal == Installed::Yes,
+      Source::Flatpak(_) | Source::Mise { .. } => true,
+    };
+
+    Ok(match supported.then_some(()) {
+      Some(()) => ProfileAvailability::Ready,
+      None => ProfileAvailability::Unavailable,
     })
   }
 
   fn edit_query(&mut self) -> core::result::Result<(), core::convert::Infallible> {
     {
-      self.scroll = 0;
+      self.scroll.search = 0;
+      self.wheel = scrolling::Position::default();
       self.request = SearchId(self.request.0.wrapping_add(1));
       self.search_problem = None;
-      self.match_count = 0;
+      self.results.clear();
+      self.queued_searches.clear();
       self.deadline = None;
+      let Ok(()) = self.match_catalogue();
       let Ok(own_query) = self.query();
       let query = own_query.trim();
 
       match query {
-        "" => self.matches.clear(),
+        "" => self.suggestions.clear(),
         pattern => {
-          self.matches = {
-            let Ok(explicit_value) = catalogue::suggested(pattern);
-            explicit_value
-          };
-
+          let Ok(features) = catalogue::suggested(pattern);
+          self.suggestions = features;
+          let Ok(managers) = self.catalogue.remote_managers();
+          self.queued_searches.extend(managers);
           let now = Instant::now();
-          let next_search = match now.checked_add(DEBOUNCE) {
-            Some(deadline) => deadline,
-            None => now,
-          };
-          self.deadline = match self.nix_available {
-            Installed::Yes => Some(next_search),
-            Installed::No => None,
+          self.deadline = match self.queued_searches.is_empty().then_some(()) {
+            Some(()) => None,
+            None => match now.checked_add(DEBOUNCE) {
+              Some(deadline) => Some(deadline),
+              None => Some(now),
+            },
           };
         }
       }
     };
+
+    Ok(())
+  }
+
+  fn match_catalogue(&mut self) -> Result<(), Infallible> {
+    let Ok(query) = self.query();
+    let Ok(matches) = self.catalogue.cached_matches(query.trim(), None);
+    self.cached_results = matches;
 
     Ok(())
   }
@@ -329,69 +452,123 @@ impl Shop {
   fn failure(
     title: String,
     fault: &io::Error,
+    source: FailureSource,
   ) -> core::result::Result<Notice, core::convert::Infallible> {
     let message = fault.to_string();
     console_core_logging::warn!("console-application-software-store: {title} {message}");
+    let detail = match source {
+      FailureSource::Application => None,
+      FailureSource::PackageManager => {
+        let Ok(detail) = packages::problem(fault);
+        detail.map(str::to_owned)
+      }
+    };
+    let body = match detail.as_deref() {
+      Some(explanation) => format!("{explanation}\n{message}"),
+      None => message.clone(),
+    };
+    let Ok(()) = console_notifications::notify(
+      console_notifications::Application("Console Store"),
+      &title,
+      Some(&body),
+    );
+
     Ok(Notice {
       title,
-      detail: Some(
-        ({
-          let Ok(explicit_value) = packages::problem(fault);
-          explicit_value
-        })
-        .to_owned(),
-      ),
+      detail,
       error: Some(message),
     })
   }
 
   fn refresh(&mut self) -> Result<(), Infallible> {
-    match (self.nix_available, self.profile_status) {
-      (Installed::Yes, ProfileStatus::Ready | ProfileStatus::Unavailable) => {}
-      _ => return Ok(()),
+    match self.profile_status {
+      ProfileStatus::Ready | ProfileStatus::Unavailable => {}
+      ProfileStatus::Reading(_) | ProfileStatus::Changing => return Ok(()),
     }
 
     let Ok(previous) = self.availability();
     let profile = self.profile.clone();
 
     match spawn_reply(&self.send, "store-profile", move || {
-      Reply::Profile(packages::list(&profile))
+      let Ok(inventory) = sources::inventory(&profile);
+
+      Reply::Profile(inventory)
     }) {
       Ok(()) => self.profile_status = ProfileStatus::Reading(previous),
       Err(fault) => {
-        let Ok(notice) = Self::failure(
-          String::from("Installed packages could not be read."),
+        let Ok(_notice) = Self::failure(
+          String::from("Reading installed packages could not start."),
           &fault,
+          FailureSource::Application,
         );
-        self.notice = Some(notice);
       }
     }
 
     Ok(())
   }
 
-  fn update_profile(&mut self, result: io::Result<Vec<Local>>) -> Result<(), Infallible> {
-    match result {
+  fn update_profile(&mut self, inventory: sources::Inventory) -> Result<(), Infallible> {
+    let Ok(previous) = self.catalogue.remote_managers();
+    let known: BTreeSet<_> = previous.collect();
+    self.nix_available = inventory.nix;
+    self.pacman_changes = inventory.pacman_changes;
+    self.terminal = inventory.terminal;
+    self.catalogue = inventory.catalogue;
+
+    match inventory.profile {
       Ok(rows) => {
         self.profile_status = ProfileStatus::Ready;
         self.installed = rows;
       }
       Err(fault) => {
         self.profile_status = ProfileStatus::Unavailable;
-        let Ok(notice) = Self::failure(
+        self
+          .installed
+          .retain(|local| matches!(&local.package.source, Source::Nix(_)));
+        let Ok(_notice) = Self::failure(
           String::from("Installed packages could not be read."),
           &fault,
+          FailureSource::PackageManager,
         );
-        self.notice = Some(notice);
       }
+    }
+
+    self
+      .installed
+      .extend(self.catalogue.installed.iter().map(|registered| {
+        let Ok(local) = Local::packaged(registered.package.clone(), registered.launcher.clone());
+
+        local
+      }));
+    self
+      .installed
+      .sort_by_cached_key(|local| local.package.title.to_lowercase());
+    let Ok(()) = self.match_catalogue();
+    let Ok(current) = self.catalogue.remote_managers();
+    let active: BTreeSet<_> = current.collect();
+    self.results.retain(|manager, _| active.contains(manager));
+    self
+      .queued_searches
+      .retain(|manager| active.contains(manager));
+    let Ok(query) = self.query();
+
+    match (!query.trim().is_empty()).then_some(()) {
+      Some(()) => self
+        .queued_searches
+        .extend(active.difference(&known).copied()),
+      None => {}
+    }
+
+    match (self.deadline.is_none() && !self.queued_searches.is_empty()).then_some(()) {
+      Some(()) => self.deadline = Some(Instant::now()),
+      None => {}
     }
 
     Ok(())
   }
 
   fn advance(&mut self) -> Result<Editing, Infallible> {
-    let Ok(()) = self.start_search(Instant::now());
-    let mut changed = Editing::Unchanged;
+    let Ok(mut changed) = self.start_search(Instant::now());
 
     for _ in 0..4 {
       let reply = match self.replies.try_recv() {
@@ -405,26 +582,48 @@ impl Shop {
     Ok(changed)
   }
 
-  fn start_search(&mut self, now: Instant) -> Result<(), Infallible> {
-    let pending =
-      self.search_in_flight.is_none() && self.deadline.is_some_and(|deadline| now >= deadline);
+  fn start_search(&mut self, now: Instant) -> Result<Editing, Infallible> {
+    let due = self.deadline.is_some_and(|deadline| now >= deadline);
 
-    match pending.then_some(()) {
-      Some(()) => {}
-      None => return Ok(()),
+    match due.then_some(()) {
+      Some(()) => self.deadline = None,
+      None => return Ok(Editing::Unchanged),
     }
 
     let Ok(written) = self.query();
     let query = written.split_whitespace().collect::<Vec<_>>().join(" ");
+    let available: Vec<_> = self
+      .queued_searches
+      .iter()
+      .copied()
+      .filter(|manager| !self.search_in_flight.contains_key(manager))
+      .collect();
+
+    for manager in available {
+      let Ok(()) = self.request_search(manager, &query);
+    }
+
+    Ok(Editing::Updated)
+  }
+
+  fn request_search(&mut self, manager: Manager, query: &str) -> Result<(), Infallible> {
+    let _queued = self.queued_searches.remove(&manager);
     let request = self.request;
-    self.deadline = None;
+    let search = query.to_owned();
 
     match spawn_reply(&self.send, "store-search", move || {
-      Reply::Search(request, packages::search(&query))
+      Reply::Search(manager, request, manager.search_remote(&search))
     }) {
-      Ok(()) => self.search_in_flight = Some(request),
+      Ok(()) => {
+        let _previous = self.search_in_flight.insert(manager, request);
+      }
       Err(fault) => {
-        let Ok(notice) = Self::failure(String::from("Nixpkgs search failed."), &fault);
+        let Ok(source) = manager.label();
+        let Ok(notice) = Self::failure(
+          format!("{source} search could not start."),
+          &fault,
+          FailureSource::Application,
+        );
         self.search_problem = Some(notice);
       }
     }
@@ -434,7 +633,7 @@ impl Shop {
 
   fn receive(&mut self, reply: Reply) -> Result<(), Infallible> {
     match reply {
-      Reply::Search(request, result) => self.found(request, result),
+      Reply::Search(manager, request, result) => self.found(manager, request, result),
       Reply::Profile(result) => self.update_profile(result),
       Reply::Change(changed) => self.changed_package(changed),
       Reply::Open(result) => {
@@ -443,14 +642,11 @@ impl Shop {
         match result {
           Ok(()) => {}
           Err(fault) => {
-            console_core_logging::warn!(
-              "console-application-software-store could not open the app: {fault}"
+            let Ok(_notice) = Self::failure(
+              String::from("The application could not be opened."),
+              &fault,
+              FailureSource::Application,
             );
-            self.notice = Some(Notice {
-              title: String::from("The application could not be opened."),
-              detail: Some(String::from("Open Details to see the error.")),
-              error: Some(fault.to_string()),
-            });
           }
         }
 
@@ -464,41 +660,58 @@ impl Shop {
       name,
       operation,
       outcome,
-      profile,
+      inventory,
     } = changed;
-    let Ok(()) = self.update_profile(profile);
-    let Ok(availability) = self.availability();
+    let Ok(()) = self.update_profile(inventory);
 
-    match (outcome, availability) {
-      (Ok(()), ProfileAvailability::Ready) => {
+    match outcome {
+      Ok(()) => {
         let title = match operation {
           Operation::Install => format!("{name} is installed. Find it under Installed."),
           Operation::Remove => format!("{name} was removed."),
         };
-        self.notice = Some(Notice {
-          title,
-          detail: None,
-          error: None,
-        });
+        let Ok(()) = console_notifications::notify(
+          console_notifications::Application("Console Store"),
+          &title,
+          None,
+        );
       }
-      (Ok(()), ProfileAvailability::Unavailable) => {}
-      (Err(fault), _) => {
+      Err(fault) => {
+        match (fault.kind() == io::ErrorKind::Interrupted).then_some(()) {
+          Some(()) => {
+            console_core_logging::debug!("Store transaction canceled: {fault}");
+            return Ok(());
+          }
+          None => {}
+        }
+
         let title = match operation {
           Operation::Install => format!("{name} could not be installed."),
           Operation::Remove => format!("{name} could not be removed."),
         };
-        let Ok(notice) = Self::failure(title, &fault);
-        self.notice = Some(notice);
+        let Ok(_notice) = Self::failure(title, &fault, FailureSource::PackageManager);
       }
     }
 
     Ok(())
   }
 
-  fn found(&mut self, request: SearchId, result: io::Result<Matches>) -> Result<(), Infallible> {
-    match (self.search_in_flight == Some(request)).then_some(()) {
-      Some(()) => self.search_in_flight = None,
+  fn found(
+    &mut self,
+    manager: Manager,
+    request: SearchId,
+    result: io::Result<Matches>,
+  ) -> Result<(), Infallible> {
+    match (self.search_in_flight.get(&manager) == Some(&request)).then_some(()) {
+      Some(()) => {
+        let _finished = self.search_in_flight.remove(&manager);
+      }
       None => return Ok(()),
+    }
+
+    match (self.deadline.is_none() && self.queued_searches.contains(&manager)).then_some(()) {
+      Some(()) => self.deadline = Some(Instant::now()),
+      None => {}
     }
 
     match (request == self.request).then_some(()) {
@@ -513,11 +726,15 @@ impl Shop {
 
     match result {
       Ok(found) => {
-        self.matches = found.packages;
-        self.match_count = found.total;
+        let _previous = self.results.insert(manager, found);
       }
       Err(fault) => {
-        let Ok(notice) = Self::failure(String::from("Nixpkgs search failed."), &fault);
+        let Ok(source) = manager.label();
+        let Ok(notice) = Self::failure(
+          format!("{source} search failed."),
+          &fault,
+          FailureSource::PackageManager,
+        );
         self.search_problem = Some(notice);
       }
     }
@@ -526,7 +743,12 @@ impl Shop {
   }
 
   fn change(&mut self, change: PackageChange) -> Result<(), Infallible> {
-    match self.can_change() {
+    let source = match &change {
+      PackageChange::Install(package) => &package.source,
+      PackageChange::Remove(local) => &local.package.source,
+    };
+
+    match self.can_change(source) {
       Ok(ProfileAvailability::Ready) => {}
       Ok(ProfileAvailability::Unavailable) => return Ok(()),
     }
@@ -538,7 +760,7 @@ impl Shop {
         Notice {
           title: format!("Installing {}…", package.title),
           detail: Some(String::from(
-            "Nix may need to download or build some files.",
+            "The package manager may need to download or build some files.",
           )),
           error: None,
         },
@@ -556,14 +778,16 @@ impl Shop {
     let profile = self.profile.clone();
     let started = spawn_reply(&self.send, "store-change", move || {
       let outcome = match change {
-        PackageChange::Install(package) => profile.install(&package.installable),
-        PackageChange::Remove(package) => profile.remove(&package.entry),
+        PackageChange::Install(package) => sources::install(&package, &profile),
+        PackageChange::Remove(package) => package.remove(&profile),
       };
+      let Ok(inventory) = sources::inventory(&profile);
+
       Reply::Change(ChangedPackage {
         name,
         operation,
         outcome,
-        profile: packages::list(&profile),
+        inventory,
       })
     });
 
@@ -572,12 +796,18 @@ impl Shop {
         self.profile_status = ProfileStatus::Changing;
         self.overlay = None;
         self.focus = None;
-        self.notice = Some(progress);
+        let Ok(()) = console_notifications::notify(
+          console_notifications::Application("Console Store"),
+          &progress.title,
+          progress.detail.as_deref(),
+        );
       }
       Err(fault) => {
-        let Ok(notice) =
-          Self::failure(String::from("The package change could not start."), &fault);
-        self.notice = Some(notice);
+        let Ok(_notice) = Self::failure(
+          String::from("The package change could not start."),
+          &fault,
+          FailureSource::Application,
+        );
       }
     }
 
@@ -590,7 +820,7 @@ impl Shop {
         let Ok(local) = self.local(package);
         local.cloned()
       }
-      Some(Overlay::Remove(_) | Overlay::Error { .. } | Overlay::Help) | None => None,
+      Some(Overlay::Remove(_) | Overlay::Error { .. }) | None => None,
     })
   }
 
@@ -628,22 +858,48 @@ impl Shop {
     Ok(())
   }
 
+  fn install_selected(&mut self) -> Result<(), Infallible> {
+    let package = match self.overlay.clone() {
+      Some(Overlay::Package(package)) => package,
+      None | Some(Overlay::Remove(_) | Overlay::Error { .. }) => return Ok(()),
+    };
+    let Ok(local) = self.local(&package);
+
+    match local {
+      Some(_) => Ok(()),
+      None => self.change(PackageChange::Install(package)),
+    }
+  }
+
+  fn confirm_removal(&mut self) -> Result<(), Infallible> {
+    let Ok(selected) = self.selected_local();
+    let local = match selected {
+      Some(local) => local,
+      None => return Ok(()),
+    };
+    let Ok(removable) = local.removable();
+
+    match removable {
+      packages::Removal::Optional => self.show(Overlay::Remove(local)),
+      packages::Removal::Required => Ok(()),
+    }
+  }
+
   fn action(&mut self, action: Action) -> Result<WindowFlow, Infallible> {
     match action {
+      Action::SelectTab(position) => {
+        let Ok(()) = self.select_tab(position);
+      }
+      Action::PreviousTab => return self.step_tab(-1),
+      Action::NextTab => return self.step_tab(1),
       Action::Page(page) => {
-        self.page = page;
-        let Ok(()) = self.clear_query();
-
-        match bool::then_some(page == Page::Installed, ()) {
-          Some(()) => {
-            let Ok(()) = self.refresh();
-          }
-          None => {}
-        }
+        let Ok(()) = self.show_page(page);
       }
       Action::Category(category) => {
         self.category = category;
-        self.scroll = 0;
+        self.focus = Some(Action::Category(category));
+        self.scroll.browse = 0;
+        self.wheel = scrolling::Position::default();
       }
       Action::Search => self.focus = Some(Action::Search),
       Action::ClearSearch => {
@@ -662,55 +918,32 @@ impl Shop {
           None => {}
         };
       }
-      Action::Featured => {
-        let Ok(show) = self.show(Overlay::Package({
-          let Ok(explicit_value) = catalogue::package("obs-studio");
-          explicit_value
-        }));
-
-        show
-      }
       Action::Back => {
         self.overlay = match self.overlay.take() {
           Some(Overlay::Remove(local)) => Some(Overlay::Package(local.package)),
-          None | Some(Overlay::Package(_) | Overlay::Error { .. } | Overlay::Help) => None,
+          None | Some(Overlay::Package(_) | Overlay::Error { .. }) => None,
         };
         self.focus = None;
       }
       Action::Install => {
-        match self.overlay.clone() {
-          Some(Overlay::Package(package)) => {
-            let Ok(()) = self.change(PackageChange::Install(package));
-          }
-          None | Some(Overlay::Remove(_) | Overlay::Error { .. } | Overlay::Help) => {}
-        };
+        let Ok(()) = self.install_selected();
       }
       Action::Open => {
         let Ok(()) = self.launch();
       }
       Action::Remove => {
-        let Ok(selected) = self.selected_local();
-
-        match selected {
-          Some(local) => {
-            let Ok(()) = self.show(Overlay::Remove(local));
-          }
-          None => {}
-        }
+        let Ok(()) = self.confirm_removal();
       }
       Action::ConfirmRemove => {
         match self.overlay.clone() {
           Some(Overlay::Remove(local)) => {
             let Ok(()) = self.change(PackageChange::Remove(local));
           }
-          None | Some(Overlay::Package(_) | Overlay::Error { .. } | Overlay::Help) => {}
+          None | Some(Overlay::Package(_) | Overlay::Error { .. }) => {}
         };
       }
-      Action::ErrorDetails | Action::SearchDetails => {
-        let notice = match bool::then_some(action == Action::SearchDetails, ()) {
-          Some(()) => self.search_problem.as_ref(),
-          None => self.notice.as_ref(),
-        };
+      Action::SearchDetails => {
+        let notice = self.search_problem.as_ref();
 
         let details = notice.and_then(|entry| {
           let text = entry.error.as_ref()?;
@@ -727,7 +960,6 @@ impl Shop {
           None => {}
         }
       }
-      Action::Dismiss => self.notice = None,
       Action::RetrySearch => {
         let Ok(edit_query) = self.edit_query();
 
@@ -737,11 +969,6 @@ impl Shop {
         let Ok(refresh) = self.refresh();
 
         refresh
-      }
-      Action::Help => {
-        let Ok(show) = self.show(Overlay::Help);
-
-        show
       }
       Action::Close => {
         return Ok(match self.profile_status {
@@ -756,25 +983,77 @@ impl Shop {
     Ok(WindowFlow::Stay)
   }
 
-  fn keyboard(&mut self, press: KeyPress, frame: &Frame) -> Result<WindowFlow, Infallible> {
-    let key = press.key;
-    const CONTROL: u32 = 4;
-    let control = press.modifiers & CONTROL != 0;
-    let unobstructed = self.overlay.is_none();
+  fn select_tab(&mut self, position: u32) -> Result<(), Infallible> {
+    match position {
+      0 => self.show_page(Page::Browse),
+      1 => self.show_page(Page::Installed),
+      2.. => Ok(()),
+    }
+  }
 
-    match key {
-      Keysym::k | Keysym::f => match (control && unobstructed).then_some(()) {
-        Some(()) => return self.action(Action::Search),
-        None => {}
-      },
-      Keysym::u => match (control && self.focus == Some(Action::Search)).then_some(()) {
-        Some(()) => return self.action(Action::ClearSearch),
-        None => {}
-      },
-      Keysym::Escape => return self.escape(),
-      Keysym::Tab | Keysym::ISO_Left_Tab => {
-        let backwards = key == Keysym::ISO_Left_Tab || press.modifiers & 1 != 0;
-        let direction = match backwards.then_some(()) {
+  fn show_page(&mut self, page: Page) -> Result<(), Infallible> {
+    self.page = page;
+    self.focus = None;
+    self.hover = None;
+    let Ok(()) = self.clear_query();
+
+    match page {
+      Page::Browse => Ok(()),
+      Page::Installed => self.refresh(),
+    }
+  }
+
+  fn tab_stop(&self) -> Result<Stop, Infallible> {
+    let Ok(current) = self.page.index();
+    Ok(match (self.focus == Some(Action::Close)).then_some(()) {
+      Some(()) => Stop::Outside,
+      None => Stop::Tab(current),
+    })
+  }
+
+  fn step_tab(&mut self, step: i32) -> Result<WindowFlow, Infallible> {
+    let Ok(from) = self.tab_stop();
+    let Ok(next) = strip::along(2, from, step);
+
+    match next {
+      Stop::Outside => {
+        self.focus = Some(Action::Close);
+        self.preedit.clear();
+        Ok(WindowFlow::Stay)
+      }
+      Stop::Tab(tab) => {
+        match (next != from).then_some(()) {
+          Some(()) => {
+            let Ok(()) = self.select_tab(tab);
+          }
+          None => {}
+        }
+
+        Ok(WindowFlow::Stay)
+      }
+    }
+  }
+
+  fn keyboard(
+    &mut self,
+    press: PhysicalKeyPress,
+    frame: &Frame,
+  ) -> Result<WindowFlow, Infallible> {
+    let KeyPress { key, modifiers, .. } = press.translated;
+    let control = modifiers & KeyPress::CONTROL != 0;
+    let driving = match (&self.overlay, self.focus) {
+      (Some(Overlay::Remove(_)), _) => Driving::Sure,
+      (None, Some(Action::Search)) => Driving::Search,
+      (Some(Overlay::Package(_) | Overlay::Error { .. }), _) | (None, _) => Driving::Panel,
+    };
+
+    match (key, self.overlay.as_ref(), control, driving) {
+      (Keysym::k | Keysym::f, None, true, _) | (Keysym::slash, None, false, Driving::Panel) => {
+        return self.action(Action::Search);
+      }
+      (Keysym::u, None, true, Driving::Search) => return self.action(Action::ClearSearch),
+      (Keysym::Tab | Keysym::ISO_Left_Tab, _, _, _) => {
+        let direction = match (key == Keysym::ISO_Left_Tab || modifiers & 1 != 0).then_some(()) {
           Some(()) => FocusDirection::Previous,
           None => FocusDirection::Next,
         };
@@ -782,73 +1061,193 @@ impl Shop {
         self.focus = tab;
         return Ok(WindowFlow::Stay);
       }
-      Keysym::Return | Keysym::KP_Enter | Keysym::space => match self.focus {
-        Some(Action::Search) => match key {
-          Keysym::Return | Keysym::KP_Enter => return self.submit_search(),
-          _ => {}
-        },
-        Some(action) => return self.action(action),
-        None => {}
-      },
-      Keysym::Up | Keysym::Down | Keysym::Page_Up | Keysym::Page_Down => {
-        match unobstructed.then_some(()) {
-          Some(()) => {
-            let by = match key {
-              Keysym::Up => -75,
-              Keysym::Down => 75,
-              Keysym::Page_Up => -340,
-              _ => 340,
-            };
-            let Ok(()) = self.scroll_by(by, frame);
-            return Ok(WindowFlow::Stay);
-          }
-          None => {}
-        }
-      }
-      Keysym::question => {
-        match (unobstructed && self.focus != Some(Action::Search)).then_some(()) {
-          Some(()) => return self.action(Action::Help),
-          None => {}
-        }
-      }
       _ => {}
     }
 
-    let Ok(()) = self.type_search(press);
+    let Ok(transition) = NavigationKeys::handle(
+      self.navigation,
+      NavigationInput::Press {
+        key: press,
+        driving,
+      },
+    );
+    self.navigation = transition.state;
+    let meaning = match transition.effect {
+      Some(NavigationEffect::Apply(meaning)) => meaning,
+      Some(NavigationEffect::Tab(motion)) => return self.switch_tab(motion),
+      None => return Ok(WindowFlow::Stay),
+    };
+
+    match (meaning, self.overlay.as_ref()) {
+      (Meaning::Close | Meaning::Abandon, _) => return self.escape(),
+      (Meaning::Tab(step), None) => return self.step_tab(step),
+      (Meaning::Step(step), None) => {
+        let Ok(()) = self.step_row(step, frame);
+        return Ok(WindowFlow::Stay);
+      }
+      (Meaning::Step(step) | Meaning::Nudge(step), Some(_)) => {
+        let Ok(()) = self.walk_controls(step, frame);
+        return Ok(WindowFlow::Stay);
+      }
+      (Meaning::Nudge(step), None) => {
+        let Ok(()) = self.nudge_category(step);
+        return Ok(WindowFlow::Stay);
+      }
+      (Meaning::Choose, _) => return self.choose(frame),
+      (Meaning::None | Meaning::More, None)
+      | (Meaning::None | Meaning::More | Meaning::Tab(_), Some(_)) => {}
+    }
+
+    let Ok(()) = self.type_search(press.translated);
     Ok(WindowFlow::Stay)
+  }
+
+  fn switch_tab(&mut self, motion: TabMotion) -> Result<WindowFlow, Infallible> {
+    match self.overlay {
+      Some(_) => return Ok(WindowFlow::Stay),
+      None => {}
+    }
+
+    let Ok(from) = self.tab_stop();
+    let Ok(next) = strip::switched(2, from, motion);
+
+    match next {
+      Some(tab) => {
+        let Ok(()) = self.select_tab(tab);
+      }
+      None => {}
+    }
+
+    Ok(WindowFlow::Stay)
+  }
+
+  fn walk_controls(&mut self, step: i32, frame: &Frame) -> Result<(), Infallible> {
+    let direction = match (step < 0).then_some(()) {
+      Some(()) => FocusDirection::Previous,
+      None => FocusDirection::Next,
+    };
+    let Ok(target) = frame.canvas.targets.tab(self.focus, direction);
+    self.focus = target;
+    Ok(())
+  }
+
+  fn nudge_category(&mut self, step: i32) -> Result<(), Infallible> {
+    let Ok(query) = self.query();
+
+    match (self.page, query.trim(), self.focus) {
+      (Page::Browse, "", None | Some(Action::Category(_) | Action::Details(_))) => {}
+      (Page::Browse | Page::Installed, _, _) => return Ok(()),
+    }
+
+    let position = match (0_i32..)
+      .zip(Category::EVERY)
+      .find_map(|(position, category)| (category == self.category).then_some(position))
+    {
+      Some(position) => position,
+      None => return Ok(()),
+    };
+    let Ok(last) =
+      console_core_number_conversion::fitted::<_, i32>(Category::EVERY.len().saturating_sub(1));
+    let Ok(next) = console_core_number_conversion::fitted::<_, u32>(
+      position.saturating_add(step).clamp(0, last),
+    );
+    let Ok(index) = console_core_number_conversion::index(next);
+
+    match Category::EVERY.get(index) {
+      Some(category) => {
+        let Ok(_) = self.action(Action::Category(*category));
+      }
+      None => {}
+    }
+
+    Ok(())
+  }
+
+  fn step_row(&mut self, step: i32, frame: &Frame) -> Result<(), Infallible> {
+    let first = match frame.entries.first() {
+      Some(first) => first,
+      None => return self.walk_controls(step, frame),
+    };
+    let current = (0_i32..)
+      .zip(&frame.entries)
+      .find_map(|(row, (action, _))| (Some(*action) == self.focus).then_some(row));
+    let entry = match current {
+      Some(row) => {
+        let Ok(last) =
+          console_core_number_conversion::fitted::<_, i32>(frame.entries.len().saturating_sub(1));
+        let Ok(next) = console_core_number_conversion::fitted::<_, u32>(
+          row.saturating_add(step).clamp(0, last),
+        );
+        let Ok(index) = console_core_number_conversion::index(next);
+
+        match frame.entries.get(index) {
+          Some(entry) => entry,
+          None => first,
+        }
+      }
+      None => first,
+    };
+    let (action, area) = *entry;
+    self.preedit.clear();
+    let Ok(bottom) = area.bottom();
+    let Ok(view_bottom) = frame.scroll_area.bottom();
+    let needed = match area.origin.y.cmp(&frame.scroll_area.origin.y) {
+      Ordering::Less => area.origin.y.saturating_sub(frame.scroll_area.origin.y),
+      Ordering::Equal | Ordering::Greater => bottom.saturating_sub(view_bottom).max(0),
+    };
+    self.focus = Some(action);
+    self.scroll_by(needed, frame)
+  }
+
+  fn choose(&mut self, frame: &Frame) -> Result<WindowFlow, Infallible> {
+    match (self.focus, self.overlay.as_ref()) {
+      (Some(Action::Search), _) => {
+        match self.searching() {
+          Ok(SearchStatus::Searching) => self.deadline = Some(Instant::now()),
+          Ok(SearchStatus::Settled) => {}
+        }
+
+        let Ok(()) = self.step_row(1, frame);
+        Ok(WindowFlow::Stay)
+      }
+      (Some(action), _) => self.action(action),
+      (None, Some(_)) => Ok(WindowFlow::Stay),
+      (None, None) => {
+        let Ok(()) = self.step_row(1, frame);
+        Ok(WindowFlow::Stay)
+      }
+    }
   }
 
   fn escape(&mut self) -> Result<WindowFlow, Infallible> {
     let Ok(query) = self.query();
 
-    match (self.overlay.is_some(), query.is_empty()) {
-      (true, _) => self.action(Action::Back),
-      (false, false) => self.action(Action::ClearSearch),
-      (false, true) => {
+    match (self.overlay.is_some(), query.is_empty(), self.focus) {
+      (true, _, _) => self.action(Action::Back),
+      (false, false, _) => {
+        let Ok(()) = self.clear_query();
         self.focus = None;
         Ok(WindowFlow::Stay)
       }
-    }
-  }
-
-  fn submit_search(&mut self) -> Result<WindowFlow, Infallible> {
-    match (self.searching(), self.matches.as_slice()) {
-      (Ok(SearchStatus::Searching), []) => {
-        self.deadline = Some(Instant::now());
+      (false, true, Some(Action::Search)) => {
+        self.focus = None;
+        self.preedit.clear();
         Ok(WindowFlow::Stay)
       }
-      (Ok(SearchStatus::Searching), [_, ..]) | (Ok(SearchStatus::Settled), _) => {
-        self.action(Action::Details(0))
-      }
+      (false, true, _) => self.action(Action::Close),
     }
   }
 
   fn type_search(&mut self, press: KeyPress) -> Result<(), Infallible> {
-    const COMMAND_MODIFIERS: u32 = (1 << 2) | (1 << 3) | (1 << 6);
+    const COMMAND_MODIFIERS: u32 = KeyPress::CONTROL | (1 << 3) | (1 << 6);
 
-    match (self.overlay.is_none() && press.modifiers & COMMAND_MODIFIERS == 0).then_some(()) {
-      Some(()) => {}
-      None => return Ok(()),
+    match (
+      self.overlay.as_ref(),
+      press.modifiers & COMMAND_MODIFIERS,
+      press.key,
+    ) {
+      (None, 0, _) | (None, KeyPress::CONTROL, Keysym::BackSpace) => {}
+      _ => return Ok(()),
     }
 
     let Ok(letter) = press.key.char();
@@ -858,7 +1257,7 @@ impl Shop {
     match editable.then_some(()) {
       Some(()) => {
         self.focus = Some(Action::Search);
-        let Ok(typed) = self.query.typed(press.key);
+        let Ok(typed) = self.query.typed_press(press);
 
         match (typed == Typed::Edited).then_some(()) {
           Some(()) => self.edit_query(),
@@ -911,14 +1310,63 @@ impl Shop {
     by: i32,
     frame: &Frame,
   ) -> core::result::Result<(), core::convert::Infallible> {
-    {
-      self.scroll = self
-        .scroll
-        .saturating_add(by)
-        .clamp(0, frame.canvas.max_scroll);
-    };
+    let Ok(page) = view::PageView::current(self);
+    let Ok(scroll) = self.scroll.current(page);
+    *scroll = scroll.saturating_add(by).clamp(0, frame.canvas.max_scroll);
+    self.wheel = scrolling::Position::default();
 
     Ok(())
+  }
+
+  fn scroll_position(&self) -> Result<i32, Infallible> {
+    let Ok(page) = view::PageView::current(self);
+
+    Ok(match page {
+      view::PageView::Browse => self.scroll.browse,
+      view::PageView::Installed => self.scroll.installed,
+      view::PageView::Search => self.scroll.search,
+    })
+  }
+
+  fn fit_scroll(&mut self, maximum: i32) -> Result<Editing, Infallible> {
+    match self.overlay.as_ref() {
+      Some(_) => return Ok(Editing::Unchanged),
+      None => {}
+    }
+
+    let Ok(page) = view::PageView::current(self);
+    let Ok(scroll) = self.scroll.current(page);
+    let limit = maximum.max(0);
+
+    Ok(match (*scroll).cmp(&limit) {
+      Ordering::Greater => {
+        *scroll = limit;
+        Editing::Updated
+      }
+      Ordering::Less | Ordering::Equal => Editing::Unchanged,
+    })
+  }
+
+  fn wheel(&mut self, by: LogicalPixels, limit: i32) -> Result<Editing, Infallible> {
+    let Ok(page) = view::PageView::current(self);
+    let Ok(scroll) = self.scroll.current(page);
+    let Ok(turn) = scrolling::Wheel::handle(
+      self.wheel,
+      scrolling::Motion {
+        at: *scroll,
+        by,
+        limit,
+      },
+    );
+    self.wheel = turn.state;
+
+    Ok(match turn.effect {
+      Some(scrolling::ScrollTo(next)) => {
+        *scroll = next;
+        Editing::Updated
+      }
+      None => Editing::Unchanged,
+    })
   }
 
   #[must_use]
@@ -979,7 +1427,7 @@ fn open() -> Result<(), Box<dyn std::error::Error>> {
   surface.show_window_sized(
     &Window {
       app_id: APP_ID.to_owned(),
-      title: "Software Store".to_owned(),
+      title: "Console Store".to_owned(),
     },
     WINDOW,
   )?;
@@ -1062,15 +1510,36 @@ impl StoreWindow {
       Closed::No => {}
     }
 
-    let keys = self.surface.key_presses()?;
+    let keys = self.surface.physical_key_presses()?;
 
-    for key in keys {
+    for (position, key) in (0_u32..).zip(keys) {
+      match (position > 0).then_some(()) {
+        Some(()) => {
+          let Ok(logical) = self.surface.logical();
+
+          match logical {
+            Some(room) => {
+              let Ok(()) = self.layout(room);
+            }
+            None => {}
+          }
+        }
+        None => {}
+      }
+
       let Ok(result) = self.shop.keyboard(key, &self.frame);
 
       match result {
         WindowFlow::Close => return Ok(WindowFlow::Close),
         WindowFlow::Stay => self.drawing = Drawing::Pending,
       }
+    }
+
+    let Ok(focus) = self.surface.keyboard_focus();
+
+    match focus {
+      KeyboardFocus::Elsewhere => self.shop.navigation = Navigation::Ready,
+      KeyboardFocus::Here => {}
     }
 
     let committed = self.surface.text_input_changes()?;
@@ -1108,23 +1577,30 @@ impl StoreWindow {
       None => {}
     }
 
-    let Ok(frame) = view::draw(&self.shop, room, &self.theme);
-    self.frame = frame;
-
-    match self.shop.scroll.cmp(&self.frame.canvas.max_scroll) {
-      Ordering::Greater => {
-        self.shop.scroll = self.frame.canvas.max_scroll;
-        let Ok(scrolled) = view::draw(&self.shop, room, &self.theme);
-        self.frame = scrolled;
-      }
-      Ordering::Less | Ordering::Equal => {}
-    }
+    let Ok(()) = self.layout(room);
 
     let painted = self.frame.canvas.paint(&mut self.surface, room);
     painted?;
     let Ok(state) = self.shop.input_state(&self.frame);
     self.surface.set_text_input(state)?;
     self.drawing = drawing;
+    Ok(())
+  }
+
+  fn layout(&mut self, room: Size<u32>) -> Result<(), Infallible> {
+    let Ok(frame) = view::draw(&self.shop, room, &self.theme);
+    self.frame = frame;
+
+    let Ok(changed) = self.shop.fit_scroll(self.frame.canvas.max_scroll);
+
+    match changed {
+      Editing::Updated => {
+        let Ok(scrolled) = view::draw(&self.shop, room, &self.theme);
+        self.frame = scrolled;
+      }
+      Editing::Unchanged => {}
+    }
+
     Ok(())
   }
 
@@ -1141,9 +1617,14 @@ impl StoreWindow {
       PointerEvent::Scrolled { by } => match self.shop.overlay.as_ref() {
         Some(_) => {}
         None => {
-          let Ok(pixels) = toward_zero_i32(by);
-          let Ok(()) = self.shop.scroll_by(pixels, &self.frame);
-          self.drawing = Drawing::Pending;
+          let Ok(changed) = self
+            .shop
+            .wheel(LogicalPixels(by), self.frame.canvas.max_scroll);
+
+          match changed {
+            Editing::Updated => self.drawing = Drawing::Pending,
+            Editing::Unchanged => {}
+          }
         }
       },
       PointerEvent::Left => {
@@ -1162,13 +1643,16 @@ impl StoreWindow {
 
   fn pointer_down(&mut self, point: Point<f64>) -> Result<(), Box<dyn std::error::Error>> {
     let Ok(target) = self.frame.canvas.targets.action(point);
+    self.shop.navigation = Navigation::Ready;
     self.gesture = Some(Gesture {
       start: point,
       last: point,
       target,
       drag: Drag::Click,
     });
-    let move_window = target.is_none() && self.shop.overlay.is_none() && point.y < 53.0;
+    let move_window = target.is_none()
+      && self.shop.overlay.is_none()
+      && point.y < f64::from(strip::MARGIN.saturating_add(strip::HEIGHT));
 
     match move_window.then_some(()) {
       Some(()) => self.surface.move_window()?,
@@ -1233,7 +1717,6 @@ impl StoreWindow {
 
     match (hit == Some(target)).then_some(()) {
       Some(()) => {
-        self.shop.focus = Some(target);
         let Ok(flow) = self.shop.action(target);
         self.drawing = Drawing::Pending;
         Ok(flow)
@@ -1272,17 +1755,216 @@ mod tests {
   use std::path::{Component, Path, PathBuf};
 
   use console_core_places::Base;
+  use console_core_shapes::Shape;
   use console_waiting::{Outcome, Ready, Schedule, until_handed};
 
+  fn key(key: Keysym) -> Result<PhysicalKeyPress, Infallible> {
+    let Ok(translated) = KeyPress::unmodified(key);
+
+    Ok(PhysicalKeyPress {
+      code: 0,
+      depressed_modifiers: 0,
+      translated,
+    })
+  }
+
   #[test]
-  fn browse_view_draws_and_opens_the_obs_feature() -> Result<(), Box<dyn std::error::Error>> {
+  fn store_details_and_other_tabs_keep_the_list_scroll() -> Result<(), Box<dyn std::error::Error>>
+  {
+    let mut shop = Shop::new()?;
+    let Ok(_) = shop.wheel(LogicalPixels(128.5), 500);
+    let Ok(_) = shop.action(Action::Details(0));
+    assert!(matches!(shop.overlay, Some(Overlay::Package(_))));
+    assert!(shop.fit_scroll(0) == Ok(Editing::Unchanged));
+    let Ok(_) = shop.action(Action::Back);
+    assert_eq!(shop.scroll_position(), Ok(128));
+
+    let Ok(_) = shop.action(Action::Page(Page::Installed));
+    assert_eq!(shop.scroll_position(), Ok(0));
+    let Ok(_) = shop.wheel(LogicalPixels(72.0), 500);
+    let Ok(_) = shop.action(Action::Page(Page::Browse));
+    assert_eq!(shop.scroll_position(), Ok(128));
+    let Ok(_) = shop.action(Action::Page(Page::Installed));
+    assert_eq!(shop.scroll_position(), Ok(72));
+
+    Ok(())
+  }
+
+  #[test]
+  fn tabs_and_search_use_the_same_header_for_keys_and_clicks()
+  -> Result<(), Box<dyn std::error::Error>> {
+    let mut shop = Shop::new()?;
+    let theme = Theme::new()?;
+    let Ok(frame) = view::draw(&shop, WINDOW, &theme);
+
+    for mark in [
+      console_panel::marks::BEFORE,
+      console_panel::marks::AFTER,
+      console_panel::marks::SHUT,
+    ] {
+      assert!(
+        frame
+          .canvas
+          .shapes
+          .iter()
+          .any(|shape| matches!(shape, Shape::Text(label) if label.said == mark))
+      );
+    }
+
+    let Ok(next) = frame.canvas.targets.action(Point { x: 990.0, y: 32.0 });
+    assert_eq!(next, Some(Action::NextTab));
+    let Ok(press) = key(Keysym::Page_Down);
+    let Ok(_flow) = shop.keyboard(press, &frame);
+    assert_eq!(shop.page, Page::Installed);
+    let Ok(installed) = view::draw(&shop, WINDOW, &theme);
+    let Ok(previous) = installed.canvas.targets.action(Point { x: 32.0, y: 32.0 });
+    assert_eq!(previous, Some(Action::PreviousTab));
+    let Ok(_flow) = shop.action(Action::PreviousTab);
+    assert_eq!(shop.page, Page::Browse);
+    let Ok(slash) = key(Keysym::slash);
+    let Ok(_flow) = shop.keyboard(slash, &installed);
+    assert_eq!(shop.focus, Some(Action::Search));
+    Ok(())
+  }
+
+  #[test]
+  fn failed_search_shows_an_error_and_keeps_the_original_diagnostic()
+  -> Result<(), Box<dyn std::error::Error>> {
+    let mut shop = Shop::new()?;
+    let Ok(query) = TextField::holding("no match");
+    shop.query = query;
+    let request = shop.request;
+    let _previous = shop.search_in_flight.insert(Manager::Nix, request);
+    let diagnostic = "error: opening lock file '/nix/var/nix/db/big-lock': Read-only file system";
+    let Ok(()) = shop.found(Manager::Nix, request, Err(io::Error::other(diagnostic)));
+    let notice = shop
+      .search_problem
+      .as_ref()
+      .ok_or_else(|| io::Error::other("Missing search error"))?;
+    assert_eq!(
+      notice.detail.as_deref(),
+      Some("The filesystem the store needs is read-only.")
+    );
+
+    let theme = Theme::new()?;
+    let Ok(frame) = view::draw(&shop, WINDOW, &theme);
+    let shows = |message| {
+      frame
+        .canvas
+        .shapes
+        .iter()
+        .any(|shape| matches!(shape, Shape::Text(text) if text.said == message))
+    };
+    assert!(shows("Nixpkgs search failed."));
+    assert!(!shows("No featured matches"));
+
+    let Ok(_) = shop.action(Action::SearchDetails);
+    assert!(matches!(&shop.overlay, Some(Overlay::Error { text, .. }) if text == diagnostic));
+
+    Ok(())
+  }
+
+  #[test]
+  fn zen_uses_its_pacman_actions_without_a_nix_profile() -> Result<(), Box<dyn std::error::Error>>
+  {
+    let mut shop = Shop::new()?;
+    shop.nix_available = Installed::No;
+    shop.pacman_changes = Installed::Yes;
+    shop.profile_status = ProfileStatus::Ready;
+    shop.page = Page::Installed;
+    let source = Source::Pacman(String::from("zen-browser-bin"));
+    let zen = Package {
+      source: source.clone(),
+      title: String::from("Zen Browser"),
+      description: String::new(),
+      version: String::from("1.24.2b-1"),
+    };
+    let Ok(local) = Local::packaged(zen, None);
+    shop.installed = vec![local];
+    let Ok(installable) = console_package_manager::user::Installable::nixpkgs("zen-browser-bin");
+    let nix = Package {
+      source: Source::Nix(installable),
+      title: String::from("Zen Browser"),
+      description: String::new(),
+      version: String::new(),
+    };
+    let Ok(nix_copy) = shop.local(&nix);
+    assert!(nix_copy.is_none());
+
+    let theme = Theme::new()?;
+    let Ok(_) = shop.action(Action::Details(0));
+    let Ok(installed) = view::draw(&shop, WINDOW, &theme);
+    assert!(
+      installed
+        .canvas
+        .shapes
+        .iter()
+        .any(|shape| matches!(shape, Shape::Text(text) if text.said == "Remove"))
+    );
+    let Ok(_) = shop.action(Action::Remove);
+    assert!(
+      matches!(&shop.overlay, Some(Overlay::Remove(selected)) if selected.package.source == source)
+    );
+
+    shop.installed.clear();
+    let Ok(_) = shop.action(Action::Back);
+    let Ok(available) = view::draw(&shop, WINDOW, &theme);
+    assert!(
+      available
+        .canvas
+        .shapes
+        .iter()
+        .any(|shape| matches!(shape, Shape::Text(text) if text.said == "Install"))
+    );
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_stale_search_reply_releases_only_its_own_manager() -> io::Result<()> {
+    let mut shop = Shop::new()?;
+    let Ok(query) = TextField::holding("zen");
+    shop.query = query;
+    let previous = shop.request;
+    let current = SearchId(1);
+    shop.request = current;
+    let _queued = shop.queued_searches.insert(Manager::Aur);
+    let _aur = shop.search_in_flight.insert(Manager::Aur, previous);
+    let _nix = shop.search_in_flight.insert(Manager::Nix, current);
+    let Ok(()) = shop.found(Manager::Aur, previous, Ok(Matches::default()));
+
+    assert!(!shop.search_in_flight.contains_key(&Manager::Aur));
+    assert_eq!(shop.search_in_flight.get(&Manager::Nix), Some(&current));
+    assert!(shop.deadline.is_some());
+    assert!(shop.results.is_empty());
+    assert!(matches!(shop.searching(), Ok(SearchStatus::Searching)));
+
+    Ok(())
+  }
+
+  #[test]
+  fn browse_lists_obs_as_a_regular_package_row() -> Result<(), Box<dyn std::error::Error>> {
     let mut shop = Shop::new()?;
     shop.nix_available = Installed::Yes;
     let theme = Theme::new()?;
     let Ok(frame) = view::draw(&shop, WINDOW, &theme);
-    let Ok(hit) = frame.canvas.targets.action(Point { x: 264.0, y: 376.0 });
-    let featured = hit.ok_or("Missing OBS feature")?;
-    assert_eq!(featured, Action::Featured);
+
+    assert!(
+      !frame
+        .canvas
+        .shapes
+        .iter()
+        .any(|shape| matches!(shape, Shape::Picture(_) | Shape::Cropped(_)))
+    );
+    let entry = frame.entries.first().ok_or("Missing OBS row")?;
+    let (featured, area) = *entry;
+    assert_eq!(featured, Action::Details(0));
+    let point = Point {
+      x: f64::from(area.origin.x.saturating_add(20)),
+      y: f64::from(area.origin.y.saturating_add(20)),
+    };
+    let Ok(hit) = frame.canvas.targets.action(point);
+    assert_eq!(hit, Some(featured));
     let Ok(tab) = Frame::default()
       .canvas
       .targets
@@ -1301,12 +1983,16 @@ mod tests {
     assert_eq!(wrapped_previous, Some(last));
     check_painting(&frame)?;
 
-    let Ok(_flow) = shop.action(featured);
+    let Ok(press) = key(Keysym::Down);
+    let Ok(_flow) = shop.keyboard(press, &frame);
+    assert_eq!(shop.focus, Some(featured));
+    let Ok(enter) = key(Keysym::Return);
+    let Ok(_flow) = shop.keyboard(enter, &frame);
     assert!(
-      matches!(&shop.overlay, Some(Overlay::Package(row)) if row.installable.attribute == "obs-studio")
+      matches!(&shop.overlay, Some(Overlay::Package(row)) if row.source.name() == Ok("obs-studio"))
     );
     let Ok(dialog) = view::draw(&shop, WINDOW, &theme);
-    let Ok(back) = dialog.canvas.targets.action(Point { x: 780.0, y: 280.0 });
+    let Ok(back) = dialog.canvas.targets.action(Point { x: 790.0, y: 280.0 });
     assert_eq!(back, Some(Action::Back));
     Ok(())
   }
@@ -1324,8 +2010,8 @@ mod tests {
     let state = input.ok_or("Search text input is inactive")?;
     assert!(state.cursor.is_some());
 
-    let Ok(search) = frame.canvas.targets.action(Point { x: 265.0, y: 40.0 });
-    let Ok(clear) = frame.canvas.targets.action(Point { x: 840.0, y: 40.0 });
+    let Ok(search) = frame.canvas.targets.action(Point { x: 265.0, y: 85.0 });
+    let Ok(clear) = frame.canvas.targets.action(Point { x: 1030.0, y: 85.0 });
     assert_eq!(search, Some(Action::Search));
     assert_eq!(clear, Some(Action::ClearSearch));
     Ok(())
@@ -1440,17 +2126,14 @@ mod tests {
     let Ok(()) = shop.edit_query();
     wait_for(&mut shop, FixtureWait::Search)?;
     assert!(shop.search_problem.is_none());
-    assert_eq!(shop.match_count, 1);
+    assert_eq!(
+      shop.results.get(&Manager::Nix).map(|matches| matches.total),
+      Some(1)
+    );
 
     let Ok(_details) = shop.action(Action::Details(0));
     let Ok(_install) = shop.action(Action::Install);
     wait_for(&mut shop, FixtureWait::Change)?;
-    assert!(
-      shop
-        .notice
-        .as_ref()
-        .is_some_and(|notice| notice.error.is_none())
-    );
     let installed = shop
       .installed
       .first()
@@ -1464,12 +2147,6 @@ mod tests {
     let Ok(_installed_details) = shop.action(Action::Details(0));
     let Ok(_open) = shop.action(Action::Open);
     wait_for(&mut shop, FixtureWait::Launch)?;
-    assert!(
-      shop
-        .notice
-        .as_ref()
-        .is_some_and(|notice| notice.error.is_none())
-    );
 
     let Ok(_removal_details) = shop.action(Action::Details(0));
     let Ok(_remove) = shop.action(Action::Remove);

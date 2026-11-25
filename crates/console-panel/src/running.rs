@@ -31,7 +31,6 @@
 use std::time::Duration;
 
 use console_core_external_programs::Program;
-use console_core_internal_programs::InternalProgram;
 use console_core_never::Never;
 use console_operating_system_linux::program_runtime::commands::{Linux, Timing};
 use console_program_contract::{Command, Executable};
@@ -54,30 +53,6 @@ pub fn run_command_output(command: &Command) -> Result<String, Never> {
       Err(_would_not_start) => String::new(),
     },
   )
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Notification<'a> {
-  pub summary: &'a str,
-  pub body: &'a str,
-}
-
-pub fn say(kind: &str, said: Notification<'_>) -> Result<(), Never> {
-  let Ok(command) = Command::internal(
-    InternalProgram::ConsoleSay,
-    &[kind, said.summary, said.body],
-  );
-  let Ok(mut platform) = Linux::new(Timing::Background);
-
-  match execution_commands::spawn(&mut platform, &command, Streams::QUIET, Launch::Background) {
-    Ok(()) => {}
-    Err(fault) => {
-      console_core_logging::warn!("console-say: {fault}");
-      console_core_logging::warn!("{kind}: {} - {}", said.summary, said.body);
-    }
-  }
-
-  Ok(())
 }
 
 pub fn words_of(command: &Command) -> Result<Vec<String>, Never> {
@@ -178,6 +153,7 @@ pub const SETTLING: Duration = Duration::from_millis(250);
 #[cfg(test)]
 mod tests {
   use super::*;
+  use console_core_internal_programs::InternalProgram;
 
   use console_program_lifetime::let_go;
   use console_waiting::{Outcome, Ready, Schedule, until};

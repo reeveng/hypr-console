@@ -59,7 +59,7 @@ use crate::rows::{
   playback_switch, region_rows, screen_rows, search_rows, security_rows, sound_effects,
   sound_rows, tabs, wifi_rows, zone_rows,
 };
-use crate::wallpaper::{self, Edit, Found, Offered, wallpaper_rows};
+use crate::wallpaper::{self, ActiveWallpaper, Choice, Edit, Found, Offered, wallpaper_rows};
 use crate::warm::{self, NightShift};
 use crate::{bluetooth, screen, size, sound, turning, wifi};
 use crate::{hours, named};
@@ -74,14 +74,15 @@ use console_core_controls::Switch;
 use console_default_applications::editors::{self, Application};
 use console_home_screen::shape::{self, Shape};
 use console_input_alphabets as alphabets;
+use console_notifications::saying::Content as Notification;
 use console_panel::before;
 use console_panel::card::{Card, Door};
 use console_panel::page::{ActionOutcome, Aside, Handler, Level, Page, Rows, Showing};
-use console_panel::running::{Notification, run_output, say};
+use console_panel::running::run_output;
 use console_panel::tasks::Task;
 use console_program_contract::{Effect, Event};
 use console_sound_effects::SoundEffects;
-use console_wallpaper::choose::{Set, Wanted};
+use console_wallpaper::choose::{Selection, Set, Wanted};
 use console_wallpaper::{place, rules};
 use std::io;
 use std::path::Path;
@@ -404,10 +405,11 @@ fn sound_settings(readings: SoundReadings<'_>) -> Result<Vec<console_panel::page
     Ok(Some(now)) => {
       let Ok(row) = playback_switch("Automatic Leveling", now, set_automatic_leveling);
       rows.push(row);
+
       match (now, sound::automatic_leveling(night)) {
-        (Switch::On, Ok(Some(night))) => {
-          let Ok(row) = playback_switch("Night Mode", night, set_night_mode);
-          rows.push(row);
+        (Switch::On, Ok(Some(night_switch))) => {
+          let Ok(night_row) = playback_switch("Night Mode", night_switch, set_night_mode);
+          rows.push(night_row);
         }
         (Switch::Off, _) | (Switch::On, Ok(None)) => {}
       }
@@ -867,7 +869,8 @@ fn joining(name: &str, command: console_program_contract::Command) -> Result<Tas
   let name_2 = name.to_string();
   let Ok(task) = Task::of(command);
 
-  task.then(move |answer| {
+  let Ok(attributed) = task.from_application(console_notifications::Application("Settings"));
+  attributed.then(move |answer| {
     let Ok(said) = wifi::joined(&name_2, answer);
 
     Ok(Some(said))
@@ -1111,11 +1114,16 @@ fn ask_for(showing: &dyn Showing, wanted: &Wanted, going_on: &str) -> Result<(),
       );
       let Ok(keeps) = Task::of(keeping);
 
-      showing.note(going_on);
+      let Ok(()) = console_notifications::notify(
+        console_notifications::Application("Settings"),
+        going_on,
+        None,
+      );
       showing.run(keeps);
     }
     Err(why) => {
-      let Ok(()) = say(
+      let Ok(()) = console_notifications::saying::report(
+        console_notifications::Application("Settings"),
         "wallpaper-choice",
         Notification {
           summary: "Couldn't change the wallpaper",
@@ -1348,7 +1356,8 @@ fn wallpaper_rule(
       match saved {
         Ok(()) => showing.refresh(),
         Err(fault) => {
-          let Ok(()) = say(
+          let Ok(()) = console_notifications::saying::report(
+            console_notifications::Application("Settings"),
             "wallpaper-rules",
             Notification {
               summary: "Couldn't save the wallpaper rules",
@@ -1388,10 +1397,21 @@ fn wallpaper_at(
 
   let up_2 = up.to_string();
   let Ok(pictures) = offered(table);
+  let Ok(scenes) = console_wallpaper::scene::every();
+  let Ok(scenes_2): Result<Vec<_>, Never> = scenes.iter().map(|name| Offered::of(name)).collect();
+  let selection = match &asked.selection {
+    Selection::Following => ActiveWallpaper::Following,
+    Selection::Still => ActiveWallpaper::Still,
+    Selection::Live(name) => match scenes_2.iter().any(|one| one.name == *name).then_some(()) {
+      Some(()) => ActiveWallpaper::Live(name),
+      None => ActiveWallpaper::Still,
+    },
+  };
   let Ok(waiting) = dropped();
   let found = Found {
     pictures: &pictures,
-    following: asked.follow,
+    scenes: &scenes_2,
+    selection,
     up: &up_2,
     dropped: waiting,
   };
@@ -1401,10 +1421,14 @@ fn wallpaper_at(
   );
   let Ok(renders) = Task::of(rendering);
   let Ok(taking) = Handler::and_stay(move |showing| {
-    showing.note(&match waiting {
-      1 => "Adding the picture, about a minute".to_string(),
-      many => format!("Adding {many} pictures, a minute each"),
-    });
+    let Ok(()) = console_notifications::notify(
+      console_notifications::Application("Settings"),
+      &match waiting {
+        1 => "Adding the picture, about a minute".to_string(),
+        many => format!("Adding {many} pictures, a minute each"),
+      },
+      None,
+    );
     showing.run(renders.clone());
   });
   let Ok(finding) = Handler::run(&["files", "Pictures"]);
@@ -1415,6 +1439,10 @@ fn wallpaper_at(
     |following| {
       let picture = up_2.clone();
       let Ok(said) = picture_label(&pictures, &up_2);
+      let requested = match following.then_some(()) {
+        Some(()) => Selection::Following,
+        None => Selection::Still,
+      };
       let going_on = match (following, up_2.is_empty()) {
         (true, _) => "Wallpaper follows time and weather".to_string(),
         (false, true) => "Wallpaper stays as it is".to_string(),
@@ -1424,7 +1452,7 @@ fn wallpaper_at(
         let Ok(()) = ask_for(
           showing,
           &Wanted {
-            follow: following,
+            selection: requested.clone(),
             picture: picture.clone(),
           },
           &going_on,
@@ -1435,19 +1463,32 @@ fn wallpaper_at(
 
       does
     },
-    |name| {
-      let picture = name.to_string();
-      let Ok(said) = picture_label(&pictures, name);
+    |choice| {
+      let (wanted, said) = match choice {
+        Choice::Picture(name) => {
+          let Ok(said) = picture_label(&pictures, name);
+          (
+            Wanted {
+              selection: Selection::Still,
+              picture: name.to_string(),
+            },
+            said,
+          )
+        }
+        Choice::Scene(name) => {
+          let Ok(said) = picture_label(&scenes_2, name);
+          (
+            Wanted {
+              selection: Selection::Live(name.to_string()),
+              picture: up_2.clone(),
+            },
+            said,
+          )
+        }
+      };
       let going_on = format!("{said} is going up");
       let Ok(does) = Handler::and_stay(move |showing| {
-        let Ok(()) = ask_for(
-          showing,
-          &Wanted {
-            follow: false,
-            picture: picture.clone(),
-          },
-          &going_on,
-        );
+        let Ok(()) = ask_for(showing, &wanted, &going_on);
 
         showing.refresh();
       });
@@ -2032,6 +2073,13 @@ fn setting_rows(looking: &ActorAddress) -> Result<Vec<console_panel::page::Row>,
   let Ok(here) = here();
   let Ok(called) = called();
   let Ok(mut rows) = device_rows(looking, here.as_deref(), &called);
+  let Ok(placement) = crate::window_placement::row();
+  rows.extend(placement);
+  let Ok(pointer) = crate::pointer::rows();
+  rows.extend(pointer);
+  let Ok(about) = crate::about::rows();
+  rows.extend(about);
+
   let Ok(applications) = editors::installed();
   let Ok(kinds) =
     defaults::defaults_rows(&applications, &|kind| opening(kind, &applications), |at| {

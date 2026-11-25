@@ -26,7 +26,11 @@ pub use card::{COMMAND, WHO, card, door};
 #[derive(Debug)]
 pub enum Unmapped {
   NoOnes,
+  InvalidWorkspaceName,
   Holding(std::path::PathBuf, std::io::Error),
+  Locking(std::path::PathBuf, std::io::Error),
+  Reading(std::path::PathBuf, String),
+  Decoding(std::path::PathBuf, console_input_bindings::Unbound),
   Writing(console_core_atomic_writes::Unwritten),
 }
 
@@ -36,7 +40,13 @@ impl std::fmt::Display for Unmapped {
       Unmapped::NoOnes => {
         write!(to, "can't identify this controller")
       }
+      Unmapped::InvalidWorkspaceName => to.write_str(
+        "Enter a separate special workspace name. Quick Workspace has its own shortcut row.",
+      ),
       Unmapped::Holding(at, fault) => write!(to, "{}: {fault}", at.display()),
+      Unmapped::Locking(at, fault) => write!(to, "locking {}: {fault}", at.display()),
+      Unmapped::Reading(at, fault) => write!(to, "reading {}: {fault}", at.display()),
+      Unmapped::Decoding(at, fault) => write!(to, "reading {}: {fault}", at.display()),
       Unmapped::Writing(fault) => write!(to, "{fault}"),
     }
   }

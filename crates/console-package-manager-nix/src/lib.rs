@@ -15,7 +15,7 @@ use rustix::fs::{FlockOperation, flock};
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Installable {
   pub attribute: String,
   reference: String,

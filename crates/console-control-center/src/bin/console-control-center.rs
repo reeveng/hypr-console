@@ -114,7 +114,7 @@ fn main() -> ExitCode {
     }
   };
 
-  match run(&mut surface, &wearing, &capture) {
+  match run(&mut surface, wearing, &capture) {
     Ok(()) => ExitCode::SUCCESS,
     Err(why) => {
       eprintln!("console-control-center: {why}");
@@ -126,7 +126,7 @@ fn main() -> ExitCode {
 
 fn run(
   surface: &mut Surface,
-  wearing: &Wearing,
+  mut wearing: Wearing,
   capture: &SyncSender<capture::Request>,
 ) -> Result<(), SurfaceError> {
   let requests = match focus::Layer::ScreenSelection.listen() {
@@ -138,14 +138,17 @@ fn run(
   };
   let showing = edge(surface)?;
 
-  let ran = iterate((surface, showing), |(surface_2, showing_2)| {
-    Ok(
-      match round(surface_2, wearing, showing_2, capture, requests.as_ref()) {
-        Ok(showing_3) => Step::Again((surface_2, showing_3)),
-        Err(fault) => Step::Halt(fault),
-      },
-    )
-  });
+  let ran = iterate(
+    (surface, showing, &mut wearing),
+    |(surface_2, showing_2, wearing_2)| {
+      Ok(
+        match round(surface_2, wearing_2, showing_2, capture, requests.as_ref()) {
+          Ok(showing_3) => Step::Again((surface_2, showing_3, wearing_2)),
+          Err(fault) => Step::Halt(fault),
+        },
+      )
+    },
+  );
 
   match ran {
     Ok(fault) => Err(fault),
@@ -155,7 +158,7 @@ fn run(
 
 fn round(
   surface: &mut Surface,
-  wearing: &Wearing,
+  wearing: &mut Wearing,
   mut showing: Showing,
   capture: &SyncSender<capture::Request>,
   requests: Option<&UnixDatagram>,
@@ -575,13 +578,25 @@ fn edge(surface: &mut Surface) -> Result<Showing, SurfaceError> {
   Ok(Showing::Edge { from: None })
 }
 
-fn open(surface: &mut Surface, wearing: &Wearing) -> Result<Showing, SurfaceError> {
+fn refresh_colors(wearing: &mut Wearing) -> Result<(), Never> {
+  match Wearing::worn() {
+    Ok(current) => *wearing = current,
+    Err(fault) => {
+      console_core_logging::warn!("console-control-center: refreshing theme: {fault}")
+    }
+  }
+
+  Ok(())
+}
+
+fn open(surface: &mut Surface, wearing: &mut Wearing) -> Result<Showing, SurfaceError> {
   open_overlay(surface, CONTROL_CENTER_PANEL)?;
   let room = match surface.logical() {
     Ok(Some(room)) => room,
     Ok(None) => return edge(surface),
   };
 
+  let Ok(()) = refresh_colors(wearing);
   let Ok(laid) = sheet(room, wearing);
   let focused = Tapped::Screenshot;
   paint_sheet(surface, wearing, &laid, focused)?;
@@ -595,7 +610,7 @@ fn open(surface: &mut Surface, wearing: &Wearing) -> Result<Showing, SurfaceErro
 
 fn select(
   surface: &mut Surface,
-  wearing: &Wearing,
+  wearing: &mut Wearing,
   purpose: Purpose,
   start: SelectionStart,
 ) -> Result<Showing, SurfaceError> {
@@ -606,6 +621,7 @@ fn select(
     Ok(None) => return edge(surface),
   };
 
+  let Ok(()) = refresh_colors(wearing);
   let Ok(prompt) = selection::prompt(room, wearing);
   let selection = match start {
     SelectionStart::AwaitDrag => Selection::Ready,

@@ -19,7 +19,13 @@ fn main() {
       vec![weather, picture]
     });
     let Ok(page) = Page::new("Wallpaper", asked);
-    let Ok(page_2) = page.on_arriving(|showing| showing.note("Star Ride is going up"));
+    let Ok(page_2) = page.on_arriving(|_| {
+      let Ok(()) = console_notifications::notify(
+        console_notifications::Application("Console"),
+        "Star Ride is going up",
+        None,
+      );
+    });
 
     vec![page_2]
   };

@@ -2,6 +2,7 @@
 
 use console_core_localization::{Localized, text};
 use console_core_never::Never;
+use console_panel::icons::Icon;
 use serde::{Deserialize, Serialize};
 
 use crate::preferences::Item;
@@ -61,6 +62,24 @@ impl SettingsTab {
 
   pub fn title(self) -> Result<String, Never> {
     text(&self)
+  }
+
+  pub const fn icon(self) -> Result<Icon, Never> {
+    Ok(match self {
+      Self::Sound => Icon::Sound,
+      Self::Bluetooth => Icon::Bluetooth,
+      Self::Wifi => Icon::Wifi,
+      Self::Battery => Icon::Battery,
+      Self::Notifications => Icon::NotificationSettings,
+      Self::Display => Icon::Display,
+      Self::StatusBar => Icon::PanelTop,
+      Self::Theme => Icon::Theme,
+      Self::Wallpaper => Icon::Wallpaper,
+      Self::Language => Icon::Language,
+      Self::General => Icon::Settings,
+      Self::Books => Icon::Books,
+      Self::Security => Icon::Security,
+    })
   }
 
   pub const fn indicator(self) -> Result<Option<Item>, Never> {

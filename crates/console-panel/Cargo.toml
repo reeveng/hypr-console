@@ -31,6 +31,7 @@ path = "tests/the_stand_in_stops.rs"
 harness = false
 
 [dependencies]
+console-notifications.workspace = true
 accesskit = "0.25.2"
 accesskit_unix = "0.24.1"
 console-core-arguments.workspace = true
@@ -43,6 +44,7 @@ console-core-controls.workspace = true
 console-core-highlight.workspace = true
 console-draw-painting.workspace = true
 console-draw-surface.workspace = true
+console-input-event-devices.workspace = true
 console-input-text.workspace = true
 console-core-words.workspace = true
 console-program-lifetime.workspace = true

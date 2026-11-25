@@ -20,6 +20,7 @@
 //! The disk is not read here. Standing on a thing by name needs to know where
 //! that name is in the folder, so the folder's names are handed in.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use crate::session::{Tab, View};
@@ -72,6 +73,23 @@ pub struct Standing {
   pub typed: Vec<String>,
   pub walks: Vec<Walk>,
   pub(crate) recalled: View,
+  viewports: BTreeMap<Viewport, PagePosition>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct Viewport {
+  tab: u32,
+  folder: PathBuf,
+  pane: Pane,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum Pane {
+  Folder(String),
+  Here,
+  Ways(String),
+  Editors(String),
+  Openers(String),
 }
 
 impl Standing {
@@ -95,6 +113,7 @@ impl Standing {
       typed,
       walks,
       recalled: View::default(),
+      viewports: BTreeMap::new(),
     })
   }
 }
@@ -186,7 +205,7 @@ impl Machine for Files {
     event: Event<FilesEvent>,
     effects: &mut Effects,
   ) -> Result<Standing, Never> {
-    let Ok(decided) = decide(&state, &event);
+    let Ok(decided) = decide(state, &event);
 
     decided.offered(effects)
   }
@@ -195,7 +214,7 @@ impl Machine for Files {
 type Effects = Queue<Effect<FilesEffect>>;
 
 fn decide(
-  state: &Standing,
+  state: Standing,
   event: &Event<FilesEvent>,
 ) -> Result<Transition<Standing, Effect<FilesEffect>>, Never> {
   let heard = match event {
@@ -207,7 +226,7 @@ fn decide(
     | Event::Written(_)
     | Event::Chosen(_)
     | Event::Stopping => {
-      let Ok(nothing) = Transition::without_effects(state.clone());
+      let Ok(nothing) = Transition::without_effects(state);
 
       return Ok(nothing);
     }
@@ -215,12 +234,12 @@ fn decide(
 
   let Ok(turn) = match heard {
     FilesEvent::Typed { tab, word } => {
-      let Ok(typed) = search_text(state, *tab);
+      let Ok(typed) = search_text(&state, *tab);
 
-      let Ok(with) = with_typed(state, *tab, word);
+      let Ok(with) = with_typed(&state, *tab, word);
 
       match ::core::primitive::bool::then_some(typed == *word, ()) {
-        ::core::option::Option::Some(()) => Transition::without_effects(state.clone()),
+        ::core::option::Option::Some(()) => Transition::without_effects(state),
         ::core::option::Option::None => {
           Transition::new(with, vec![Effect::Custom(FilesEffect::Replace(0))])
         }
@@ -228,21 +247,21 @@ fn decide(
     }
 
     FilesEvent::LookingFor { tab, word } => {
-      let Ok(with) = with_typed(state, *tab, word);
+      let Ok(with) = with_typed(&state, *tab, word);
 
       Transition::without_effects(with)
     }
 
     FilesEvent::Opened { tab, onto, row } => {
-      let Ok(with) = with_onto(state, *tab, onto.clone());
+      let Ok(with) = with_onto(&state, *tab, onto.clone());
 
       Transition::new(with, vec![Effect::Custom(FilesEffect::Replace(*row))])
     }
 
     FilesEvent::Entered { tab, name, at } => {
-      let Ok(row) = first_thing(state, *tab);
+      let Ok(row) = first_thing(&state, *tab);
 
-      let Ok(held) = walked(state, *tab, std::slice::from_ref(name), Line(*at));
+      let Ok(held) = walked(&state, *tab, std::slice::from_ref(name), Line(*at));
 
       let Ok(here) = here(&held, *tab);
 
@@ -256,9 +275,9 @@ fn decide(
     }
 
     FilesEvent::Walked { tab, steps } => {
-      let Ok(row) = first_thing(state, *tab);
+      let Ok(row) = first_thing(&state, *tab);
 
-      let Ok(held) = walked(state, *tab, steps, Line(row));
+      let Ok(held) = walked(&state, *tab, steps, Line(row));
 
       let Ok(here) = here(&held, *tab);
 
@@ -271,46 +290,81 @@ fn decide(
       )
     }
 
-    FilesEvent::Up { tab } => went_up(state, *tab),
+    FilesEvent::Up { tab } => went_up(&state, *tab),
 
     FilesEvent::Copy(holding) => Transition::without_effects(Standing {
       holding: Some(holding.clone()),
-      ..state.clone()
+      ..state
     }),
 
     FilesEvent::Paste => Transition::new(
       Standing {
         holding: None,
-        ..state.clone()
+        ..state
       },
       vec![Effect::Custom(FilesEffect::Replace(LINE))],
     ),
 
-    FilesEvent::Arrived { tab, names } => arrived(state, *tab, names),
+    FilesEvent::Arrived { tab, names } => arrived(&state, *tab, names),
 
     FilesEvent::Viewed { tab, position } => viewed(state, *tab, position.clone()),
 
-    FilesEvent::Back { tab } => back(state, *tab),
+    FilesEvent::Back { tab } => back(&state, *tab),
   };
 
   Ok(turn)
 }
 
+fn viewport(state: &Standing, tab: u32) -> Result<Viewport, Never> {
+  let Ok(folder) = here(state, tab);
+  let Ok(onto) = onto(state, tab);
+  let pane = match onto {
+    Destination::Folder => {
+      let Ok(word) = search_text(state, tab);
+      Pane::Folder(word)
+    }
+    Destination::Here { .. } => Pane::Here,
+    Destination::Ways { thing, .. } => Pane::Ways(thing.name),
+    Destination::Programs { thing, use_, .. } => match use_ {
+      ProgramUse::Edit => Pane::Editors(thing.name),
+      ProgramUse::Open => Pane::Openers(thing.name),
+    },
+  };
+
+  Ok(Viewport { tab, folder, pane })
+}
+
 pub(crate) fn position(state: &Standing, tab: u32) -> Result<Option<PagePosition>, Never> {
-  let Ok(current) = here(state, tab);
+  let Ok(current) = viewport(state, tab);
+
+  match state.viewports.get(&current) {
+    Some(position) => return Ok(Some(position.clone())),
+    None => {}
+  }
+
+  match &current.pane {
+    Pane::Folder(word) => match word.as_str() {
+      "" => {}
+      _ => return Ok(None),
+    },
+    Pane::Here | Pane::Ways(_) | Pane::Editors(_) | Pane::Openers(_) => {
+      return Ok(None);
+    }
+  }
+
   let Ok(slot) = console_core_number_conversion::index(tab);
   let position = state
     .places
     .get(slot)
     .and_then(|place| state.recalled.tabs.get(&place.path))
-    .filter(|saved| saved.folder == current)
+    .filter(|saved| saved.folder == current.folder)
     .map(|saved| saved.position.clone());
 
   Ok(position)
 }
 
 fn viewed(
-  state: &Standing,
+  mut state: Standing,
   tab: u32,
   position: PagePosition,
 ) -> Result<Transition<Standing, Effect<FilesEffect>>, Never> {
@@ -321,12 +375,25 @@ fn viewed(
 
     match optional_place {
       Some(matched_place) => matched_place,
-      ::core::option::Option::None => return Transition::without_effects(state.clone()),
+      ::core::option::Option::None => return Transition::without_effects(state),
     }
   };
 
-  let Ok(folder) = here(state, tab);
-  let saved = Tab { folder, position };
+  let Ok(current) = viewport(&state, tab);
+  let remember = matches!(&current.pane, Pane::Folder(word) if word.is_empty());
+
+  match remember.then_some(()) {
+    Some(()) => {}
+    None => {
+      let _ = state.viewports.insert(current, position);
+      return Transition::without_effects(state);
+    }
+  }
+
+  let saved = Tab {
+    folder: current.folder.clone(),
+    position: position.clone(),
+  };
 
   match {
     ::core::primitive::bool::then_some(
@@ -336,18 +403,18 @@ fn viewed(
     )
   } {
     ::core::option::Option::Some(()) => {
-      return Transition::without_effects(state.clone());
+      return Transition::without_effects(state);
     }
     ::core::option::Option::None => {}
   }
 
-  let mut held = state.clone();
-  held.recalled.active = Some(place.path.clone());
-  held.recalled.tabs.insert(place.path.clone(), saved);
-  let Ok(encoded) = held.recalled.encode();
+  let _ = state.viewports.insert(current, position);
+  state.recalled.active = Some(place.path.clone());
+  state.recalled.tabs.insert(place.path.clone(), saved);
+  let Ok(encoded) = state.recalled.encode();
   let effects = encoded.map(|text| Effect::Custom(FilesEffect::Remember(text)));
 
-  Transition::new(held, effects.into_iter().collect())
+  Transition::new(state, effects.into_iter().collect())
 }
 
 fn back(state: &Standing, tab: u32) -> Result<Transition<Standing, Effect<FilesEffect>>, Never> {
@@ -811,6 +878,48 @@ mod tests {
       out.effects(),
       Ok(vec![Effect::Custom(FilesEffect::Replace(5))])
     );
+  }
+
+  #[test]
+  fn a_detail_and_its_folder_keep_independent_scroll_positions() {
+    let Ok(initial) = standing();
+    let Ok(beach) = thing("beach.jpg");
+    let folder_position = PagePosition {
+      key: Some(beach.name.clone()),
+      scroll: 373,
+    };
+    let detail_position = PagePosition {
+      key: None,
+      scroll: 121,
+    };
+    let detail = FilesEvent::Opened {
+      tab: 0,
+      onto: Destination::Ways {
+        thing: beach,
+        from: 8,
+      },
+      row: WAYS_START,
+    };
+    let Ok(out) = said(
+      &initial,
+      &[
+        FilesEvent::Viewed {
+          tab: 0,
+          position: folder_position.clone(),
+        },
+        detail.clone(),
+        FilesEvent::Viewed {
+          tab: 0,
+          position: detail_position.clone(),
+        },
+        FilesEvent::Back { tab: 0 },
+      ],
+    );
+    assert_eq!(position(&out.state, 0), Ok(Some(folder_position)));
+    assert_eq!(position(&out.state, 1), Ok(None));
+
+    let Ok(back_in) = said(&out.state, &[detail]);
+    assert_eq!(position(&back_in.state, 0), Ok(Some(detail_position)));
   }
 
   #[test]

@@ -4,11 +4,8 @@
 //!
 //! One panel, one nested compositor, a few seconds. What `month` can be asked
 //! without a screen is how a month is read and how one steps to the next; what
-//! it cannot be asked is whether anything on the panel steps it. The row that
-//! carries the month is a level, and a level is three inputs at once -- the
-//! d-pad, the two marks, a swipe -- none of which is written in this crate. So
-//! the one thing worth pressing here is that the month a person is looking at
-//! is the month the d-pad left them on, and that walking back comes back.
+//! it cannot be asked is whether the panel selects the next month. A shoulder
+//! press sends the same page key that moves between tabs in other panels.
 //!
 //! Under load a press could be sent before the compositor had handed the panel
 //! the keyboard, and it went to nobody or arrived merged with the one after it,
@@ -36,9 +33,9 @@ fn describe_after(keys: &[&str]) -> Result<Vec<Description>, Box<dyn Error>> {
 }
 
 fn month(card: &Description) -> Result<String, Box<dyn Error>> {
-  match card.lines.iter().find(|line| !line.says.is_empty()) {
-    Some(line) => Ok(line.says.clone()),
-    None => Err(Box::from("the card says nothing at all")),
+  match card.tab.as_str() {
+    "" => Err(Box::from("the calendar has no active month tab")),
+    month => Ok(month.to_owned()),
   }
 }
 
@@ -61,6 +58,12 @@ fn it_opens_saying_which_month_it_is_showing() -> Result<(), Box<dyn Error>> {
   let card = first(&every)?;
   let said = month(card)?;
   let words: Vec<&str> = said.split_whitespace().collect();
+  assert!(
+    card
+      .lines
+      .iter()
+      .all(|line| line.says != "Calendar" && line.says != said)
+  );
 
   assert_eq!(words.len(), 2, "the month it opened on is written {said:?}");
   assert!(
@@ -75,14 +78,17 @@ fn it_opens_saying_which_month_it_is_showing() -> Result<(), Box<dyn Error>> {
 
 #[test]
 #[ignore = "run just test e2e-panels in a disposable NixOS VM"]
-fn the_dpad_walks_to_the_month_after_this_one() -> Result<(), Box<dyn Error>> {
-  let every = describe_after(&["Right"])?;
+fn the_shoulder_walks_to_the_month_after_this_one() -> Result<(), Box<dyn Error>> {
+  let every = describe_after(&["Page_Down"])?;
   let card = first(&every)?;
   let opened = month(card)?;
   let card_2 = last(&every)?;
   let on = month(card_2)?;
 
-  assert_ne!(opened, on, "right on the month drew the same month again");
+  assert_ne!(
+    opened, on,
+    "moving to the next tab drew the same month again"
+  );
 
   Ok(())
 }
@@ -90,7 +96,7 @@ fn the_dpad_walks_to_the_month_after_this_one() -> Result<(), Box<dyn Error>> {
 #[test]
 #[ignore = "run just test e2e-panels in a disposable NixOS VM"]
 fn the_keyboard_is_held_before_the_first_press() -> Result<(), Box<dyn Error>> {
-  let every = describe_after(&["Right"])?;
+  let every = describe_after(&["Page_Down"])?;
   let listening = every
     .iter()
     .any(|card| (card.presses, card.keyboard) == (0, KeyboardFocus::Here));
@@ -106,7 +112,7 @@ fn the_keyboard_is_held_before_the_first_press() -> Result<(), Box<dyn Error>> {
 #[test]
 #[ignore = "run just test e2e-panels in a disposable NixOS VM"]
 fn walking_back_comes_back() -> Result<(), Box<dyn Error>> {
-  let every = describe_after(&["Right", "Left"])?;
+  let every = describe_after(&["Page_Down", "Page_Up"])?;
   let card = first(&every)?;
   let opened = month(card)?;
   let card_2 = last(&every)?;

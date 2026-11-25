@@ -22,10 +22,9 @@
 //! looked at, because reading the wrong row looks exactly like a strip that
 //! does not paint.
 //!
-//! `reserved` is the same reading for whoever is under the bar rather than in
-//! it. The whole surface is exclusive, so every layer below it starts at the
-//! bottom of the strip and counts its own margin from there -- which is why the
-//! notification card's forty-four is not forty-four from the top of the screen.
+//! `reserved` gives the height of the bar's exclusive area. Notification
+//! cards count their top margin from the bottom of that area on the nested
+//! desktop.
 
 use console_core_geometry::Point;
 use console_core_never::Never;

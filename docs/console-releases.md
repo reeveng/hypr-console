@@ -7,10 +7,16 @@ and the Legion Go section of `machines.conf`.
 ## Publish a release
 
 Export the intended commit into a checkout of the public repository with
-`console-manifest-publish --export-only`. This checks the exported tree for
-private machine and account names. Commit the export to the public repository
-and push a new tag such as `console-v0.1.8` on that commit. GitHub Actions
-builds the bundle and publishes the immutable release after the build succeeds.
+`console-manifest-publish --export-only`. Commit the verified export to the
+public repository and push a new tag such as `console-v0.1.8` on that commit.
+GitHub Actions builds and publishes the release.
+
+The exporter runs the privacy check locally. It scans exported paths and file
+contents for the build account, hostname, and configured Git name and email.
+Use `--private-identifiers FILE` to also check for other known identifiers,
+such as a personal name or a device nickname. Keep that file outside the source
+and export checkouts, with one identifier per line. Export-only mode exits with
+an error if it finds a match or cannot finish the check.
 
 During a staged rollout, add `Console-Latest: false` as a trailer on the
 annotated tag to keep the current release marked latest. The new release
@@ -37,6 +43,8 @@ sudo systemctl start console-update.timer
 
 Open **Console Updates** from the launcher, choose **Check for updates**,
 then choose **Install** when ready.
+On other hardware, **Console Updates** shows the update method and links to the
+installed build information. Source installs use `console apply` from their checkout.
 An administrator can also install a specific tag with
 `sudo console-update console-v0.1.8`.
 

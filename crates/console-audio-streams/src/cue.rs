@@ -1,3 +1,5 @@
+//! Submit desktop cues and wait for volume previews to finish playing.
+
 use std::fmt;
 use std::fs::File;
 use std::io::{self, Write};
@@ -20,6 +22,8 @@ pub struct VolumePreview<'a> {
 pub enum CueError {
   Start(io::Error),
   Write(io::Error),
+  Drain(io::Error),
+  Exit(std::process::ExitStatus),
   MissingInput,
   Incomplete,
 }
@@ -29,6 +33,8 @@ impl fmt::Display for CueError {
     match self {
       Self::Start(fault) => write!(to, "could not start cue playback: {fault}"),
       Self::Write(fault) => write!(to, "could not write cue samples: {fault}"),
+      Self::Drain(fault) => write!(to, "could not wait for the cue to finish: {fault}"),
+      Self::Exit(status) => write!(to, "cue playback exited with {status}"),
       Self::MissingInput => to.write_str("cue playback has no input"),
       Self::Incomplete => to.write_str("cue playback did not finish setup"),
     }
@@ -40,9 +46,13 @@ pub fn play_cue(
   samples: &[u8],
   preview: Option<VolumePreview<'_>>,
 ) -> Result<(), CueError> {
-  let (preview_target, mut lock) = match preview {
-    Some(reservation) => (Some(reservation.target), Some(reservation.lock)),
-    None => (None, None),
+  let (preview_target, mut lock, completion) = match preview {
+    Some(reservation) => (
+      Some(reservation.target),
+      Some(reservation.lock),
+      Completion::Wait,
+    ),
+    None => (None, None, Completion::Background),
   };
   let Ok(first) = Cue::initialize(
     &Cue {
@@ -55,7 +65,7 @@ pub fn play_cue(
 
   match Cue::run_effects(first, 3, &mut lock, |reservation, effect| match effect {
     Effect::Custom(operation) => {
-      let Ok(reply) = perform(reservation, operation);
+      let Ok(reply) = perform(reservation, operation, completion);
 
       reply
     }
@@ -79,13 +89,19 @@ pub fn play_cue(
   }
 }
 
+#[derive(Clone, Copy)]
+enum Completion {
+  Background,
+  Wait,
+}
+
 enum Reply {
   Started(io::Result<Detached>),
   Written {
     child: Detached,
     result: Result<(), CueError>,
   },
-  Reaping,
+  Reaped(Result<(), CueError>),
   InvalidEffect,
 }
 
@@ -157,10 +173,10 @@ impl<'a> SingleEffectMachine for Cue<'a> {
       (Phase::Writing, Reply::Written { child, result }) => {
         (Phase::Reaping(result), Some(Operation::Reap(child)))
       }
-      (Phase::Reaping(result), Reply::Reaping) => (Phase::Done(result), None),
+      (Phase::Reaping(result), Reply::Reaped(reaped)) => (Phase::Done(result.and(reaped)), None),
       (
         phase,
-        Reply::Started(_) | Reply::Written { .. } | Reply::Reaping | Reply::InvalidEffect,
+        Reply::Started(_) | Reply::Written { .. } | Reply::Reaped(_) | Reply::InvalidEffect,
       ) => (phase, None),
     };
 
@@ -171,7 +187,11 @@ impl<'a> SingleEffectMachine for Cue<'a> {
   }
 }
 
-fn perform(reservation: &mut Option<File>, operation: Operation<'_>) -> Result<Reply, Never> {
+fn perform(
+  reservation: &mut Option<File>,
+  operation: Operation<'_>,
+  completion: Completion,
+) -> Result<Reply, Never> {
   Ok(match operation {
     Operation::Start {
       format,
@@ -190,14 +210,23 @@ fn perform(reservation: &mut Option<File>, operation: Operation<'_>) -> Result<R
 
       Reply::Written { child, result }
     }
-    Operation::Reap(mut child) => {
-      let Ok(()) = threads::let_go(std::thread::spawn(move || match child.wait() {
-        Ok(_) => {}
-        Err(fault) => console_core_logging::warn!("could not reap cue playback: {fault}"),
-      }));
+    Operation::Reap(mut child) => match completion {
+      Completion::Background => {
+        let Ok(()) = threads::let_go(std::thread::spawn(move || match child.wait() {
+          Ok(_) => {}
+          Err(fault) => console_core_logging::warn!("could not reap cue playback: {fault}"),
+        }));
 
-      Reply::Reaping
-    }
+        Reply::Reaped(Ok(()))
+      }
+      Completion::Wait => Reply::Reaped(match child.wait() {
+        Ok(status) => match status.success().then_some(()) {
+          Some(()) => Ok(()),
+          None => Err(CueError::Exit(status)),
+        },
+        Err(fault) => Err(CueError::Drain(fault)),
+      }),
+    },
   })
 }
 

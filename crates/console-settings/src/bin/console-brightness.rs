@@ -130,11 +130,18 @@ fn main() -> std::process::ExitCode {
     }
   };
 
-  let Ok(found) = screen::here();
+  match (asked == Brightness::Undim).then_some(()) {
+    Some(()) => {
+      let Ok(()) = panel_on();
+    }
+    None => {}
+  }
 
-  let panel = match found {
-    Some(panel) => panel,
-    None => {
+  let Ok(found) = screen::here();
+  let panel = match (asked, found) {
+    (_, Some(panel)) => panel,
+    (Brightness::Undim, None) => return std::process::ExitCode::SUCCESS,
+    (_, None) => {
       eprintln!("console-brightness: no backlight under {}", screen::UNDER);
 
       return std::process::ExitCode::FAILURE;
@@ -554,8 +561,6 @@ fn panel_on() -> Result<(), Never> {
 }
 
 fn undim(panel: &Panel, now: i64) -> Result<std::process::ExitCode, Never> {
-  panel_on()?;
-
   let remembered = remembered()?;
 
   let kept = match remembered {

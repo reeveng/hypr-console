@@ -27,7 +27,8 @@ use serde::Deserialize;
 use console_core_never::Never;
 
 use crate::Unbound;
-use crate::bound::{Binding, Played};
+use crate::bound::{Binding, Input, Played};
+use crate::keys;
 
 pub const NAMED: &str = "buttons.toml";
 
@@ -124,7 +125,12 @@ impl Tasks {
     job: &str,
     onto: &Binding,
   ) -> Result<Moved, Never> {
-    let already = every.get(job).is_some_and(|bound| bound.contains(onto));
+    let same = |other: &Binding| {
+      let Ok(same) = same_binding(onto, other);
+
+      same == BindingMatch::Same
+    };
+    let already = every.get(job).is_some_and(|bound| bound.iter().any(same));
     #[cfg_attr(
       dylint_lib = "explicit028_no_search_in_a_loop",
       allow(
@@ -135,7 +141,7 @@ impl Tasks {
     let taken: Vec<String> = every
       .iter()
       .filter(|(named, _)| named.as_str() != job)
-      .filter(|(_, bound)| bound.contains(onto))
+      .filter(|(_, bound)| bound.iter().any(same))
       .map(|(named, _)| named.clone())
       .collect();
 
@@ -148,7 +154,7 @@ impl Tasks {
     let mut ours: Vec<Binding> = match every.get(job) {
       Some(bound) => bound
         .iter()
-        .filter(|one| *one != onto && one.played() == Ok(Played::ByAPress))
+        .filter(|one| !same(one) && one.played() == Ok(Played::ByAPress))
         .cloned()
         .collect(),
       None => Vec::new(),
@@ -196,12 +202,13 @@ impl Tasks {
     );
 
     for (job, bound) in &self.moved {
+      let Ok(named) = toml_key(job);
       let each: Vec<String> = bound.iter().map(Binding::to_string).collect();
 
       match each.as_slice() {
-        [one] => said.push_str(&format!("{job} = \"{one}\"\n")),
+        [one] => said.push_str(&format!("{named} = \"{one}\"\n")),
         _ => said.push_str(&format!(
-          "{job} = [{}]\n",
+          "{named} = [{}]\n",
           each
             .iter()
             .map(|one| format!("\"{one}\""))
@@ -215,9 +222,70 @@ impl Tasks {
   }
 }
 
+fn toml_key(key: &str) -> Result<String, Never> {
+  let bare = key
+    .bytes()
+    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'));
+
+  match bool::then_some(bare && !key.is_empty(), ()) {
+    Some(()) => return Ok(key.to_owned()),
+    None => {}
+  }
+
+  let mut quoted = String::from("\"");
+
+  for character in key.chars() {
+    match character {
+      '"' => quoted.push_str("\\\""),
+      '\\' => quoted.push_str("\\\\"),
+      '\u{0000}'..='\u{001f}' | '\u{007f}' => {
+        quoted.push_str(&format!("\\u{:04X}", u32::from(character)));
+      }
+      letter => quoted.push(letter),
+    }
+  }
+
+  quoted.push('"');
+
+  Ok(quoted)
+}
+
+#[derive(PartialEq, Eq)]
+enum BindingMatch {
+  Same,
+  Different,
+}
+
+fn same_binding(left: &Binding, right: &Binding) -> Result<BindingMatch, Never> {
+  let same = match (left.on, right.on) {
+    (Input::Keyboard, Input::Keyboard) => {
+      let Ok(left_mask) = keys::mask(&left.held);
+      let Ok(right_mask) = keys::mask(&right.held);
+
+      left.pressed == right.pressed
+        && (left.held == right.held || (left_mask.is_some() && left_mask == right_mask))
+    }
+    (Input::Pad, Input::Pad) => left == right,
+    (Input::Pad, Input::Keyboard) | (Input::Keyboard, Input::Pad) => false,
+  };
+
+  Ok(match same.then_some(()) {
+    Some(()) => BindingMatch::Same,
+    None => BindingMatch::Different,
+  })
+}
+
 fn without(bound: Option<&Vec<Binding>>, off: &Binding) -> Result<Vec<Binding>, Never> {
   let left: Vec<Binding> = match bound {
-    Some(bound_2) => bound_2.iter().filter(|one| *one != off).cloned().collect(),
+    Some(bound_2) => bound_2
+      .iter()
+      .filter(|one| {
+        let Ok(same) = same_binding(off, one);
+
+        same == BindingMatch::Different
+      })
+      .cloned()
+      .collect(),
     None => Vec::new(),
   };
 
@@ -235,8 +303,6 @@ fn without(bound: Option<&Vec<Binding>>, off: &Binding) -> Result<Vec<Binding>, 
 mod tests {
   use super::*;
   use std::error::Error;
-
-  use crate::bound::{Input, Played};
 
   #[test]
   fn the_file_holds_one_answer_or_several() -> Result<(), Box<dyn Error>> {
@@ -262,6 +328,25 @@ mod tests {
       bound.iter().map(|one| one.on).collect::<Vec<Input>>(),
       vec![Input::Pad, Input::Keyboard]
     );
+    Ok(())
+  }
+
+  #[test]
+  fn a_recorded_shortcut_replaces_a_binding_with_modifiers_in_the_old_order()
+  -> Result<(), Box<dyn Error>> {
+    let previous = Binding::read("keyboard: shift + super + i")?;
+    let recorded = Binding::read("keyboard: super + shift + i")?;
+    let every = BTreeMap::from([("settings".to_string(), vec![previous])]);
+    let mut jobs = Tasks::default();
+
+    assert_eq!(jobs.add(&every, "settings", &recorded), Ok(Moved::Already));
+    assert_eq!(
+      jobs.add(&every, "menu", &recorded),
+      Ok(Moved::TookFrom("settings".to_string()))
+    );
+    let unbound = Binding::unbound()?;
+    assert_eq!(jobs.bound("settings"), Ok(Some([unbound].as_slice())));
+    assert_eq!(jobs.bound("menu"), Ok(Some([recorded].as_slice())));
     Ok(())
   }
 

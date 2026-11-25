@@ -1,19 +1,24 @@
 //! Apply one wallpaper with --now, or follow the sky using the shared runtime.
+//! The --run-scene command runs a user-enrolled executable from wallpaper-scenes.
 
+use std::io;
+use std::os::unix::process::CommandExt;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::UNIX_EPOCH;
 
-use console_core_arguments::read;
+use console_core_arguments::{Presence, read};
+use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_location::timezone::CachedLocation;
 use console_operating_system_linux::program_runtime::{self, Clock, Interpreter};
 use console_paper::{self as paper, Motion, Request};
 use console_program_contract::{Answer, Event, ExitStatus};
-use console_wallpaper::choose::{Set, Wanted};
+use console_wallpaper::choose::{Selection, Set, Wanted};
 use console_wallpaper::keeping::{
   self, Chosen, Going, Input, Observation, Rendered, Sun, WallpaperEffect, WallpaperEvent,
 };
-use console_wallpaper::{covered, place, rules};
+use console_wallpaper::{covered, place, rules, scene};
 use console_weather::conditions::{self as weather, Weather};
 
 fn main() -> ExitCode {
@@ -27,6 +32,17 @@ fn main() -> ExitCode {
       return ExitCode::from(code);
     }
   };
+  let Ok(launch) = line.presence(keeping::RUN_SCENE);
+
+  match launch {
+    Presence::Present => {
+      let Ok(code) = run_scene();
+
+      return code;
+    }
+    Presence::Absent => {}
+  }
+
   let Ok(now) = line.presence(keeping::NOW);
   let Ok(going) = Going::of(now);
 
@@ -37,6 +53,22 @@ fn main() -> ExitCode {
       ExitCode::FAILURE
     }
   }
+}
+
+#[must_use]
+fn run_scene() -> Result<ExitCode, Never> {
+  let Ok(wanted) = Wanted::load();
+  let Ok(scene) = scene::selected(&wanted);
+  let path = match scene {
+    Some(path) => path,
+    None => return Ok(ExitCode::SUCCESS),
+  };
+  let fault = std::process::Command::new(&path)
+    .env("CONSOLE_LIVE_WALLPAPER", "1")
+    .exec();
+
+  console_core_logging::error!("could not run live wallpaper {}: {fault}", path.display());
+  Ok(ExitCode::FAILURE)
 }
 
 #[derive(Debug)]
@@ -68,17 +100,18 @@ fn run(going: Going) -> Result<ExitCode, Untabled> {
     pictures: &table.pictures,
     rule_directory: rule_directory.as_deref(),
   };
-  let mut desktop = Desktop::default();
+  let Ok(mut desktop) = Desktop::new(going);
   let Ok(code) = program_runtime::run::<Sun, _>("console-wallpaper", &input, &mut desktop);
 
   Ok(code)
 }
 
-#[derive(Default)]
 struct Desktop {
+  going: Going,
   location: CachedLocation,
   compositor: covered::Notified,
   forecast: weather::Notified,
+  scene: Option<PathBuf>,
 }
 
 impl Interpreter for Desktop {
@@ -143,6 +176,17 @@ impl Interpreter for Desktop {
 }
 
 impl Desktop {
+  #[must_use]
+  fn new(going: Going) -> Result<Self, Never> {
+    Ok(Self {
+      going,
+      location: CachedLocation::default(),
+      compositor: covered::Notified::default(),
+      forecast: weather::Notified::default(),
+      scene: None,
+    })
+  }
+
   fn observe(&mut self, clock: &Clock) -> Result<Observation, Never> {
     let Ok(time) = clock.sample();
     let seconds = match time.wall.duration_since(UNIX_EPOCH) {
@@ -157,9 +201,17 @@ impl Desktop {
     };
     let Ok(at) = self.location.here(time.monotonic);
     let Ok(wanted) = Wanted::load();
-    let Ok(covered) = covered::now(&mut self.compositor);
-    let pinned_file =
-      !wanted.follow && place::picture(&wanted.picture).is_ok_and(|found| found.is_some());
+    let Ok(scene) = scene::selected(&wanted);
+    let covered = match &scene {
+      Some(_) => covered::Covered::Yes,
+      None => {
+        let Ok(covered) = covered::now(&mut self.compositor);
+        covered
+      }
+    };
+    let Ok(()) = self.sync_scene(scene);
+    let pinned_file = !matches!(wanted.selection, Selection::Following)
+      && place::picture(&wanted.picture).is_ok_and(|found| found.is_some());
     let Ok(rules) = rules::installed();
 
     Ok(Observation {
@@ -171,6 +223,24 @@ impl Desktop {
       rules,
       covered,
     })
+  }
+
+  fn sync_scene(&mut self, desired: Option<PathBuf>) -> Result<(), Never> {
+    let action = match (self.going, self.scene.as_deref(), desired.as_deref()) {
+      (Going::Once, _, _) | (Going::KeepGoing, None, None) => return Ok(()),
+      (Going::KeepGoing, Some(_), None) => "stop",
+      (Going::KeepGoing, previous, Some(next)) => match (previous == Some(next)).then_some(()) {
+        Some(()) => return Ok(()),
+        None => "restart",
+      },
+    };
+
+    match scene_service(action) {
+      Ok(()) => self.scene = desired,
+      Err(fault) => console_core_logging::warn!("could not {action} the live wallpaper: {fault}"),
+    }
+
+    Ok(())
   }
 
   fn read_weather(&mut self, answer: &Answer) -> Result<Option<Weather>, Never> {
@@ -200,6 +270,21 @@ impl Desktop {
   }
 }
 
+fn scene_service(action: &str) -> io::Result<()> {
+  let Ok(mut systemctl) = Program::Systemctl.command();
+  let output = systemctl
+    .args(["--user", action, "console-wallpaper-live.service"])
+    .output()?;
+
+  match output.status.success().then_some(()) {
+    Some(()) => Ok(()),
+    None => {
+      let Ok(error) = console_wallpaper::diagnostic(&output.stderr);
+      Err(io::Error::other(error))
+    }
+  }
+}
+
 fn read_table() -> Result<Set, Untabled> {
   let Ok(at) = place::table();
 
@@ -210,7 +295,7 @@ fn read_table() -> Result<Set, Untabled> {
 }
 
 #[must_use]
-fn paint(picture: &std::path::Path, motion: Motion) -> Result<WallpaperEvent, Never> {
+fn paint(picture: &Path, motion: Motion) -> Result<WallpaperEvent, Never> {
   let result =
     std::path::absolute(picture).and_then(|path| paper::ask(&Request::Show(path, motion)));
 

@@ -66,7 +66,7 @@ fn relay(input: Receiver<()>, output: File) -> Result<(), Never> {
   }
 }
 
-fn pulse(output: &File) -> rustix::io::Result<()> {
+pub(super) fn pulse(output: &File) -> rustix::io::Result<()> {
   for _ in 0..16 {
     match rustix::io::write(output, &[1]) {
       Ok(1) | Err(Errno::AGAIN) => return Ok(()),

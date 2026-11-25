@@ -131,6 +131,8 @@ in
       { assertion = lib.versionAtLeast pkgs.hyprland.version "0.56";
         message = "Console requires a Hyprland version supporting its current Lua configuration (>= 0.56)."; }
     ];
+    nix.enable = true;
+    nix.settings.extra-experimental-features = [ "nix-command" "flakes" ];
     programs.hyprland.enable = true;
     services.displayManager.sessionPackages = [ session ];
     services.pipewire = {
@@ -170,7 +172,6 @@ in
       name = "systemd/user/${name}";
       value.text = replace (builtins.readFile (unitRoot + "/${name}"));
     }) drops) // {
-      "console/hypridle.conf".text = replace (builtins.readFile (source + "/files/etc/console/hypridle.conf"));
       "console-auth/console-fingerprint" = lib.mkIf config.services.fprintd.enable {
         text = builtins.replaceStrings
           [ "pam_fprintd.so" "pam_permit.so" ]

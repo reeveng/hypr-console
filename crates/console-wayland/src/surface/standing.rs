@@ -81,17 +81,16 @@
 //! modifier and group. Which modifiers and group are held is the compositor's
 //! to say, and it says it in every modifiers event, so the table is asked with
 //! what it last said rather than with a state kept here and kept in step.
+//! Navigation can also use the evdev code, and recording a shortcut can
+//! inhibit compositor shortcuts while the surface holds keyboard focus.
 //!
 //! Whether the surface holds the keyboard is kept as well, from the enter and
 //! leave the compositor sends, because a key pressed before the enter goes to
 //! whoever held the keyboard before, and a check that presses the moment a
 //! panel has drawn is pressing at a surface that may not be listening yet.
 //!
-//! A key that is held down arrives once. Repeat is the client's to run, from
-//! the rate the compositor sends in `repeat_info`, and nothing above this has
-//! asked for one: a d-pad held on a list is a step per press today. When
-//! something does ask, the rate is already on the wire and the timer belongs
-//! to whoever is waiting, not here.
+//! The surface repeats held XKB keys at the cadence from `repeat_info`.
+//! A release or loss of keyboard focus cancels the pending repeat.
 //!
 //! ## Every frame is timed to the glass
 //!
@@ -174,10 +173,11 @@ use std::io;
 use std::ops::ControlFlow;
 use std::os::fd::BorrowedFd;
 use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub use crate::buffer::PreparedFrame;
 use crate::buffer::ShmBuffer;
+use crate::key_repeat::{Cadence, KeyRepeat as HeldKey, RepeatInfo};
 use crate::waiting::{self, Flushed, WaitError};
 use crate::{
   client as wayland_client, protocols as wayland_protocols,
@@ -189,12 +189,15 @@ use wayland_client::protocol::{
   wl_registry, wl_seat, wl_shm, wl_shm_pool, wl_subcompositor, wl_subsurface, wl_surface,
   wl_touch,
 };
-use wayland_client::{Connection, Dispatch, EventQueue, QueueHandle, delegate_noop};
+use wayland_client::{Connection, Dispatch, EventQueue, Proxy, QueueHandle, delegate_noop};
 use wayland_protocols::ext::session_lock::v1::client::{
   ext_session_lock_manager_v1, ext_session_lock_surface_v1, ext_session_lock_v1,
 };
 use wayland_protocols::wp::fractional_scale::v1::client::{
   wp_fractional_scale_manager_v1, wp_fractional_scale_v1,
+};
+use wayland_protocols::wp::keyboard_shortcuts_inhibit::zv1::client::{
+  zwp_keyboard_shortcuts_inhibit_manager_v1, zwp_keyboard_shortcuts_inhibitor_v1,
 };
 use wayland_protocols::wp::presentation_time::client::{
   wp_presentation, wp_presentation_feedback,
@@ -211,7 +214,8 @@ use wayland_protocols_wlr::layer_shell::v1::client::{
 };
 
 use console_input_keymaps::{
-  Components, Context, Diagnostic, GroupIndex, Keycode, LookupTable, ModifierMask, Severity,
+  Components, Context, Diagnostic, GroupIndex, KeyRepeat, Keycode, LookupTable, ModifierMask,
+  Severity,
 };
 
 pub use console_input_key_symbols::Keysym;
@@ -301,6 +305,55 @@ pub enum KeyboardEvent {
 pub struct KeyPress {
   pub key: Keysym,
   pub modifiers: u32,
+  pub kind: KeyPressKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyPressKind {
+  Initial,
+  Repeated,
+}
+
+impl KeyPress {
+  pub const CONTROL: u32 = 1 << 2;
+
+  pub fn unmodified(key: Keysym) -> Result<Self, Never> {
+    Self::with_modifiers(key, 0)
+  }
+
+  pub fn with_modifiers(key: Keysym, modifiers: u32) -> Result<Self, Never> {
+    Ok(Self {
+      key,
+      modifiers,
+      kind: KeyPressKind::Initial,
+    })
+  }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PhysicalKeyPress {
+  pub code: u32,
+  pub depressed_modifiers: u32,
+  pub translated: KeyPress,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ShortcutPress {
+  pub code: u32,
+  pub key: Keysym,
+  pub depressed_modifiers: u32,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Inhibition {
+  Active,
+  Inactive,
+}
+
+struct ShortcutCapture {
+  inhibitor: zwp_keyboard_shortcuts_inhibitor_v1::ZwpKeyboardShortcutsInhibitorV1,
+  inhibition: Inhibition,
+  presses: Vec<ShortcutPress>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -746,6 +799,93 @@ fn pick_free<T>(
 }
 
 impl Bound {
+  fn keyboard_capability(
+    &mut self,
+    seat: &wl_seat::WlSeat,
+    capabilities: wl_seat::Capability,
+    hand: &QueueHandle<Self>,
+  ) -> Result<(), Never> {
+    match (
+      capabilities
+        .contains(wl_seat::Capability::Keyboard)
+        .then_some(()),
+      self.keys.device.as_ref(),
+    ) {
+      (Some(()), None) => self.keys.device = Some(seat.get_keyboard(hand, ())),
+      (None, Some(keyboard)) => {
+        match keyboard.version() {
+          0..=2 => {}
+          _ => keyboard.release(),
+        }
+
+        self.keys = SeatKeys::default();
+        self.focus = KeyboardFocus::Elsewhere;
+      }
+      (Some(()), Some(_)) | (None, None) => {}
+    }
+
+    Ok(())
+  }
+
+  fn key_down(&mut self, code: u32, now: Instant) -> Result<(), Never> {
+    let Ok(()) = self.record_key(code, KeyPressKind::Initial);
+    let (typing, cadence) = match (
+      &self.keys.typing,
+      self.focus,
+      &self.shortcut_capture,
+      self.keys.cadence,
+    ) {
+      (Some(typing), KeyboardFocus::Here, None, Some(cadence)) => (typing, cadence),
+      (None, _, _, _)
+      | (_, KeyboardFocus::Elsewhere, _, _)
+      | (_, _, Some(_), _)
+      | (_, _, _, None) => return Ok(()),
+    };
+    let Ok(keycode) = Keycode::from_evdev(code);
+    let Ok(repeat) = typing.table.repeat(keycode);
+
+    match repeat {
+      KeyRepeat::Repeats => {
+        let Ok(_pressed) = self.keys.repeat.pressed(code, code, cadence, now);
+      }
+      KeyRepeat::DoesNotRepeat => {}
+    }
+
+    Ok(())
+  }
+
+  fn record_key(&mut self, code: u32, kind: KeyPressKind) -> Result<(), Never> {
+    let typing = match self.keys.typing.as_ref() {
+      Some(typing) => typing,
+      None => return Ok(()),
+    };
+    let Ok(key) = typing.said(code);
+    let depressed_modifiers = typing.held.mods_pressed.0;
+
+    match (&mut self.shortcut_capture, self.focus) {
+      (Some(capture), KeyboardFocus::Here) => match capture.inhibition {
+        Inhibition::Active => capture.presses.push(ShortcutPress {
+          code,
+          key,
+          depressed_modifiers,
+        }),
+        Inhibition::Inactive => {}
+      },
+      (Some(_), KeyboardFocus::Elsewhere) => {}
+      (None, _) => self.keyboard_events.push(PhysicalKeyPress {
+        code,
+        depressed_modifiers,
+        translated: KeyPress {
+          key,
+          modifiers: typing.held.mods.0,
+          kind,
+        },
+      }),
+    }
+
+    Ok(())
+  }
+
   fn cancel_drawing(&mut self) -> Result<(), Never> {
     cancel_drawing(&mut self.drawing)
   }
@@ -757,6 +897,14 @@ impl Bound {
 
     Ok(())
   }
+}
+
+#[derive(Default)]
+struct SeatKeys {
+  device: Option<wl_keyboard::WlKeyboard>,
+  typing: Option<Typing>,
+  cadence: Option<Cadence>,
+  repeat: HeldKey<u32, u32>,
 }
 
 pub struct Bound {
@@ -794,14 +942,16 @@ pub struct Bound {
   pointer_at: (f64, f64),
   pointer_serial: Option<u32>,
   fingers: Fingers,
-  typing: Option<Typing>,
+  keys: SeatKeys,
   text_input: Option<Input>,
-  keyboard_events: Vec<KeyPress>,
+  keyboard_events: Vec<PhysicalKeyPress>,
+  shortcut_capture: Option<ShortcutCapture>,
   focus: KeyboardFocus,
 }
 
 pub struct Surface {
   connection: Connection,
+  globals: GlobalList,
   queue: EventQueue<Bound>,
   bound: Bound,
 }
@@ -813,6 +963,22 @@ struct Extensions {
   output: Option<wl_output::WlOutput>,
   fractions: Option<wp_fractional_scale_manager_v1::WpFractionalScaleManagerV1>,
   presentation: Option<wp_presentation::WpPresentation>,
+}
+
+fn subcompositor_for(
+  globals: &GlobalList,
+  hand: &QueueHandle<Bound>,
+) -> Result<Option<wl_subcompositor::WlSubcompositor>, Never> {
+  Ok(
+    match globals.bind::<wl_subcompositor::WlSubcompositor, _, _>(hand, 1..=1, ()) {
+      Ok(manager) => Some(manager),
+      Err(BindError::NotPresent) => None,
+      Err(fault @ BindError::UnsupportedVersion) => {
+        console_core_logging::warn!("Wayland surface layers are unavailable: {fault}");
+        None
+      }
+    },
+  )
 }
 
 fn extensions(globals: &GlobalList, hand: &QueueHandle<Bound>) -> Result<Extensions, Never> {
@@ -907,15 +1073,7 @@ impl Surface {
 
     let compositor =
       registry::compositor(&globals, &hand).map_err(|_| SurfaceError::Global("wl_compositor"))?;
-    let subcompositor =
-      match globals.bind::<wl_subcompositor::WlSubcompositor, _, _>(&hand, 1..=1, ()) {
-        Ok(manager) => Some(manager),
-        Err(BindError::NotPresent) => None,
-        Err(fault @ BindError::UnsupportedVersion) => {
-          console_core_logging::warn!("Wayland surface layers are unavailable: {fault}");
-          None
-        }
-      };
+    let Ok(subcompositor) = subcompositor_for(&globals, &hand);
     let shm =
       registry::shared_memory(&globals, &hand).map_err(|_| SurfaceError::Global("wl_shm"))?;
     let shell =
@@ -968,14 +1126,16 @@ impl Surface {
       pointer_at: (0.0, 0.0),
       pointer_serial: None,
       fingers: Fingers::default(),
-      typing: None,
+      keys: SeatKeys::default(),
       text_input,
       keyboard_events: Vec::new(),
+      shortcut_capture: None,
       focus: KeyboardFocus::Elsewhere,
     };
 
     Ok(Surface {
       connection,
+      globals,
       queue,
       bound,
     })
@@ -1289,12 +1449,18 @@ impl Surface {
   pub fn hide(&mut self) -> Result<(), Never> {
     let Ok(()) = self.bound.cancel_drawing();
     let Ok(()) = self.clear_layer();
+    let Ok(()) = self.bound.keys.repeat.stop();
     self.bound.animation = None;
 
     match self.bound.text_input.as_mut() {
       Some(input) => {
         let Ok(()) = input.focus(TextFocus::Left);
       }
+      None => {}
+    }
+
+    match self.bound.shortcut_capture.take() {
+      Some(capture) => capture.inhibitor.destroy(),
       None => {}
     }
 
@@ -1352,11 +1518,13 @@ impl Surface {
   }
 
   pub fn keyboard_events(&mut self) -> Result<Vec<KeyboardEvent>, Never> {
-    let Ok(presses) = self.key_presses();
+    let Ok(presses) = self.physical_key_presses();
     Ok(
       presses
         .into_iter()
-        .map(|press| KeyboardEvent::Down { key: press.key })
+        .map(|press| KeyboardEvent::Down {
+          key: press.translated.key,
+        })
         .collect(),
     )
   }
@@ -1385,6 +1553,12 @@ impl Surface {
   }
 
   pub fn key_presses(&mut self) -> Result<Vec<KeyPress>, Never> {
+    let Ok(presses) = self.physical_key_presses();
+
+    Ok(presses.into_iter().map(|press| press.translated).collect())
+  }
+
+  pub fn physical_key_presses(&mut self) -> Result<Vec<PhysicalKeyPress>, Never> {
     let presses = std::mem::take(&mut self.bound.keyboard_events);
 
     match { ::core::primitive::bool::then_some(!presses.is_empty(), ()) } {
@@ -1395,6 +1569,47 @@ impl Surface {
     }
 
     Ok(presses)
+  }
+
+  pub fn capture_shortcuts(&mut self) -> Result<(), SurfaceError> {
+    match self.bound.shortcut_capture {
+      Some(_) => return Ok(()),
+      None => {}
+    }
+
+    let up = self.bound.up.as_ref().ok_or(SurfaceError::Global(
+      "a surface for keyboard shortcut capture",
+    ))?;
+    let seat = self
+      .bound
+      .seat
+      .as_ref()
+      .ok_or(SurfaceError::Global("a keyboard seat"))?;
+    let hand = self.queue.handle();
+    let manager = self
+      .globals
+      .bind::<zwp_keyboard_shortcuts_inhibit_manager_v1::ZwpKeyboardShortcutsInhibitManagerV1, _, _>(
+        &hand, 1..=1, (),
+      )
+      .map_err(|_| SurfaceError::Global("zwp_keyboard_shortcuts_inhibit_manager_v1"))?;
+    let inhibitor = manager.inhibit_shortcuts(&up.surface, seat, &hand, ());
+
+    manager.destroy();
+    let Ok(()) = self.bound.keys.repeat.stop();
+    self.bound.shortcut_capture = Some(ShortcutCapture {
+      inhibitor,
+      inhibition: Inhibition::Inactive,
+      presses: Vec::new(),
+    });
+
+    Ok(())
+  }
+
+  pub fn shortcut_presses(&mut self) -> Result<Vec<ShortcutPress>, Never> {
+    Ok(match self.bound.shortcut_capture.as_mut() {
+      Some(capture) => std::mem::take(&mut capture.presses),
+      None => Vec::new(),
+    })
   }
 
   pub fn set_window_title(&self, title: &str) -> Result<(), Never> {
@@ -1938,6 +2153,13 @@ impl Surface {
     }
   }
 
+  #[cfg_attr(
+    dylint_lib = "explicit039_no_reading_the_clock",
+    expect(
+      explicit039_no_reading_the_clock,
+      reason = "this is the Wayland polling boundary that measures time for the repeat scheduler"
+    )
+  )]
   pub fn wait(
     &mut self,
     also: &[BorrowedFd<'_>],
@@ -1950,14 +2172,31 @@ impl Surface {
       ::core::option::Option::None => {}
     }
 
+    let Ok(repeat) = self.bound.keys.repeat.until(Instant::now());
+    let deadline = match (until, repeat) {
+      (Some(caller), Some(keyboard)) => Some(caller.min(keyboard)),
+      (caller, keyboard) => caller.or(keyboard),
+    };
+
     match waiting::wait(
       &self.connection,
       &mut self.queue,
       &mut self.bound,
       also,
-      until,
+      deadline,
     ) {
-      Ok(()) | Err(WaitError::Poll(_)) => Ok(()),
+      Ok(()) | Err(WaitError::Poll(_)) => {
+        let Ok(due) = self.bound.keys.repeat.due(Instant::now());
+
+        match due {
+          Some(code) => {
+            let Ok(()) = self.bound.record_key(code, KeyPressKind::Repeated);
+          }
+          None => {}
+        }
+
+        Ok(())
+      }
       Err(WaitError::Closed) => {
         self.bound.closed = Closed::Yes;
         Err(SurfaceError::Hung)
@@ -2118,6 +2357,7 @@ mod tests {
   use super::{
     AnimationFrame, Damage, LayerSupport, Part, Surface, SurfaceError, Visible, Window,
   };
+  use console_core_geometry::{Point, Size};
   use console_core_never::Never;
   use console_core_number_conversion::indices;
   use std::time::{Duration, Instant};
@@ -2126,8 +2366,9 @@ mod tests {
   const FRAME_GAP: Duration = Duration::from_millis(24);
 
   #[test]
-  #[ignore = "requires a live Wayland compositor"]
+  #[ignore = "run just test e2e-wayland in a disposable NixOS VM"]
   fn a_prepared_region_is_repainted_only_when_its_size_changes() -> Result<(), TestFailure> {
+    let _ = std::fs::metadata("/etc/console-test-vm")?;
     let mut surface = Surface::connect()?;
     surface.show_window_sized(
       &Window {
@@ -2210,8 +2451,9 @@ mod tests {
   }
 
   #[test]
-  #[ignore = "requires a live Wayland compositor"]
+  #[ignore = "run just test e2e-wayland in a disposable NixOS VM"]
   fn region_presentation() -> Result<(), TestFailure> {
+    let _ = std::fs::metadata("/etc/console-test-vm")?;
     let mut surface = Surface::connect()?;
     surface.show_window_sized(
       &Window {
@@ -2912,7 +3154,7 @@ impl Dispatch<wl_seat::WlSeat, ()> for Bound {
     )
   )]
   fn event(
-    _bound: &mut Self,
+    bound: &mut Self,
     seat: &wl_seat::WlSeat,
     event: wl_seat::Event,
     _held: &(),
@@ -2937,13 +3179,7 @@ impl Dispatch<wl_seat::WlSeat, ()> for Bound {
           ::core::option::Option::None => {}
         }
 
-        match ::core::primitive::bool::then_some(has.contains(wl_seat::Capability::Keyboard), ())
-        {
-          ::core::option::Option::Some(()) => {
-            let _ = seat.get_keyboard(hand, ());
-          }
-          ::core::option::Option::None => {}
-        }
+        let Ok(()) = bound.keyboard_capability(seat, has, hand);
       }
       _ => {}
     }
@@ -2951,6 +3187,13 @@ impl Dispatch<wl_seat::WlSeat, ()> for Bound {
 }
 
 impl Dispatch<wl_keyboard::WlKeyboard, ()> for Bound {
+  #[cfg_attr(
+    dylint_lib = "explicit039_no_reading_the_clock",
+    expect(
+      explicit039_no_reading_the_clock,
+      reason = "the Wayland dispatch boundary timestamps receipt of the press for the repeat scheduler"
+    )
+  )]
   #[cfg_attr(
     dylint_lib = "explicit016_no_wildcard_arm",
     allow(
@@ -2960,35 +3203,57 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for Bound {
   )]
   fn event(
     bound: &mut Self,
-    _keyboard: &wl_keyboard::WlKeyboard,
+    keyboard: &wl_keyboard::WlKeyboard,
     event: wl_keyboard::Event,
     _held: &(),
     _connection: &Connection,
     _hand: &QueueHandle<Self>,
   ) {
+    match bound
+      .keys
+      .device
+      .as_ref()
+      .filter(|active| *active == keyboard)
+    {
+      Some(_) => {}
+      None => return,
+    }
+
     match event {
       wl_keyboard::Event::Keymap {
         format: wayland_client::WEnum::Value(wl_keyboard::KeymapFormat::XkbV1),
         fd,
         size,
-      } => match read_keymap(fd, size) {
-        Ok(typing) => bound.typing = Some(typing),
-        Err(why) => console_core_logging::warn!("{why}"),
-      },
+      } => {
+        let Ok(()) = bound.keys.repeat.stop();
+
+        match read_keymap(fd, size) {
+          Ok(typing) => bound.keys.typing = Some(typing),
+          Err(why) => console_core_logging::warn!("{why}"),
+        }
+      }
+      wl_keyboard::Event::RepeatInfo { rate, delay } => {
+        let Ok(cadence) = Cadence::from_repeat_info(RepeatInfo { rate, delay });
+        bound.keys.cadence = cadence;
+        let Ok(()) = bound.keys.repeat.stop();
+      }
       wl_keyboard::Event::Enter { surface, .. } => {
         match bound.up.as_ref().filter(|up| up.surface == surface) {
           Some(_ours) => bound.focus = KeyboardFocus::Here,
           None => {}
         }
       }
-      wl_keyboard::Event::Leave { .. } => bound.focus = KeyboardFocus::Elsewhere,
+      wl_keyboard::Event::Leave { .. } => {
+        bound.focus = KeyboardFocus::Elsewhere;
+        let Ok(()) = bound.keys.repeat.stop();
+      }
       wl_keyboard::Event::Modifiers {
         mods_depressed,
         mods_latched,
         mods_locked,
         group,
         ..
-      } => match bound.typing.as_mut() {
+      } => match bound.keys.typing.as_mut() {
         Some(typing) => {
           typing.held.mods_pressed = ModifierMask(mods_depressed);
           typing.held.mods_latched = ModifierMask(mods_latched);
@@ -3003,18 +3268,54 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for Bound {
         key,
         state: wayland_client::WEnum::Value(wl_keyboard::KeyState::Pressed),
         ..
-      } => match bound.typing.as_ref() {
-        Some(typing) => {
-          let Ok(said) = typing.said(key);
-
-          bound.keyboard_events.push(KeyPress {
-            key: said,
-            modifiers: typing.held.mods.0,
-          });
-        }
-        None => {}
-      },
+      } => {
+        let Ok(()) = bound.key_down(key, Instant::now());
+      }
+      wl_keyboard::Event::Key {
+        key,
+        state: wayland_client::WEnum::Value(wl_keyboard::KeyState::Released),
+        ..
+      } => {
+        let Ok(()) = bound.keys.repeat.released(key);
+      }
       _ => {}
+    }
+  }
+}
+
+impl Dispatch<zwp_keyboard_shortcuts_inhibitor_v1::ZwpKeyboardShortcutsInhibitorV1, ()>
+  for Bound
+{
+  #[cfg_attr(
+    dylint_lib = "explicit016_no_wildcard_arm",
+    allow(
+      explicit016_no_wildcard_arm,
+      reason = "the Wayland protocol enum is non_exhaustive, and unknown events do not change shortcut inhibition"
+    )
+  )]
+  fn event(
+    bound: &mut Self,
+    inhibitor: &zwp_keyboard_shortcuts_inhibitor_v1::ZwpKeyboardShortcutsInhibitorV1,
+    event: zwp_keyboard_shortcuts_inhibitor_v1::Event,
+    _held: &(),
+    _connection: &Connection,
+    _hand: &QueueHandle<Self>,
+  ) {
+    match bound
+      .shortcut_capture
+      .as_mut()
+      .filter(|capture| &capture.inhibitor == inhibitor)
+    {
+      Some(capture) => match event {
+        zwp_keyboard_shortcuts_inhibitor_v1::Event::Active => {
+          capture.inhibition = Inhibition::Active;
+        }
+        zwp_keyboard_shortcuts_inhibitor_v1::Event::Inactive => {
+          capture.inhibition = Inhibition::Inactive;
+        }
+        _ => {}
+      },
+      None => {}
     }
   }
 }
@@ -3138,6 +3439,9 @@ impl Dispatch<wl_pointer::WlPointer, ()> for Bound {
         ..
       } => {
         bound.pointer_at = (surface_x, surface_y);
+        bound.pointer_events.push(PointerEvent::Moved {
+          at: (surface_x, surface_y),
+        });
       }
       wl_pointer::Event::Motion {
         surface_x,
@@ -3247,6 +3551,7 @@ delegate_noop!(Bound: ignore wl_region::WlRegion);
 delegate_noop!(Bound: ignore wl_subcompositor::WlSubcompositor);
 delegate_noop!(Bound: ignore wl_subsurface::WlSubsurface);
 delegate_noop!(Bound: ignore zwp_text_input_manager_v3::ZwpTextInputManagerV3);
+delegate_noop!(Bound: ignore zwp_keyboard_shortcuts_inhibit_manager_v1::ZwpKeyboardShortcutsInhibitManagerV1);
 delegate_noop!(Bound: ignore wl_shm::WlShm);
 delegate_noop!(Bound: ignore wl_shm_pool::WlShmPool);
 delegate_noop!(Bound: ignore zwlr_layer_shell_v1::ZwlrLayerShellV1);

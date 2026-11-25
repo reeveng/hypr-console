@@ -17,10 +17,51 @@
 
 use std::path::Path;
 
+use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_screen::{DRAWN_AT, kernel};
 
 use crate::machine;
+
+pub const BACKLIGHT_RULE: &str = "/etc/udev/rules.d/90-console-backlight.rules";
+
+pub fn refresh_backlight() -> Result<(), Never> {
+  let Ok(reloaded) = udevadm(&["control", "--reload-rules"]);
+
+  match reloaded.ran {
+    machine::Ran::Fine => {}
+    machine::Ran::Badly => {
+      console_core_logging::warn!(
+        "could not reload udev rules for the backlight: {}",
+        reloaded.said
+      );
+
+      return Ok(());
+    }
+  }
+
+  let Ok(triggered) = udevadm(&[
+    "trigger",
+    "--action=add",
+    "--subsystem-match=backlight",
+    "--settle",
+  ]);
+
+  match triggered.ran {
+    machine::Ran::Fine => {}
+    machine::Ran::Badly => {
+      console_core_logging::warn!("could not refresh backlight permissions: {}", triggered.said);
+    }
+  }
+
+  Ok(())
+}
+
+fn udevadm(arguments: &[&str]) -> Result<machine::CommandOutput, Never> {
+  let Ok(mut command) = Program::Udevadm.command_from(Path::new("/usr/bin"));
+
+  machine::capture(command.env_clear().args(arguments))
+}
 
 pub fn wrote(home: &Path) -> Result<Option<String>, Never> {
   let Ok(found) = kernel::here();

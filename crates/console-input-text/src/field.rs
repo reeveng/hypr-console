@@ -13,7 +13,8 @@
 
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, fixed_index, index, indices};
-use console_draw_surface::Keysym;
+use console_core_text_boundaries::previous_word_start;
+use console_draw_surface::{KeyPress, Keysym};
 
 use crate::boundaries;
 use crate::input_range::{DeletionError, InputDeletion, deletion};
@@ -108,6 +109,30 @@ impl TextField {
     }
   }
 
+  pub fn typed_press(&mut self, press: KeyPress) -> Result<Typed, Never> {
+    match (
+      press.key,
+      (press.modifiers & KeyPress::CONTROL != 0).then_some(()),
+    ) {
+      (Keysym::BackSpace, Some(())) => self.delete_previous_word(),
+      (key, _) => self.typed(key),
+    }
+  }
+
+  fn delete_previous_word(&mut self) -> Result<Typed, Never> {
+    match self.caret {
+      0 => Ok(Typed::None),
+      _ => {
+        let Ok(before) = self.before_caret();
+        let Ok(start_byte) = previous_word_start(before);
+        let Ok(start) = fitted(start_byte);
+        let Ok(end) = fitted(before.len());
+
+        self.remove_bytes(start..end)
+      }
+    }
+  }
+
   pub fn insert(&mut self, letter: char) -> Result<Typed, Never> {
     let Ok(at) = boundaries::byte(&self.text, self.caret);
     let Ok(at_2) = index(at);
@@ -165,10 +190,14 @@ impl TextField {
   fn remove(&mut self, range: std::ops::Range<u32>) -> Result<Typed, Never> {
     let Ok(from) = boundaries::byte(&self.text, range.start);
     let Ok(through) = boundaries::byte(&self.text, range.end);
-    let Ok(from_index) = index(from);
-    let Ok(through_index) = index(through);
 
-    self.text.replace_range(from_index..through_index, "");
+    self.remove_bytes(from..through)
+  }
+
+  fn remove_bytes(&mut self, range: std::ops::Range<u32>) -> Result<Typed, Never> {
+    let from = range.start;
+    let Ok(native_range) = indices(range);
+    self.text.replace_range(native_range, "");
     let Ok(caret) = boundaries::at_or_after(&self.text, from);
     self.caret = caret;
 
@@ -179,6 +208,20 @@ impl TextField {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn control_backspace_erases_the_previous_word_and_trailing_space() {
+    let Ok(mut field) = TextField::holding("one cafe\u{301}   tail");
+    let Ok(erase) = KeyPress::with_modifiers(Keysym::BackSpace, KeyPress::CONTROL);
+
+    assert_eq!(field.moved_to(11), Ok(Typed::Moved));
+    assert_eq!(field.typed_press(erase), Ok(Typed::Edited));
+    assert_eq!(field.text(), Ok("one tail"));
+    assert_eq!(field.caret(), Ok(4));
+    assert_eq!(field.typed_press(erase), Ok(Typed::Edited));
+    assert_eq!(field.text(), Ok("tail"));
+    assert_eq!(field.typed_press(erase), Ok(Typed::None));
+  }
 
   #[test]
   fn an_input_method_replaces_multibyte_text_and_leaves_the_caret_after_the_commit() {

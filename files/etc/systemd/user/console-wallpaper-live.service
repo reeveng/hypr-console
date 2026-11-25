@@ -1,0 +1,14 @@
+[Unit]
+Description=Live Console wallpaper
+BindsTo=console-wallpaper.service
+PartOf=console.target
+After=console-wallpaper.service
+StartLimitIntervalSec=30s
+StartLimitBurst=3
+
+[Service]
+Type=exec
+ExecStart=/usr/local/bin/console-wallpaper --run-scene
+Restart=on-failure
+RestartSec=3s
+TimeoutStopSec=3s

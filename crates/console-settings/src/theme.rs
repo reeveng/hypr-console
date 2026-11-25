@@ -1,9 +1,10 @@
+use console_compositor::{DispatchResult, theme_borders};
 use console_core_color::Rgba;
 use console_core_color::palette::{self, ColorRole, Overrides, Theme, ThemeSettings};
 use console_core_external_programs::Program;
 use console_core_never::Never;
+use console_notifications::saying::Content as Notification;
 use console_panel::page::{Aside, Handler, Initial, NOW, Row, Showing, Subject};
-use console_panel::running::{Notification, say};
 use console_panel::tasks::Task;
 use console_program_contract::Command;
 
@@ -27,12 +28,13 @@ fn update(
 
     match settings.save() {
       Ok(()) => {
-        showing.note(note);
+        let Ok(()) = apply_window_borders(note);
         showing.refresh();
         showing.run(restart.clone());
       }
       Err(fault) => {
-        let Ok(()) = say(
+        let Ok(()) = console_notifications::saying::report(
+          console_notifications::Application("Settings"),
           "color-theme",
           Notification {
             summary: "Couldn't change the theme",
@@ -42,6 +44,39 @@ fn update(
       }
     }
   };
+
+  Ok(())
+}
+
+fn apply_window_borders(note: &str) -> Result<(), Never> {
+  let borders = match theme_borders::Colors::current() {
+    Ok(borders) => borders,
+    Err(fault) => {
+      console_core_logging::warn!("settings-panel: reading theme borders: {fault}");
+      let Ok(()) = console_notifications::notify(
+        console_notifications::Application("Settings"),
+        "Theme saved",
+        Some("Could not load the window border colors."),
+      );
+      return Ok(());
+    }
+  };
+  let Ok(result) = borders.apply();
+
+  match result {
+    DispatchResult::Success => {
+      let Ok(()) =
+        console_notifications::notify(console_notifications::Application("Settings"), note, None);
+    }
+    DispatchResult::Failure(fault) => {
+      console_core_logging::warn!("settings-panel: applying theme borders: {fault}");
+      let Ok(()) = console_notifications::notify(
+        console_notifications::Application("Settings"),
+        "Theme saved",
+        Some("Window borders will update when Console reloads."),
+      );
+    }
+  }
 
   Ok(())
 }
@@ -110,7 +145,13 @@ fn color_row(
         );
         explicit_value
       }
-      Err(_invalid_color) => showing_2.note("Enter six hex digits or leave blank to reset"),
+      Err(_invalid_color) => {
+        let Ok(()) = console_notifications::notify(
+          console_notifications::Application("Settings"),
+          "Enter six hex digits or leave blank to reset",
+          None,
+        );
+      }
     });
     let initial = match code.as_deref() {
       Some(code_4) => code_4,
@@ -173,7 +214,13 @@ pub fn rows() -> Result<Vec<Row>, Never> {
           let Ok(explicit_value) = choose_base(showing_2, theme, &restart_4);
           explicit_value
         }
-        Err(_invalid_base) => showing_2.note("Enter a six-digit hex color, e.g. #6AABCF"),
+        Err(_invalid_base) => {
+          let Ok(()) = console_notifications::notify(
+            console_notifications::Application("Settings"),
+            "Enter a six-digit hex color, e.g. #6AABCF",
+            None,
+          );
+        }
       });
     showing.ask_aloud("Base theme color (hex)", Initial(&color), respond);
   });

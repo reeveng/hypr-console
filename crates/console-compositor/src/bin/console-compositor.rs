@@ -3,7 +3,7 @@ use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::ExitCode;
 
-use console_compositor::{DispatchResult, DisplayPower, quick_workspace, session};
+use console_compositor::{DispatchResult, DisplayPower, quick_workspace, session, theme_borders};
 use console_core_never::Never;
 
 fn main() -> ExitCode {
@@ -24,6 +24,30 @@ fn main() -> ExitCode {
 
       return status;
     }
+    Some((quick_workspace::TOGGLE_NAMED, [name])) => {
+      let target = match name.to_str() {
+        Some(target) => target,
+        None => {
+          console_core_logging::warn!("console-compositor: the workspace name must be UTF-8");
+          return ExitCode::from(2);
+        }
+      };
+      let Ok(outcome) = quick_workspace::toggle_named(target);
+      let Ok(status) = report(outcome);
+
+      return status;
+    }
+    Some(("reload", [])) => {
+      let Ok(outcome) = console_compositor::reload_configuration();
+      let Ok(status) = report(outcome);
+
+      return status;
+    }
+    Some(("theme-borders", [])) => {
+      let Ok(status) = print_theme_borders();
+
+      return status;
+    }
     Some(("quick-music", [library, panel])) => {
       let Ok(status) = music(library, panel);
 
@@ -33,7 +57,7 @@ fn main() -> ExitCode {
     Some(("display-off", [])) => DisplayPower::Off,
     Some(_) | None => {
       console_core_logging::warn!(
-        "usage: console-compositor start CONFIG | display-on | display-off | quick-workspace | quick-music LIBRARY PANEL"
+        "usage: console-compositor start CONFIG | display-on | display-off | reload | theme-borders | quick-workspace | special-workspace NAME | quick-music LIBRARY PANEL"
       );
 
       return ExitCode::from(2);
@@ -43,6 +67,21 @@ fn main() -> ExitCode {
   let Ok(status) = report(outcome);
 
   status
+}
+
+#[must_use]
+fn print_theme_borders() -> Result<ExitCode, Never> {
+  Ok(match theme_borders::Colors::current() {
+    Ok(colors) => {
+      let Ok(pair) = colors.hex_pair();
+      println!("{pair}");
+      ExitCode::SUCCESS
+    }
+    Err(fault) => {
+      console_core_logging::warn!("console-compositor: reading theme borders: {fault}");
+      ExitCode::FAILURE
+    }
+  })
 }
 
 #[must_use]

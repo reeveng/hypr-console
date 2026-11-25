@@ -11,6 +11,7 @@
 //! Reading the machine is one half and understanding what it said is the other,
 //! and the second half is written here where it can be asked without a machine.
 
+mod about;
 pub mod bluetooth;
 pub mod card;
 pub mod choosing;
@@ -26,6 +27,8 @@ pub mod login;
 pub mod machine;
 pub mod named;
 pub mod network_code;
+mod pointer;
+pub mod power_profile;
 mod quick_workspace;
 pub mod rocker;
 pub mod rows;
@@ -39,6 +42,7 @@ mod theme;
 pub mod turning;
 pub mod wallpaper;
 pub mod wifi;
+mod window_placement;
 pub mod words;
 
 pub use card::{COMMAND, WHO, card, door};

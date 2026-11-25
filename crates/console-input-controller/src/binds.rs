@@ -105,10 +105,11 @@ use console_core_never::Never;
 use console_input_bindings::bound::{Binding, Input, Played};
 use console_input_bindings::keys;
 
-use crate::actions::{ButtonPress, LockBehavior, RepeatMode, Table, Task};
+use crate::actions::{ButtonPress, LockBehavior, MappedTask, RepeatMode, Table};
 use crate::effect::{CompositorAction, Effect};
 
 const NATIVE: &str = " [dispatcher]";
+const WORKSPACE_POSITION: &str = " [workspace position]";
 
 const ON: &str = "on";
 
@@ -132,6 +133,10 @@ impl KeyBinding {
   fn description(&self) -> Result<String, Never> {
     Ok(match self.action {
       BindingAction::Run(_) => self.about.clone(),
+      BindingAction::Dispatch(CompositorAction::MoveWorkspace {
+        target: console_compositor::WorkspaceTarget::Position(_),
+        ..
+      }) => format!("{}{WORKSPACE_POSITION}", self.about),
       BindingAction::Dispatch(_) => format!("{}{NATIVE}", self.about),
     })
   }
@@ -227,7 +232,7 @@ pub fn desired_binds(table: &Table) -> Result<Vec<KeyBinding>, Never> {
   Ok(wanted)
 }
 
-fn bind_name(job: &Task, keys: &str) -> Result<String, Never> {
+fn bind_name(job: &MappedTask, keys: &str) -> Result<String, Never> {
   Ok(format!("{} {ON} {keys}", job.slug))
 }
 
@@ -291,6 +296,7 @@ pub enum Holds {
 
 pub fn holds(one: &KeyBinding, held: &[console_compositor::BoundKey]) -> Result<Holds, Never> {
   let Ok(description) = one.description();
+  let Ok(former) = former_description(&description);
   let mut current = 0_u32;
   let mut outdated = false;
 
@@ -300,7 +306,10 @@ pub fn holds(one: &KeyBinding, held: &[console_compositor::BoundKey]) -> Result<
         current = current.saturating_add(1);
       }
       ::core::option::Option::None => {
-        match ::core::primitive::bool::then_some(there.about == one.about, ()) {
+        match ::core::primitive::bool::then_some(
+          there.about == one.about || former.as_deref() == Some(there.about.as_str()),
+          (),
+        ) {
           ::core::option::Option::Some(()) => {
             outdated = true;
           }
@@ -315,6 +324,24 @@ pub fn holds(one: &KeyBinding, held: &[console_compositor::BoundKey]) -> Result<
     (1, false) => Holds::Once,
     (0, true) => Holds::Outdated,
     _ => Holds::Over,
+  })
+}
+
+fn former_description(description: &str) -> Result<Option<String>, Never> {
+  match description.strip_suffix(WORKSPACE_POSITION) {
+    Some(about) => return Ok(Some(format!("{about}{NATIVE}"))),
+    None => {}
+  }
+
+  let key = match description.strip_prefix("screenshot-area on ") {
+    Some(key) => key,
+    None => return Ok(None),
+  };
+  let Ok(print) = keys::bind(&[], "print");
+
+  Ok(match (Some(key) == print.as_deref()).then_some(()) {
+    Some(()) => Some(format!("screenshot {ON} {key}")),
+    None => None,
   })
 }
 
@@ -689,6 +716,54 @@ mod tests {
     let Ok(unsaid) = settings.unbind_command();
 
     assert_eq!(unsaid.to_string(), "hl.unbind(\"SUPER+code:31\")");
+
+    Ok(())
+  }
+
+  #[test]
+  fn numbered_shortcuts_replace_old_absolute_binds_with_live_workspace_lookups()
+  -> Result<(), Failure> {
+    let Ok(every) = defaults();
+    let key = keys_of(("super", "1"))?;
+    let bind = one(&every, &key)?;
+    let old = Holding::These(vec![console_compositor::BoundKey {
+      held: bind.held,
+      named: String::new(),
+      about: format!("{}{NATIVE}", bind.about),
+    }]);
+
+    assert_eq!(
+      commands_to_send(std::slice::from_ref(bind), &[], &old),
+      Ok(vec![
+        BindCommand::Unbind(bind.clone()),
+        BindCommand::Bound(bind.clone())
+      ])
+    );
+    let Ok(script) = bind.bind_command();
+    assert!(script.to_string().contains(", function() local workspace"));
+    assert!(script.to_string().contains("hl.get_workspaces()"));
+
+    Ok(())
+  }
+
+  #[test]
+  fn print_screen_drops_the_old_full_screenshot_binding() -> Result<(), Failure> {
+    let Ok(every) = defaults();
+    let key = tail("print")?;
+    let bind = one(&every, &key)?;
+    let old = Holding::These(vec![console_compositor::BoundKey {
+      held: bind.held,
+      named: String::new(),
+      about: format!("screenshot {ON} {key}"),
+    }]);
+
+    assert_eq!(
+      commands_to_send(std::slice::from_ref(bind), &[], &old),
+      Ok(vec![
+        BindCommand::Unbind(bind.clone()),
+        BindCommand::Bound(bind.clone())
+      ])
+    );
 
     Ok(())
   }

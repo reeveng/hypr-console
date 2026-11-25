@@ -38,6 +38,7 @@ name = "music-cover"
 path = "src/bin/music-cover.rs"
 
 [dependencies]
+console-notifications.workspace = true
 console-bus.workspace = true
 console-core-file-urls.workspace = true
 console-core-external-programs.workspace = true
@@ -55,6 +56,7 @@ console-core-walking.workspace = true
 console-core-places.workspace = true
 console-core-words.workspace = true
 console-waiting.workspace = true
+console-gio.workspace = true
 console-program-contract.workspace = true
 console-core-number-conversion.workspace = true
 console-core-size.workspace = true

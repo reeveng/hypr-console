@@ -2,7 +2,7 @@ use console_compositor::setup::{Mode, ModeMatch, Output, OutputRule, configure_o
 use console_core_never::Never;
 use console_core_number_conversion::{Float, whole_u32};
 use console_core_state_machine::SingleEffectMachine;
-use console_operating_system_linux::notification::Options;
+use console_notifications::delivery::Options;
 use console_program_lifetime::Detached;
 use console_waiting::Schedule;
 use serde::{Deserialize, Serialize};

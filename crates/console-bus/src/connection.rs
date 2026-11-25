@@ -46,7 +46,7 @@
 use std::fmt;
 use std::io;
 use std::net::Shutdown;
-use std::os::fd::BorrowedFd;
+use std::os::fd::{AsFd, BorrowedFd};
 use std::os::linux::net::SocketAddrExt;
 use std::os::unix::net::{SocketAddr, UnixStream};
 use std::time::{Duration, Instant};
@@ -498,6 +498,12 @@ impl Receiver {
 
     let whole = messages::length(&header)?;
     read_frame(&self.stream, &header, whole, frame_deadline)
+  }
+}
+
+impl AsFd for Receiver {
+  fn as_fd(&self) -> BorrowedFd<'_> {
+    self.stream.as_fd()
   }
 }
 

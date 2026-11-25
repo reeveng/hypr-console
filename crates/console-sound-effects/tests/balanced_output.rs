@@ -101,6 +101,8 @@ impl Log {
 
 impl Session {
   fn new(test: &str) -> io::Result<Self> {
+    let _ = fs::metadata("/etc/console-test-vm")
+      .map_err(|_| io::Error::other("run the playback tests with just test e2e-media"))?;
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
       .parent()
       .and_then(Path::parent)

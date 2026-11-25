@@ -124,7 +124,8 @@ impl Choice {
 
 pub(crate) fn display_task(runs: Command) -> Result<Task, Never> {
   let Ok(task) = Task::of(runs);
-  task.then(|answer| {
+  let Ok(attributed) = task.from_application(console_notifications::Application("Settings"));
+  attributed.then(|answer| {
     let summary = match answer.status {
       ExitStatus::Success => match bool::then_some(answer.output.trim().is_empty(), ()) {
         Some(()) => return Ok(None),

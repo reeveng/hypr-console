@@ -2,20 +2,17 @@
 
 use std::cmp::Ordering;
 use std::convert::Infallible;
-use std::io;
 
 use console_core_color::palette::{self, Wearing};
 use console_core_external_programs::Installed;
 use console_core_geometry::Size;
-use console_core_number_conversion::{checked_index, fitted, toward_zero_u8};
-use console_core_shapes::Pixels;
+use console_core_number_conversion::fitted;
 use console_panel::canvas::Interaction;
 use console_panel::storefront::{
-  self, Catalogue, DetailActions, Dialog, DialogBody, Entry, EntryLayout, Feature, Introduction,
-  Link, Message, Search, Sidebar, Topic,
+  self, Catalogue, DetailActions, Dialog, DialogBody, Entry, Introduction, Link, Message, Search,
 };
 
-use crate::catalogue::{self, Category, Package};
+use crate::catalogue::{Category, Package, Source};
 use crate::{
   Action, LaunchStatus, Overlay, Page, ProfileAvailability, ProfileStatus, SearchStatus, Shop,
 };
@@ -23,11 +20,9 @@ use crate::{
 pub type Frame = storefront::Frame<Action>;
 
 const PALETTE: &str = include_str!("../../../files/usr/local/lib/console/palette.sh");
-const FEATURE: &[u8] = include_bytes!("../assets/obs-feature.png");
 
 pub struct Theme {
   colors: Wearing,
-  art: Pixels,
 }
 
 impl Theme {
@@ -40,89 +35,19 @@ impl Theme {
         Wearing::out_of(&fallback)?
       }
     };
-    let mut artwork = console_core_png_files::decoded(FEATURE)?;
-
-    shade_feature(&mut artwork.bytes, artwork.size)?;
-
-    let Ok(art) = artwork.into_strided();
-    Ok(Self { colors, art })
+    Ok(Self { colors })
   }
 }
-
-fn shade_feature(bytes: &mut [u8], size: Size<u32>) -> io::Result<()> {
-  let stride = checked_index(size.width).map_err(io::Error::other)?;
-  let (mut pixels, tail) = bytes.as_chunks_mut::<4>();
-
-  match bool::then_some(size.width > 0 && tail.is_empty(), ()) {
-    Some(()) => {}
-    None => {
-      return Err(io::Error::other(
-        "feature image has an incomplete pixel or no columns",
-      ));
-    }
-  }
-
-  let columns = f64::from(size.width);
-  let brightness = |x| 0.68 + f64::from(x) / columns;
-  let shaded = match (0..size.width).find(|x| brightness(*x) >= 1.0) {
-    Some(full_brightness) => full_brightness,
-    None => size.width,
-  };
-
-  for _row in 0..size.height {
-    let (row_pixels, rest) = pixels
-      .split_at_mut_checked(stride)
-      .ok_or_else(|| io::Error::other("feature image has an incomplete row"))?;
-    pixels = rest;
-
-    for (x, [red, green, blue, _alpha]) in (0..shaded).zip(row_pixels) {
-      let light = brightness(x);
-
-      for channel in [red, green, blue] {
-        let Ok(shaded_channel) = toward_zero_u8(f64::from(*channel) * light);
-        *channel = shaded_channel;
-      }
-    }
-  }
-
-  Ok(())
-}
-
-const PAGES: [Link<'static, Action>; 2] = [
-  Link {
-    label: "Browse",
-    action: Action::Page(Page::Browse),
-  },
-  Link {
-    label: "Installed",
-    action: Action::Page(Page::Installed),
-  },
-];
-
-const HELP: [Topic<'static>; 3] = [
-  Topic {
-    title: "Find an app",
-    detail: "Search by name or what you want to do. Select a result to see its details.",
-  },
-  Topic {
-    title: "Install and open",
-    detail: "Select Install, then look under Installed to open or remove the app.",
-  },
-  Topic {
-    title: "Keyboard",
-    detail: "Ctrl+K searches. Tab moves between controls. Enter activates. Esc goes back.",
-  },
-];
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum PageView {
+pub(super) enum PageView {
   Browse,
   Installed,
   Search,
 }
 
 impl PageView {
-  fn current(shop: &Shop) -> Result<Self, Infallible> {
+  pub(super) fn current(shop: &Shop) -> Result<Self, Infallible> {
     let Ok(query) = shop.query();
     Ok(match query.trim() {
       "" => match shop.page {
@@ -155,62 +80,66 @@ fn draw_catalogue(
 ) -> Result<Frame, Infallible> {
   let Ok(page) = PageView::current(shop);
   let Ok(rows) = shop.rows();
-  let Ok((title, subtitle)) = heading(shop, page, &rows);
+  let details: Vec<_> = rows
+    .iter()
+    .map(|item| {
+      let Ok(source) = item.source.label();
+      let Ok(name) = item.source.name();
+      let description = match item.description.as_str() {
+        "" => name,
+        description => description,
+      };
+
+      match item.version.as_str() {
+        "" => format!("{source} · {description}"),
+        version => format!("{source} · {version} · {description}"),
+      }
+    })
+    .collect();
+  let status = match page {
+    PageView::Search => {
+      let Ok(status) = search_subtitle(shop, &rows);
+      status
+    }
+    PageView::Browse | PageView::Installed => String::new(),
+  };
   let Ok(search) = search(shop);
   let Ok(filters) = filters();
-  let Ok(obs) = catalogue::package("obs-studio");
-  let Ok(introduction) = introduction(shop, page, &rows, &filters, &obs, &theme.art);
-  let Ok(notice) = store_notice(shop);
+  let Ok(introduction) = introduction(shop, page, &rows, &filters);
   let Ok(problem) = search_notice(shop, page);
   let advisory = (shop.nix_available == Installed::No).then_some(Message {
-    title: "Nix is needed to install packages",
-    detail: Some("Install Nix and reopen the store to search the full catalogue."),
+    title: "Nixpkgs search is unavailable",
+    detail: Some("Install Nix to enable the Nixpkgs catalogue alongside your other sources."),
   });
-  let sidebar = Sidebar {
-    title: "Software Store",
-    narrow_title: "Software\nStore",
-    mark: "◇",
-    pages: &PAGES,
-    selected: (page != PageView::Search).then_some(Action::Page(shop.page)),
-    footer: Link {
-      label: "Help",
-      action: Action::Help,
-    },
-  };
-  let layout = match page {
-    PageView::Browse => EntryLayout::Tiles,
-    PageView::Installed | PageView::Search => EntryLayout::List,
-  };
+  let Ok(selected) = shop.page.index();
+  let Ok(scroll) = shop.scroll_position();
   let view = Catalogue {
-    sidebar,
-    search,
-    close: Link {
-      label: "×",
-      action: Action::Close,
+    header: console_panel::strip::Header {
+      title: "Console Store",
+      tabs: &["Browse", "Installed"],
+      selected,
+      select: Action::SelectTab,
+      previous: Action::PreviousTab,
+      next: Action::NextTab,
+      close: Action::Close,
     },
-    notice,
-    title,
-    subtitle: &subtitle,
+    search,
+    notice: None,
+    status: &status,
     advisory,
     problem,
     introduction,
-    layout,
-    scroll: shop.scroll,
+    scroll,
   };
-  let show_banner = page == PageView::Browse && shop.category == Category::All;
-  let entries = rows
-    .iter()
-    .enumerate()
-    .filter(|(_, item)| !show_banner || item.installable.attribute != "obs-studio");
   let Ok(frame) = storefront::catalogue(
     &view,
     room,
     theme.colors,
     interaction,
-    entries,
-    |(index, item)| {
+    rows.iter().zip(&details).enumerate(),
+    |(index, (item, detail))| {
       let Ok(position) = fitted::<_, u32>(index);
-      let Ok(entry) = entry(shop, item, Action::Details(position));
+      let Ok(entry) = entry(shop, item, detail, Action::Details(position));
       entry
     },
   );
@@ -230,29 +159,12 @@ fn search(shop: &Shop) -> Result<Search<'_, Action>, Infallible> {
       label: "Clear",
       action: Action::ClearSearch,
     },
-    shortcut: "Ctrl+K",
+    shortcut: "/",
     placeholder: "Search for an app or package",
     before_caret: before,
     after_caret: after,
     preedit: &shop.preedit,
   })
-}
-
-fn store_notice(shop: &Shop) -> Result<Option<storefront::Notice<'_, Action>>, Infallible> {
-  Ok(shop.notice.as_ref().map(|notice| storefront::Notice {
-    message: Message {
-      title: &notice.title,
-      detail: notice.detail.as_deref(),
-    },
-    details: notice.error.as_ref().map(|_| Link {
-      label: "Details",
-      action: Action::ErrorDetails,
-    }),
-    reply: (shop.profile_status != ProfileStatus::Changing).then_some(Link {
-      label: "Close",
-      action: Action::Dismiss,
-    }),
-  }))
 }
 
 fn search_notice(
@@ -269,6 +181,7 @@ fn search_notice(
           title: &notice.title,
           detail: notice.detail.as_deref(),
         },
+        tone: storefront::NoticeTone::Error,
         details: notice.error.as_ref().map(|_| Link {
           label: "Details",
           action: Action::SearchDetails,
@@ -281,37 +194,22 @@ fn search_notice(
   )
 }
 
-fn heading(
-  shop: &Shop,
-  page: PageView,
-  rows: &[Package],
-) -> Result<(&'static str, String), Infallible> {
-  Ok(match page {
-    PageView::Browse => (
-      "Browse apps",
-      "Discover desktop apps and command-line tools from Nixpkgs.".to_owned(),
-    ),
-    PageView::Installed => (
-      "Installed",
-      "Apps and tools you installed with the store.".to_owned(),
-    ),
-    PageView::Search => {
-      let Ok(subtitle) = search_subtitle(shop, rows);
-      ("Search results", subtitle)
-    }
-  })
-}
-
 fn search_subtitle(shop: &Shop, rows: &[Package]) -> Result<String, Infallible> {
   let Ok(status) = shop.searching();
 
   match status {
-    SearchStatus::Searching => return Ok("Searching Nixpkgs…".to_owned()),
+    SearchStatus::Searching => return Ok("Searching package sources…".to_owned()),
     SearchStatus::Settled => {}
   }
 
+  match (&shop.search_problem, rows) {
+    (Some(_), []) => return Ok(String::new()),
+    (Some(_), [_, ..]) => return Ok("Showing results from available sources.".to_owned()),
+    (None, _) => {}
+  }
+
   let Ok(visible) = fitted::<_, u32>(rows.len());
-  let total = shop.match_count;
+  let Ok(total) = shop.match_count();
   Ok(match total.cmp(&visible) {
     Ordering::Greater => format!(
       "Showing {visible} of {total} packages. Use a narrower search for more specific results."
@@ -348,38 +246,13 @@ fn introduction<'a>(
   page: PageView,
   rows: &[Package],
   filters: &'a Filters,
-  obs: &'a Package,
-  art: &'a Pixels,
 ) -> Result<Introduction<'a, Action>, Infallible> {
   match (page, rows) {
-    (PageView::Browse, _) => {
-      let banner = match shop.category {
-        Category::All => {
-          let Ok(local) = shop.local(obs);
-          let label = match local {
-            Some(_) => "View installed app",
-            None => "View OBS Studio  →",
-          };
-          Some(Feature {
-            art,
-            eyebrow: "Screen recording & streaming",
-            title: &obs.title,
-            description: &obs.description,
-            link: Link {
-              label,
-              action: Action::Featured,
-            },
-          })
-        }
-        Category::Media | Category::Creative | Category::Everyday | Category::Developer => None,
-      };
-      Ok(Introduction::Featured {
-        banner,
-        title: "Featured apps",
-        filters,
-        selected: Action::Category(shop.category),
-      })
-    }
+    (PageView::Browse, _) => Ok(Introduction::Featured {
+      title: "Featured apps",
+      filters,
+      selected: Action::Category(shop.category),
+    }),
     (PageView::Search | PageView::Installed, []) => empty(shop, page),
     (PageView::Search | PageView::Installed, _) => Ok(Introduction::None),
   }
@@ -394,13 +267,10 @@ fn empty(shop: &Shop, page: PageView) -> Result<Introduction<'static, Action>, I
       "The first search can take a little longer.",
       None,
     ),
-    (PageView::Search, SearchStatus::Settled, Installed::No, _)
-    | (PageView::Search, SearchStatus::Settled, Installed::Yes, Some(_)) => (
-      "No featured matches",
-      "Try a different name or browse the featured apps.",
-      None,
-    ),
-    (PageView::Search, SearchStatus::Settled, Installed::Yes, None) => (
+    (PageView::Search, SearchStatus::Settled, _, Some(_)) => {
+      return Ok(Introduction::None);
+    }
+    (PageView::Search, SearchStatus::Settled, _, None) => (
       "No packages found",
       "Try a shorter name or a word like video or paint.",
       None,
@@ -409,12 +279,12 @@ fn empty(shop: &Shop, page: PageView) -> Result<Introduction<'static, Action>, I
       match (shop.profile_status, shop.nix_available, profile) {
         (ProfileStatus::Reading(_), _, _) => (
           "Reading installed packages",
-          "the store is loading your library.",
+          "The store is loading your library.",
           None,
         ),
         (_, Installed::Yes, ProfileAvailability::Unavailable) => (
           "Installed packages are unavailable",
-          "Refresh the list after checking Nix.",
+          "Try refreshing the list.",
           Some(Link {
             label: "Refresh",
             action: Action::Refresh,
@@ -443,22 +313,21 @@ fn empty(shop: &Shop, page: PageView) -> Result<Introduction<'static, Action>, I
 fn entry<'a>(
   shop: &Shop,
   item: &'a Package,
+  detail: &'a str,
   action: Action,
 ) -> Result<Entry<'a, Action>, Infallible> {
   let Ok(local) = shop.local(item);
-  let Ok(icon) = item.category.mark();
+  let Ok(category) = crate::catalogue::category(item);
+  let Ok(icon) = category.mark();
   let indicator = match local {
     Some(_) => "✓",
-    None => "→",
-  };
-  let detail = match item.description.as_str() {
-    "" => &item.installable.attribute,
-    description => description,
+    None => console_panel::marks::INTO,
   };
   Ok(Entry {
     title: &item.title,
     detail,
     icon,
+    art: None,
     indicator,
     action,
   })
@@ -474,17 +343,16 @@ fn draw_dialog(
   let text;
   let body = match overlay {
     Overlay::Package(item) => {
-      let subtitle = match item.version.as_str() {
-        "" => item.installable.attribute.as_str(),
-        version => {
-          text = format!("{}  ·  Version {version}", item.installable.attribute);
-          &text
-        }
+      let Ok(source) = item.source.label();
+      let Ok(name) = item.source.name();
+      text = match item.version.as_str() {
+        "" => format!("{source} · {name}"),
+        version => format!("{source} · {name} · {version}"),
       };
       let Ok(actions) = package_actions(shop, item);
       DialogBody::Details {
         title: &item.title,
-        subtitle,
+        subtitle: &text,
         description: &item.description,
         actions,
       }
@@ -493,7 +361,16 @@ fn draw_dialog(
       text = format!("Remove {}?", item.package.title);
       DialogBody::Confirmation {
         title: &text,
-        description: "You can install this package again from Browse or Search.",
+        description: match &item.package.source {
+          Source::Pacman(_) | Source::Aur(_) => {
+            "Removes this package from the system. Administrator approval is required."
+          }
+          Source::Mise { .. } => {
+            "Removes this installed version. Any project using it may need to install it again."
+          }
+          Source::Flatpak(_) => "Removes this app from the selected Flatpak installation.",
+          Source::Nix(_) => "Removes this package from your Console Store profile.",
+        },
         confirm: Link {
           label: "Remove package",
           action: Action::ConfirmRemove,
@@ -511,16 +388,9 @@ fn draw_dialog(
       title: summary,
       report,
     },
-    Overlay::Help => DialogBody::Help {
-      title: "Using the store",
-      topics: &HELP,
-    },
   };
   let view = Dialog {
-    back: Link {
-      label: "Back",
-      action: Action::Back,
-    },
+    back: Action::Back,
     body,
   };
   let Ok(frame) = storefront::dialog(&view, room, colors, interaction);
@@ -532,7 +402,7 @@ fn package_actions(
   item: &Package,
 ) -> Result<DetailActions<'static, Action>, Infallible> {
   let Ok(installed) = shop.local(item);
-  let Ok(availability) = shop.can_change();
+  let Ok(availability) = shop.can_change(&item.source);
 
   Ok(match (installed, availability) {
     (Some(local), permission) => {
@@ -543,13 +413,19 @@ fn package_actions(
           label,
           action: Action::Open,
         });
-      let secondary = (permission == ProfileAvailability::Ready).then_some(Link {
-        label: "Remove",
-        action: Action::Remove,
-      });
+      let Ok(removable) = local.removable();
+      let secondary = (permission == ProfileAvailability::Ready
+        && removable == crate::packages::Removal::Optional)
+        .then_some(Link {
+          label: "Remove",
+          action: Action::Remove,
+        });
       DetailActions::PrimaryOrStatus {
         primary,
-        status: "Installed",
+        status: match removable {
+          crate::packages::Removal::Optional => "Installed",
+          crate::packages::Removal::Required => "Installed · Required by Console",
+        },
         secondary,
       }
     }
@@ -558,14 +434,18 @@ fn package_actions(
         label: "Install",
         action: Action::Install,
       },
-      hint: "Installs for your user",
+      hint: match &item.source {
+        Source::Nix(_) => "Installs for your user",
+        Source::Pacman(_) => "Installs on the system with pacman",
+        Source::Aur(_) => "Opens a terminal to review and install with yay",
+        Source::Flatpak(_) => "Installs through the selected Flatpak remote",
+        Source::Mise { .. } => "Installs the latest version with mise",
+      },
     },
     (None, ProfileAvailability::Unavailable) => {
-      DetailActions::Message(match shop.nix_available {
-        Installed::Yes => {
-          "Install is unavailable while the store is busy or the profile needs attention."
-        }
-        Installed::No => "Install Nix, then reopen the store.",
+      DetailActions::Message(match (&item.source, shop.nix_available) {
+        (Source::Nix(_), Installed::No) => "Install Nix to use this catalogue.",
+        _ => "Install is unavailable while the store is busy or this source needs attention.",
       })
     }
   })

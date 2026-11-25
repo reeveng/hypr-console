@@ -53,8 +53,9 @@
 
 use console_bus::cli;
 use console_bus::connection::{BUS, BUS_PATH};
-use console_bus::messages::{Kind, Message, Signal, ValidationError, Value, Whom};
+use console_bus::messages::{Kind, Message, Signal, Truth, ValidationError, Value, Whom};
 use console_core_never::Never;
+use console_operating_system_linux::notification::History;
 use console_program_contract::Command;
 
 use std::{collections::BTreeSet, path::PathBuf};
@@ -99,6 +100,7 @@ pub const EARLIER: u32 = 20;
 const URGENCY: &str = "urgency";
 
 const VALUE: &str = "value";
+const TRANSIENT: &str = "transient";
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum Why {
@@ -149,6 +151,7 @@ pub struct Request {
   pub body: String,
   pub urgency: Urgency,
   pub expiry: Expiry,
+  pub history: History,
   pub value: Option<i64>,
   pub actions: Vec<Action>,
 }
@@ -163,6 +166,7 @@ pub struct Action {
 pub struct ActiveNotification {
   pub notification: Notification,
   pub expiry: Expiry,
+  pub history: History,
   pub value: Option<i64>,
   pub raised: u64,
   pub actions: Vec<Action>,
@@ -230,6 +234,7 @@ impl Holding {
         urgency: asked.urgency,
       },
       expiry: asked.expiry,
+      history: asked.history,
       value: asked.value,
       raised: raises,
       actions: asked.actions.clone(),
@@ -307,11 +312,14 @@ impl Holding {
       None => return Ok(Closed::No),
     };
 
-    self.earlier.insert(0, held.notification);
-
-    let Ok(earlier) = console_core_number_conversion::index(EARLIER);
-
-    self.earlier.truncate(earlier);
+    match held.history {
+      History::Keep => {
+        self.earlier.insert(0, held.notification);
+        let Ok(earlier) = console_core_number_conversion::index(EARLIER);
+        self.earlier.truncate(earlier);
+      }
+      History::Transient => {}
+    }
 
     Ok(Closed::Yes)
   }
@@ -675,6 +683,12 @@ pub fn parse_request(values: &[Value]) -> Result<Option<Request>, Never> {
   let hints = values.get(6);
   let Ok(saying) = find_hint(hints, URGENCY);
   let Ok(valued) = find_hint(hints, VALUE);
+  let Ok(transient) = find_hint(hints, TRANSIENT);
+  let Ok(numbered_hint) = numbered(transient);
+  let history = match (transient, numbered_hint) {
+    (Some(Value::Truth(Truth::Yes)), _) | (_, Some(1)) => History::Transient,
+    _ => History::Keep,
+  };
   let Ok(urgency) = urgently(saying);
   let Ok(value) = numbered(valued);
   let Ok(asking) = numbered(values.get(7));
@@ -689,6 +703,7 @@ pub fn parse_request(values: &[Value]) -> Result<Option<Request>, Never> {
     body,
     urgency,
     expiry,
+    history,
     value,
     actions,
   }))
@@ -898,6 +913,7 @@ pub fn to_inbox(holding: &Holding) -> Result<Inbox, Never> {
   let waiting: Vec<Notification> = holding
     .waiting
     .iter()
+    .filter(|held| held.history == History::Keep)
     .map(|held| held.notification.clone())
     .collect();
 
@@ -1034,6 +1050,29 @@ mod tests {
         value: Box::new(value),
       },
     ]))
+  }
+
+  #[test]
+  fn a_transient_notice_is_visible_without_entering_the_inbox() {
+    let Ok(transient) = hint(("transient", "i"), Value::Signed32(1));
+    let Ok(message) = notify("Pairing instruction", 0, vec![transient], 1000);
+    let mut holding = Holding::default();
+    let Ok(_turn) = handle_message(&mut holding, &message);
+    let Ok(visible) = holding.visible();
+    let Ok(inbox) = to_inbox(&holding);
+
+    assert_eq!(visible.len(), 1);
+    assert!(inbox.waiting.is_empty());
+    let id = visible.first().map(|notice| notice.notification.id);
+
+    match id {
+      Some(waiting) => assert_eq!(holding.closed(waiting), Ok(Closed::Yes)),
+      None => assert!(holding.waiting.is_empty()),
+    }
+
+    let Ok(after) = to_inbox(&holding);
+    assert!(after.waiting.is_empty());
+    assert!(after.earlier.is_empty());
   }
 
   fn urgently(urgency: u8) -> Result<Vec<Value>, Never> {

@@ -10,6 +10,7 @@ name = "console-application-software-store"
 path = "src/main.rs"
 
 [dependencies]
+console-notifications.workspace = true
 console-core-color.workspace = true
 console-core-external-programs.workspace = true
 console-core-geometry.workspace = true
@@ -17,16 +18,17 @@ console-core-iteration.workspace = true
 console-core-logging = { workspace = true, features = ["std"] }
 console-core-number-conversion.workspace = true
 console-core-places.workspace = true
-console-core-png-files.workspace = true
 console-core-shapes.workspace = true
+console-core-state-machine.workspace = true
 console-draw-surface.workspace = true
 console-gio.workspace = true
 console-input-text.workspace = true
-console-package-manager = { workspace = true, features = ["user"] }
+console-package-manager = { workspace = true, features = ["catalogue"] }
 console-panel.workspace = true
 console-program-lifetime.workspace = true
 
 [dev-dependencies]
+console-core-png-files.workspace = true
 console-draw-painting.workspace = true
 console-core-atomic-writes.workspace = true
 console-waiting.workspace = true

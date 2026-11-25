@@ -30,7 +30,7 @@
 use console_core_external_programs::Program;
 use console_core_never::Never;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::doing::{self, Carrying, FileAction, Holding, ProgramUse};
 use crate::listing::{self, Entry, Room, Shown, Still, Worth};
@@ -44,6 +44,7 @@ use crate::standing::{
 use crate::thumbnails;
 use crate::unzipping::Packed;
 use console_actor::Actor;
+use console_concurrency::Latest;
 use console_content_types::Table;
 use console_core_internal_programs::InternalProgram;
 use console_core_places::Folder;
@@ -157,6 +158,117 @@ fn remember(view: &str) -> Result<(), Never> {
   }
 
   Ok(())
+}
+
+#[cfg_attr(
+  dylint_lib = "explicit081_no_shared_ownership",
+  expect(
+    explicit081_no_shared_ownership,
+    reason = "the writer keeps the latest pending view in a single slot shared with its worker until the card joins it"
+  )
+)]
+struct PositionWriter {
+  latest: Arc<Mutex<Option<String>>>,
+  worker: Mutex<Option<Latest>>,
+}
+
+impl PositionWriter {
+  #[cfg_attr(
+    dylint_lib = "explicit081_no_shared_ownership",
+    expect(
+      explicit081_no_shared_ownership,
+      reason = "the card and worker share only the pending view; shutdown joins the worker before releasing the card's owner"
+    )
+  )]
+  fn start() -> Result<Self, Never> {
+    let latest = Arc::new(Mutex::new(None::<String>));
+    let queued = latest.clone();
+    let worker = match Latest::start("Files scroll position".to_owned(), move || {
+      let Ok(mut slot) = Self::locked(&queued);
+      let wanted = slot.take();
+      drop(slot);
+
+      match wanted {
+        Some(view) => remember(&view),
+        None => Ok(()),
+      }
+    }) {
+      Ok(worker) => Some(worker),
+      Err(fault) => {
+        console_core_logging::warn!("files: starting the scroll position writer: {fault}");
+        None
+      }
+    };
+
+    Ok(Self {
+      latest,
+      worker: Mutex::new(worker),
+    })
+  }
+
+  #[cfg_attr(
+    dylint_lib = "explicit057_no_unbounded_wait",
+    expect(
+      explicit057_no_unbounded_wait,
+      reason = "these guards protect only pending-view and worker-handle bookkeeping; storage and joining occur after release"
+    )
+  )]
+  fn locked<T>(slot: &Mutex<T>) -> Result<std::sync::MutexGuard<'_, T>, Never> {
+    Ok(match slot.lock() {
+      Ok(guard) => guard,
+      Err(poisoned) => {
+        console_core_logging::warn!("files: recovering the scroll position writer after a panic");
+
+        poisoned.into_inner()
+      }
+    })
+  }
+
+  fn save(&self, view: String) -> Result<(), Never> {
+    let Ok(worker) = Self::locked(&self.worker);
+    let running = match worker.as_ref() {
+      Some(running) => running,
+      None => {
+        drop(worker);
+
+        return remember(&view);
+      }
+    };
+    let Ok(mut slot) = Self::locked(&self.latest);
+    *slot = Some(view);
+    drop(slot);
+
+    match running.schedule() {
+      Ok(()) => Ok(()),
+      Err(console_concurrency::WorkerStopped) => {
+        let Ok(mut pending_slot) = Self::locked(&self.latest);
+        let pending = pending_slot.take();
+        drop(pending_slot);
+        drop(worker);
+        console_core_logging::warn!("files: the scroll position writer stopped");
+
+        match pending {
+          Some(latest) => remember(&latest),
+          None => Ok(()),
+        }
+      }
+    }
+  }
+
+  fn close(&self) -> Result<(), Never> {
+    let Ok(mut slot) = Self::locked(&self.worker);
+    let worker = slot.take();
+    drop(slot);
+
+    match worker.map(Latest::close) {
+      Some(Err(_panicked)) => {
+        console_core_logging::warn!("files: the scroll position writer failed")
+      }
+      Some(Ok(())) | None => {}
+    }
+
+    Ok(())
+  }
 }
 
 fn stand_where_asked(held: &ActorAddress, tab: u32, showing: &dyn Showing) -> Result<(), Never> {
@@ -737,7 +849,11 @@ fn ask_for_a_folder(
     let made = match paths::text(&at) {
       Ok(made) => made,
       Err(fault) => {
-        showing_2.note(&fault.to_string());
+        let Ok(()) = console_notifications::notify(
+          console_notifications::Application("Files"),
+          "Could not create folder",
+          Some(&fault.to_string()),
+        );
         return;
       }
     };
@@ -821,7 +937,11 @@ fn one_format_row(held: &ActorAddress, tab: u32, here: &Path, from: Line) -> Res
     let Ok(then) = on_chosen(move |showing_2, _| {
       let Ok(()) = back_to_the_folder(&held_3, tab, showing_2, from);
 
-      showing_2.note(&format!("Converting {named}…"));
+      let Ok(()) = console_notifications::notify(
+        console_notifications::Application("Files"),
+        &format!("Converting {named}…"),
+        None,
+      );
 
       let Ok(task) = Task::of(changing_now);
       showing_2.run(task);
@@ -1063,7 +1183,11 @@ fn perform(
   let target = match paths::text(path) {
     Ok(target) => target,
     Err(unavailable) => {
-      showing.note(&unavailable.to_string());
+      let Ok(()) = console_notifications::notify(
+        console_notifications::Application("Files"),
+        "Could not use that path",
+        Some(&unavailable.to_string()),
+      );
       return Ok(());
     }
   };
@@ -1117,7 +1241,11 @@ fn perform(
     FileAction::Unzip => {
       back_to_the_folder(held, tab, showing, from)?;
 
-      showing.note(&format!("{UNZIPPING} {}…", thing.name));
+      let Ok(()) = console_notifications::notify(
+        console_notifications::Application("Files"),
+        &format!("{UNZIPPING} {}…", thing.name),
+        None,
+      );
 
       let unpacking = unzipping(target)?;
       let task = Task::of(unpacking)?;
@@ -1127,7 +1255,11 @@ fn perform(
     FileAction::Wallpaper => {
       back_to_the_folder(held, tab, showing, from)?;
 
-      showing.note(&format!("{SETTING} {} {AS_WALLPAPER}…", thing.name));
+      let Ok(()) = console_notifications::notify(
+        console_notifications::Application("Files"),
+        &format!("{SETTING} {} {AS_WALLPAPER}…", thing.name),
+        None,
+      );
 
       let setting = made_the_wallpaper(target)?;
       let task = Task::of(setting)?;
@@ -1155,7 +1287,11 @@ fn perform(
         let now = match paths::text(&beside) {
           Ok(now) => now,
           Err(fault) => {
-            showing_3.note(&fault.to_string());
+            let Ok(()) = console_notifications::notify(
+              console_notifications::Application("Files"),
+              "Could not rename the item",
+              Some(&fault.to_string()),
+            );
             return;
           }
         };
@@ -1218,14 +1354,21 @@ fn rows(held: &ActorAddress, tab: u32) -> Result<Vec<Row>, Never> {
   }
 }
 
-fn pages(held: &ActorAddress) -> Result<Vec<Page>, Never> {
+#[cfg_attr(
+  dylint_lib = "explicit081_no_shared_ownership",
+  expect(
+    explicit081_no_shared_ownership,
+    reason = "each page borrows access to the card's single writer until its shutdown callback joins the worker"
+  )
+)]
+fn pages(held: &ActorAddress, writer: &Arc<PositionWriter>) -> Result<Vec<Page>, Never> {
   let standing = standing_of(held)?;
   let titles = standing::titles(&standing)?;
   let mut pages: Vec<Page> = Vec::new();
 
   for (tab, title) in titles.iter().enumerate() {
     let Ok(tab_2) = console_core_number_conversion::fitted::<_, u32>(tab);
-    let page = page(held, tab_2, title)?;
+    let page = page(held, tab_2, title, writer.clone())?;
 
     pages.push(page);
   }
@@ -1249,7 +1392,19 @@ fn carried_many(
   })
 }
 
-fn page(held: &ActorAddress, tab: u32, title: &str) -> Result<Page, Never> {
+#[cfg_attr(
+  dylint_lib = "explicit081_no_shared_ownership",
+  expect(
+    explicit081_no_shared_ownership,
+    reason = "the page's viewport callback calls the one writer owned and closed by the card"
+  )
+)]
+fn page(
+  held: &ActorAddress,
+  tab: u32,
+  title: &str,
+  writer: Arc<PositionWriter>,
+) -> Result<Page, Never> {
   let reading = held.clone();
   let backing = held.clone();
   let arriving = held.clone();
@@ -1299,57 +1454,33 @@ fn page(held: &ActorAddress, tab: u32, title: &str) -> Result<Page, Never> {
   let Ok(page_6_2) = page_6.remembering_position(
     move || {
       let Ok(state) = standing_of(&reading_2);
-      let Ok(onto_2) = standing::onto(&state, tab);
-      let Ok(typed) = standing::search_text(&state, tab);
-
-      match (matches!(onto_2, Destination::Folder) && typed.is_empty()).then_some(()) {
-        Some(()) => {
-          let Ok(position) = standing::position(&state, tab);
-          position
-        }
-        None => None,
-      }
+      let Ok(position) = standing::position(&state, tab);
+      position
     },
     move |position| {
-      let Ok(state) = standing_of(&observed);
-      let Ok(onto_3) = standing::onto(&state, tab);
-      let Ok(typed) = standing::search_text(&state, tab);
+      let Ok(effects) = decided(&observed, FilesEvent::Viewed { tab, position });
 
-      match {
-        ::core::primitive::bool::then_some(
-          matches!(onto_3, Destination::Folder) && typed.is_empty(),
-          (),
-        )
-      } {
-        ::core::option::Option::Some(()) => {
-          let Ok(effects) = decided(&observed, FilesEvent::Viewed { tab, position });
-
-          for effect in effects {
-            match effect {
-              Effect::Custom(FilesEffect::Remember(view)) => {
-                let Ok(()) = remember(&view);
-              }
-              Effect::Custom(
-                FilesEffect::ForgetTyping
-                | FilesEffect::Replace(_)
-                | FilesEffect::WantingPictures(_),
-              )
-              | Effect::Run(_)
-              | Effect::Stream(_)
-              | Effect::Fork(_)
-              | Effect::Interrupt(_)
-              | Effect::Prompt(_)
-              | Effect::Spawn(_)
-              | Effect::Subscribe(_)
-              | Effect::Unsubscribe(_)
-              | Effect::Write(_)
-              | Effect::Notify(_)
-              | Effect::Print(_)
-              | Effect::Stop(_) => {}
-            }
+      for effect in effects {
+        match effect {
+          Effect::Custom(FilesEffect::Remember(view)) => {
+            let Ok(()) = writer.save(view);
           }
+          Effect::Custom(
+            FilesEffect::ForgetTyping | FilesEffect::Replace(_) | FilesEffect::WantingPictures(_),
+          )
+          | Effect::Run(_)
+          | Effect::Stream(_)
+          | Effect::Fork(_)
+          | Effect::Interrupt(_)
+          | Effect::Prompt(_)
+          | Effect::Spawn(_)
+          | Effect::Subscribe(_)
+          | Effect::Unsubscribe(_)
+          | Effect::Write(_)
+          | Effect::Notify(_)
+          | Effect::Print(_)
+          | Effect::Stop(_) => {}
         }
-        ::core::option::Option::None => {}
       }
     },
   );
@@ -1468,6 +1599,13 @@ fn restore(
 
 pub const WHO: &str = "files";
 
+#[cfg_attr(
+  dylint_lib = "explicit081_no_shared_ownership",
+  expect(
+    explicit081_no_shared_ownership,
+    reason = "the finalizer holds the writer while pages can submit updates and explicitly joins it on close"
+  )
+)]
 pub fn card(arguments: &[String]) -> Result<Card, Never> {
   let line = match console_core_arguments::read(&crate::COMMAND, arguments) {
     Ok(line) => Some(line),
@@ -1499,7 +1637,16 @@ pub fn card(arguments: &[String]) -> Result<Card, Never> {
       ::core::option::Option::None => None,
     },
   };
-  let Ok(card) = Card::supervised::<Files, _>(opening, pages);
+  let Ok(position_writer) = PositionWriter::start();
+  let writer = Arc::new(position_writer);
+  let saving = writer.clone();
+  let Ok(mut card) = Card::supervised::<Files, _>(opening, move |held| pages(held, &saving));
+  let done = card.done;
+  card.done = Box::new(move || {
+    let Ok(()) = writer.close();
+
+    done()
+  });
 
   card.opening_at(opened_at.as_deref().or(asked.as_deref()))
 }
@@ -1540,8 +1687,6 @@ mod tests {
     fn select(&self, _keys: Vec<String>) {}
 
     fn turn_to(&self, _tab: u32) {}
-
-    fn note(&self, _said: &str) {}
 
     fn interrupt(&self, _command: &Command) {}
 

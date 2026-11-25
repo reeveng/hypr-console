@@ -58,7 +58,6 @@ use Kind::{Executable, Path as Resource, PkgConfig};
 const DESKTOP: &[(Kind, &str)] = &[
   (Executable, "/usr/bin/chgrp"),
   (Executable, "/usr/bin/chmod"),
-  (Executable, "/usr/bin/hypridle"),
   (Executable, "/usr/bin/rm"),
   (Executable, "/usr/bin/setfacl"),
   (Executable, "/usr/bin/syncthing"),

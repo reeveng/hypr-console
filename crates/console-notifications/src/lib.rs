@@ -12,10 +12,8 @@
 //! the half a 320 by 140 card was never going to fit, and the way to clear one
 //! or all of them is a row rather than a gesture no one was taught.
 //!
-//! Reading what is held and knowing what to draw from it are kept apart, as
-//! everywhere else here: `reading` is the file the daemon writes, and `rows`
-//! is the panel that makes of it, which is the half that can be asked with no
-//! daemon and no screen.
+//! `reading` owns the inbox file that the daemon writes and the resident
+//! panel host reads.
 //!
 //! `serving` is the daemon's own half -- what a call on the bus does to what
 //! is held -- and `showing` is the card it draws. Both are here rather than in
@@ -29,13 +27,12 @@
 //! and a notification that stops repeating itself were worked out three times in
 //! three shell scripts before any of them was written down once.
 
-pub mod card;
 pub mod notifications;
 pub mod reading;
-pub mod rows;
 pub mod saying;
 pub mod serving;
 pub mod showing;
 pub mod updating;
 
-pub use card::{COMMAND, WHO, card, door};
+pub use console_operating_system_linux::notification as delivery;
+pub use saying::{Application, notify};

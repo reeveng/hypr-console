@@ -19,6 +19,7 @@ path = "src/bin/console-browser-check.rs"
 required-features = ["checks"]
 
 [dependencies]
+console-notifications.workspace = true
 console-browser-downloads = { path = "../console-browser-downloads" }
 console-browser-renderer = { path = "../console-browser-renderer" }
 console-core-arguments.workspace = true
@@ -48,6 +49,7 @@ console-gio.workspace = true
 console-input-key-symbols.workspace = true
 console-input-text.workspace = true
 console-operating-system-linux.workspace = true
+console-panel.workspace = true
 console-program-lifetime.workspace = true
 console-repository.workspace = true
 rustix = { workspace = true, features = ["net"] }

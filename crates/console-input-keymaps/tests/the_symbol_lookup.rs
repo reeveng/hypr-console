@@ -1,4 +1,6 @@
-use console_input_keymaps::{Context, Diagnostic, GroupIndex, Keycode, Keysym, ModifierMask};
+use console_input_keymaps::{
+  Context, Diagnostic, GroupIndex, KeyRepeat, Keycode, Keysym, ModifierMask,
+};
 
 const KEYMAP: &str = r#"
 xkb_keymap {
@@ -17,8 +19,8 @@ xkb_keymap {
     };
     xkb_compatibility "test" {};
     xkb_symbols "test" {
-        key <AC01> { type[Group1] = "TWO_LEVEL", symbols[Group1] = [ a, A ] };
-        key <AC02> { type[Group1] = "TWO_LEVEL", symbols[Group1] = [ Greek_alpha, Greek_ALPHA ] };
+        key <AC01> { type[Group1] = "TWO_LEVEL", symbols[Group1] = [ a, A ], repeat = yes };
+        key <AC02> { type[Group1] = "TWO_LEVEL", symbols[Group1] = [ Greek_alpha, Greek_ALPHA ], repeat = no };
     };
 };
 "#;
@@ -32,11 +34,17 @@ fn compiled_keymaps_return_the_shared_symbol_type_under_modifiers()
   let Ok(builder) = keymap.to_builder();
   let Ok(table) = builder.build_lookup_table();
 
-  for (evdev, base, shifted) in [
-    (30, Keysym::a, Keysym::A),
-    (31, Keysym::Greek_alpha, Keysym::Greek_ALPHA),
+  for (evdev, base, shifted, repeat) in [
+    (30, Keysym::a, Keysym::A, KeyRepeat::Repeats),
+    (
+      31,
+      Keysym::Greek_alpha,
+      Keysym::Greek_ALPHA,
+      KeyRepeat::DoesNotRepeat,
+    ),
   ] {
     let Ok(key) = Keycode::from_evdev(evdev);
+    assert_eq!(table.repeat(key), Ok(repeat));
 
     for (modifiers, expected) in [(ModifierMask(0), base), (ModifierMask(1), shifted)] {
       let Ok(found) = table.lookup(GroupIndex(0), modifiers, key);

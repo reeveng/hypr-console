@@ -7,10 +7,11 @@ use std::path::{Path, PathBuf};
 use console_core_never::Never;
 use console_core_places::Base;
 
-use crate::{DispatchResult, Request, dispatch, lua, request};
+use crate::{DispatchResult, Request, lua, request};
 
 pub const MUSIC: &str = "console-music.desktop";
-const NAME: &str = "console-quick";
+pub const NAME: &str = "console-quick";
+pub const TOGGLE_NAMED: &str = "special-workspace";
 
 pub type Applications = BTreeMap<String, Vec<String>>;
 
@@ -51,7 +52,7 @@ pub fn load(at: &Path) -> io::Result<Applications> {
 }
 
 pub fn reload() -> Result<DispatchResult, Never> {
-  dispatch("/reload")
+  crate::reload_configuration()
 }
 
 pub fn toggle() -> Result<DispatchResult, Never> {
@@ -62,6 +63,15 @@ pub fn toggle() -> Result<DispatchResult, Never> {
          hl.dispatch(hl.dsp.workspace.toggle_special('{NAME}')) \
        end"
     ),
+  )
+}
+
+pub fn toggle_named(name: &str) -> Result<DispatchResult, Never> {
+  let Ok(named) = lua::quote(name);
+
+  request(
+    Request::Dispatch,
+    &format!("hl.dsp.workspace.toggle_special({named})"),
   )
 }
 

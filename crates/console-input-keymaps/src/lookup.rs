@@ -1,4 +1,5 @@
 use crate::GroupType;
+use crate::KeyRepeat;
 use crate::Keycode;
 use crate::Keysym;
 use crate::ModifierMask;
@@ -24,6 +25,7 @@ pub struct LookupTable {
 pub(crate) struct KeyGroups {
   pub(crate) redirect: Redirect,
   pub(crate) groups: Box<[Option<KeyGroup>]>,
+  pub(crate) repeat: KeyRepeat,
 }
 
 #[derive(Clone, Debug)]
@@ -101,6 +103,15 @@ impl KeyGroups {
 }
 
 impl LookupTable {
+  pub fn repeat(&self, keycode: Keycode) -> Result<KeyRepeat, Never> {
+    let Ok(stored) = self.keys.get(keycode);
+
+    Ok(match stored {
+      Some(key) => key.repeat,
+      None => KeyRepeat::DoesNotRepeat,
+    })
+  }
+
   pub fn lookup(
     &self,
     group: GroupIndex,

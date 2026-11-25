@@ -45,6 +45,7 @@ console-core-png-files.workspace = true
 console-core-portable-document-rasterizer.workspace = true
 console-core-portable-document-text.workspace = true
 console-core-state-machine.workspace = true
+console-core-text-boundaries.workspace = true
 console-core-zip-files.workspace = true
 console-draw-painting.workspace = true
 console-draw-surface.workspace = true

@@ -93,7 +93,7 @@ use console_draw_painting::{Frame, Lines, Run, at_most, measure_text, onto};
 use console_draw_surface::layer_focus::Selection;
 use console_draw_surface::scale::Scale;
 use console_draw_surface::standing::{Anchor, Closed, Keyboard, Margin, Room, Under, Wanted};
-use console_draw_surface::{Activation, KeyboardEvent, PointerEvent, Surface, SurfaceError};
+use console_draw_surface::{KeyboardEvent, PointerEvent, Surface, SurfaceError};
 use console_notifications::reading::serialize;
 use console_notifications::saying::Expiry;
 use console_notifications::serving::{
@@ -299,7 +299,12 @@ fn wake(latch: &mut File) -> io::Result<()> {
 
 struct Waiting {
   armed: Armed,
-  until: Instant,
+  deadline: Deadline,
+}
+
+enum Deadline {
+  At(Instant),
+  Paused(Duration),
 }
 
 #[derive(PartialEq)]
@@ -334,6 +339,7 @@ fn run(
     drew: None,
     selection: Selection::Idle,
     focus_layer: FocusLayer::Passive,
+    hover: None,
   };
   let asked = Context {
     queue,
@@ -366,6 +372,12 @@ struct Running<'a> {
   drew: Option<Rendered>,
   selection: Selection<Target>,
   focus_layer: FocusLayer,
+  hover: Option<Hover>,
+}
+
+struct Hover {
+  application: String,
+  offset: u32,
 }
 
 struct Context<'a> {
@@ -392,9 +404,10 @@ fn turned<'a>(
     Ended::No => {}
   }
 
+  let Ok(()) = pause_hovered(&mut running, Instant::now());
   let Ok(()) = ran_out(&mut running.holding, asked.saying, &mut running.waiting);
 
-  let Ok(mut stack) = shown(&running.holding, asked.wearing);
+  let Ok(mut stack) = shown(&running.holding, asked.wearing, running.hover.as_ref());
   let actions: Vec<_> = stack.touching.iter().map(|region| region.target).collect();
   let Ok(()) = running.selection.keep(&actions);
   let Ok(target) = running.selection.target();
@@ -495,13 +508,7 @@ fn turned<'a>(
     }
   }
 
-  let Ok(()) = handle_pointer(
-    running.surface,
-    &stack,
-    &mut running.selection,
-    &mut running.holding,
-    asked.saying,
-  );
+  let Ok(()) = handle_pointer(&mut running, &stack, asked.saying);
 
   match ::core::primitive::bool::then_some(focus_request == Some(focus::Request::Take), ()) {
     ::core::option::Option::Some(()) => {
@@ -600,7 +607,7 @@ fn arming(armed: Armed, waiting: &mut Vec<Waiting>) -> Result<(), Never> {
   match until {
     Some(until_2) => waiting.push(Waiting {
       armed,
-      until: until_2,
+      deadline: Deadline::At(until_2),
     }),
     None => {}
   }
@@ -610,7 +617,13 @@ fn arming(armed: Armed, waiting: &mut Vec<Waiting>) -> Result<(), Never> {
 
 fn soonest(waiting: &[Waiting]) -> Result<Option<Duration>, Never> {
   let now = Instant::now();
-  let soonest = waiting.iter().map(|one| one.until).min();
+  let soonest = waiting
+    .iter()
+    .filter_map(|one| match one.deadline {
+      Deadline::At(until) => Some(until),
+      Deadline::Paused(_) => None,
+    })
+    .min();
 
   Ok(soonest.map(|until| {
     until
@@ -629,9 +642,14 @@ fn ran_out(
   let mut still = Vec::new();
 
   for one in std::mem::take(waiting) {
-    match ::core::primitive::bool::then_some(one.until > now, ()) {
-      ::core::option::Option::Some(()) => still.push(one),
-      ::core::option::Option::None => over.push(one.armed),
+    let elapsed = match one.deadline {
+      Deadline::At(until) => (until <= now).then_some(()),
+      Deadline::Paused(_) => None,
+    };
+
+    match elapsed {
+      Some(()) => over.push(one.armed),
+      None => still.push(one),
     }
   }
 
@@ -652,6 +670,49 @@ fn ran_out(
         let Ok(()) = save_inbox(holding);
       }
     }
+  }
+
+  Ok(())
+}
+
+fn pause_hovered(running: &mut Running<'_>, now: Instant) -> Result<(), Never> {
+  let mut hovered = std::collections::BTreeSet::new();
+  let Ok(visible) = running.holding.visible();
+
+  match running.hover.as_ref() {
+    Some(hover) => {
+      for active in visible {
+        let Ok(name) = showing::application(active);
+
+        match (name == Some(hover.application.as_str())).then_some(()) {
+          Some(()) => {
+            let _new = hovered.insert((active.notification.id, active.raised));
+          }
+          None => {}
+        }
+      }
+    }
+    None => {}
+  }
+
+  match hovered.is_empty().then_some(()) {
+    Some(()) => running.hover = None,
+    None => {}
+  }
+
+  for wait in &mut running.waiting {
+    let on = hovered
+      .contains(&(wait.armed.id, wait.armed.raised))
+      .then_some(());
+    wait.deadline = match (&wait.deadline, on) {
+      (Deadline::At(until), Some(())) => Deadline::Paused(until.saturating_duration_since(now)),
+      (Deadline::Paused(remaining), None) => match now.checked_add(*remaining) {
+        Some(until) => Deadline::At(until),
+        None => Deadline::At(now),
+      },
+      (Deadline::At(until), None) => Deadline::At(*until),
+      (Deadline::Paused(remaining), Some(())) => Deadline::Paused(*remaining),
+    };
   }
 
   Ok(())
@@ -706,14 +767,23 @@ fn clipped(words: Text<'_>) -> Result<Clipped, Never> {
   })
 }
 
-fn shown(holding: &Holding, wearing: &Wearing) -> Result<Stack, Never> {
+fn shown(holding: &Holding, wearing: &Wearing, hover: Option<&Hover>) -> Result<Stack, Never> {
   let Ok(showing) = holding.visible();
-  let Ok(most) = console_core_number_conversion::index(showing::MOST);
+  let (expanded, offset) = match hover {
+    Some(open) => (Some(open.application.as_str()), open.offset),
+    None => (None, 0),
+  };
+  let Ok(banners) = showing::banners(&showing, expanded, offset);
   let mut said = Vec::new();
 
-  for held in showing.iter().take(most) {
+  for banner in &banners {
+    let held = banner.active;
+    let summary = match banner.behind {
+      0 => std::borrow::Cow::Borrowed(held.notification.summary.as_str()),
+      behind => std::borrow::Cow::Owned(format!("+{behind}  {}", held.notification.summary)),
+    };
     let Ok(words) = clipped(Text {
-      summary: &held.notification.summary,
+      summary: &summary,
       body: &held.notification.body,
     });
     let Ok(measure) = sized(&words);
@@ -723,7 +793,8 @@ fn shown(holding: &Holding, wearing: &Wearing) -> Result<Stack, Never> {
 
   let mut cards = Vec::new();
 
-  for (held, (words, measure)) in showing.iter().take(most).zip(&said) {
+  for (banner, (words, measure)) in banners.iter().zip(&said) {
+    let held = banner.active;
     cards.push((
       CardContent {
         id: held.notification.id,
@@ -733,6 +804,7 @@ fn shown(holding: &Holding, wearing: &Wearing) -> Result<Stack, Never> {
         urgency: held.notification.urgency,
         value: held.value,
         actions: &held.actions,
+        behind: banner.behind,
       },
       *measure,
     ));
@@ -788,29 +860,8 @@ fn draw(surface: &mut Surface, stack: &Stack, layer: FocusLayer) -> Result<(), C
     [_first, ..] => {}
   }
 
-  let (namespace, keyboard) = match layer {
-    FocusLayer::Popups => {
-      let Ok(namespace) = focus::Layer::Popups.namespace();
-
-      (namespace, Keyboard::Takes)
-    }
-    FocusLayer::Passive => (showing::WHO, Keyboard::Declines),
-  };
-
-  surface.show(&Wanted {
-    namespace: namespace.to_string(),
-    anchor: Anchor::TopRight,
-    size: stack.room,
-    margin: Margin {
-      top: showing::DOWN,
-      right: showing::IN,
-      bottom: 0,
-      left: 0,
-    },
-    keyboard,
-    room: Room::Over,
-    under: Under::None,
-  })?;
+  let Ok(wanted) = wanted(stack.room, layer);
+  surface.show(&wanted)?;
   let Ok(()) = surface.resize(stack.room);
 
   let shapes = stack.shapes.clone();
@@ -828,42 +879,133 @@ fn draw(surface: &mut Surface, stack: &Stack, layer: FocusLayer) -> Result<(), C
   Ok(())
 }
 
+fn wanted(size: Size<u32>, layer: FocusLayer) -> Result<Wanted, Never> {
+  let (namespace, keyboard) = match layer {
+    FocusLayer::Popups => {
+      let Ok(namespace) = focus::Layer::Popups.namespace();
+
+      (namespace, Keyboard::Takes)
+    }
+    FocusLayer::Passive => (showing::WHO, Keyboard::Declines),
+  };
+
+  Ok(Wanted {
+    namespace: namespace.to_string(),
+    anchor: Anchor::TopRight,
+    size,
+    margin: Margin {
+      top: showing::IN,
+      right: showing::IN,
+      bottom: 0,
+      left: 0,
+    },
+    keyboard,
+    room: Room::Around,
+    under: Under::None,
+  })
+}
+
 fn handle_pointer(
-  surface: &mut Surface,
+  running: &mut Running<'_>,
   stack: &Stack,
-  selection: &mut Selection<Target>,
-  holding: &mut Holding,
   saying: &Sender,
 ) -> Result<(), Never> {
-  let Ok(pointer_events) = surface.pointer_events();
+  let Ok(pointer_events) = running.surface.pointer_events();
 
   for event in pointer_events {
-    let at = match event {
-      PointerEvent::Up
-      | PointerEvent::Left
-      | PointerEvent::Moved { .. }
-      | PointerEvent::Scrolled { .. }
-      | PointerEvent::Pinched { .. } => continue,
-      PointerEvent::Down { at } => at,
-    };
-    let Ok(across) = console_core_number_conversion::toward_zero_i32(at.0);
-    let Ok(down) = console_core_number_conversion::toward_zero_i32(at.1);
-    let Ok(on) = Activation::At(Point { x: across, y: down }).resolve(
-      || None,
-      |point| {
-        let Ok(hit) = stack.on(point);
-
-        hit
-      },
-    );
-
-    match on {
-      Some(target) => {
-        let Ok(()) = activated(target, holding, saying);
+    match event {
+      PointerEvent::Left => running.hover = None,
+      PointerEvent::Moved { at } => {
+        let Ok(target) = popup_at(stack, at);
+        let Ok(()) = hovered(running, target);
       }
-      None => *selection = Selection::Idle,
+      PointerEvent::Scrolled { by } => {
+        let Ok(()) = scroll_group(running, by.partial_cmp(&0.0));
+      }
+      PointerEvent::Down { at } => {
+        let Ok(target) = popup_at(stack, at);
+
+        match target {
+          Some(pressed) => {
+            let Ok(()) = activated(pressed, &mut running.holding, saying);
+          }
+          None => running.selection = Selection::Idle,
+        }
+      }
+      PointerEvent::Up | PointerEvent::Pinched { .. } => {}
     }
   }
+
+  Ok(())
+}
+
+fn popup_at(stack: &Stack, (x, y): (f64, f64)) -> Result<Option<Target>, Never> {
+  let Ok(across) = console_core_number_conversion::toward_zero_i32(x);
+  let Ok(down) = console_core_number_conversion::toward_zero_i32(y);
+
+  stack.on(Point { x: across, y: down })
+}
+
+fn hovered(running: &mut Running<'_>, hit: Option<Target>) -> Result<(), Never> {
+  let active = hit.and_then(|target| {
+    running
+      .holding
+      .waiting
+      .iter()
+      .find(|active| active.notification.id == target.id && active.raised == target.raised)
+  });
+  let application = match active {
+    Some(notice) => {
+      let Ok(name) = showing::application(notice);
+
+      name
+    }
+    None => return Ok(()),
+  };
+  let previous = running
+    .hover
+    .as_ref()
+    .map(|hover| hover.application.as_str());
+
+  match (previous != application).then_some(()) {
+    Some(()) => {
+      running.hover = application.map(|name| Hover {
+        application: name.to_owned(),
+        offset: 0,
+      });
+    }
+    None => {}
+  }
+
+  Ok(())
+}
+
+fn scroll_group(
+  running: &mut Running<'_>,
+  direction: Option<std::cmp::Ordering>,
+) -> Result<(), Never> {
+  let hover = match running.hover.as_mut() {
+    Some(hover) => hover,
+    None => return Ok(()),
+  };
+  let Ok(count) = console_core_number_conversion::fitted::<_, u32>(
+    running
+      .holding
+      .waiting
+      .iter()
+      .filter(|active| {
+        let Ok(application) = showing::application(active);
+
+        application == Some(hover.application.as_str())
+      })
+      .count(),
+  );
+  let limit = count.saturating_sub(showing::MOST);
+  hover.offset = match direction {
+    Some(std::cmp::Ordering::Greater) => hover.offset.saturating_add(1).min(limit),
+    Some(std::cmp::Ordering::Less) => hover.offset.saturating_sub(1),
+    Some(std::cmp::Ordering::Equal) | None => hover.offset.min(limit),
+  };
 
   Ok(())
 }
@@ -923,10 +1065,28 @@ mod tests {
     let Ok(gaps) = console_core_number_conversion::fitted::<i32, u32>(
       showing::BETWEEN
         .saturating_mul(2)
-        .saturating_add(showing::DOWN),
+        .saturating_add(showing::IN),
     );
 
     Ok(tall.saturating_mul(showing::MOST).saturating_add(gaps))
+  }
+
+  #[test]
+  fn popups_use_the_top_right_of_the_space_left_by_the_bar() {
+    let size = Size {
+      width: 320,
+      height: 60,
+    };
+
+    for layer in [FocusLayer::Passive, FocusLayer::Popups] {
+      let Ok(card) = wanted(size, layer);
+
+      assert_eq!(card.anchor, Anchor::TopRight);
+      assert_eq!(card.room, Room::Around);
+      assert_eq!(card.margin.top, showing::IN);
+      assert_eq!(card.margin.right, showing::IN);
+      assert_eq!(card.under, Under::None);
+    }
   }
 
   #[test]

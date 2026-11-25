@@ -27,7 +27,8 @@ const OWNERS: &[(&str, &[Program])] = &[
     "console-compositor",
     &[Program::Hyprctl, Program::Hyprland, Program::StartHyprland],
   ),
-  ("console-package-manager-pacman", &[Program::Pacman]),
+  ("console-package-manager-pacman", &[Program::Pacman, Program::Yay]),
+  ("console-package-manager-flatpak", &[Program::Flatpak]),
   ("console-package-manager-nix", &[Program::Nix]),
   ("console-package-manager-mise", &[Program::Mise]),
   (

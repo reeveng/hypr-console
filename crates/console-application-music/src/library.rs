@@ -30,7 +30,7 @@ pub fn things(folder: &Path) -> Result<Vec<Thing>, Never> {
   let mut things: Vec<Thing> = Vec::new();
 
   for entry in reading.flatten() {
-    let about = about(&entry.path())?;
+    let about = about(&entry)?;
 
     match about {
       Some(thing) => things.push(thing),
@@ -38,51 +38,65 @@ pub fn things(folder: &Path) -> Result<Vec<Thing>, Never> {
     }
   }
 
-  things.sort_by_key(|thing| (!thing.folder, thing.name.to_lowercase()));
+  things.sort_by_cached_key(|thing| (!thing.folder, thing.name.to_lowercase()));
 
   Ok(things)
 }
 
-fn about(path: &Path) -> Result<Option<Thing>, Never> {
-  let called = match path.file_name() {
-    Some(called) => called,
-    None => return Ok(None),
-  };
+fn about(entry: &std::fs::DirEntry) -> Result<Option<Thing>, Never> {
+  let called = entry.file_name();
 
   match bool::then_some(called.as_encoded_bytes().starts_with(b"."), ()) {
     ::core::option::Option::Some(()) => return Ok(None),
     ::core::option::Option::None => {}
   }
 
-  let name = visible_name(called)?;
-  let playable = playable(path)?;
-  let folder = match std::fs::symlink_metadata(path) {
-    Ok(metadata) => metadata.is_dir(),
+  let kind = match entry.file_type() {
+    Ok(kind) => kind,
     Err(_unavailable) => return Ok(None),
   };
+  let path = entry.path();
 
-  match bool::then_some(folder, ()) {
-    ::core::option::Option::Some(()) => Ok(Some(Thing {
-      name,
-      path: path.to_path_buf(),
-      folder: true,
-    })),
-    ::core::option::Option::None => match playable {
-      Playable::Yes => {
-        match path.is_file().then_some(()) {
-          Some(()) => {}
-          None => return Ok(None),
-        }
-        let named = console_core_file_names::title(&name)?;
+  match kind.is_dir().then_some(()) {
+    Some(()) => {
+      let Ok(name) = visible_name(&called);
 
-        Ok(Some(Thing {
-          name: named,
-          path: path.to_path_buf(),
-          folder: false,
-        }))
-      }
-      Playable::No => Ok(None),
+      return Ok(Some(Thing {
+        name,
+        path,
+        folder: true,
+      }));
+    }
+    None => {}
+  }
+
+  let Ok(playable) = playable(&path);
+
+  match playable {
+    Playable::Yes => {}
+    Playable::No => return Ok(None),
+  }
+
+  let is_file = match kind.is_symlink().then_some(()) {
+    Some(()) => match path.metadata() {
+      Ok(target) => target.is_file(),
+      Err(_missing_target) => return Ok(None),
     },
+    None => kind.is_file(),
+  };
+
+  match is_file.then_some(()) {
+    Some(()) => {
+      let Ok(name) = visible_name(&called);
+      let Ok(title) = console_core_file_names::title(&name);
+
+      Ok(Some(Thing {
+        name: title,
+        path,
+        folder: false,
+      }))
+    }
+    None => Ok(None),
   }
 }
 
@@ -102,6 +116,30 @@ pub enum Kind {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn music_follows_track_links_and_leaves_directory_links_alone()
+  -> Result<(), Box<dyn std::error::Error>> {
+    use std::fs::create_dir;
+    use std::os::unix::fs::symlink;
+
+    let root = console_core_temporary_directories::fresh("music-library-entry-types")?;
+    console_core_atomic_writes::whole_with_folders(&root.join("track.flac"), &[])?;
+    create_dir(root.join("albums"))?;
+    symlink("track.flac", root.join("copy.flac"))?;
+    symlink("missing.flac", root.join("broken.flac"))?;
+    symlink("albums", root.join("other.flac"))?;
+
+    let Ok(listed) = things(&root);
+    let paths: Vec<_> = listed
+      .iter()
+      .filter_map(|item| item.path.file_name())
+      .collect();
+
+    assert_eq!(paths, ["albums", "copy.flac", "track.flac"]);
+
+    Ok(())
+  }
 
   #[test]
   fn only_what_the_player_plays_is_listed() {

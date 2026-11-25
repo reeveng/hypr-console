@@ -3,6 +3,7 @@ use std::path::Path;
 use console_compositor::DispatchResult;
 use console_compositor::quick_workspace::{self, Applications};
 use console_core_controls::Switch;
+use console_core_internal_programs::InternalProgram;
 use console_core_never::Never;
 use console_default_applications::editors;
 use console_panel::page::{Aside, Handler, Row};
@@ -14,8 +15,14 @@ pub const TITLE: &str = "Quick Workspace";
 pub fn rows(back: impl Chosen) -> Result<Vec<Row>, Never> {
   let Ok(configuration) = crate::rows::configuration();
   let Ok(way_back) = Row::back(&configuration, move |showing| back(showing));
-  let Ok(heading) = Row::naming(TITLE, Aside("Super+Shift+M or L2 + Y"));
-  let mut rows = vec![way_back, heading];
+  let Ok(heading) = Row::naming(TITLE, Aside(""));
+  let Ok(buttons) = InternalProgram::MappingPanel.path();
+  let Ok(shortcuts) = Row::new(
+    "Configure Shortcuts",
+    Aside("Buttons"),
+    Handler::Run(vec![buttons.to_owned()]),
+  );
+  let mut rows = vec![way_back, heading, shortcuts];
   let Ok(path) = quick_workspace::path();
   let path_3 = match path {
     Some(path_2) => path_2,
@@ -81,13 +88,21 @@ pub fn rows(back: impl Chosen) -> Result<Vec<Row>, Never> {
           match outcome {
             DispatchResult::Success => {}
             DispatchResult::Failure(fault) => {
-              showing.note(&format!(
-                "Saved Quick Workspace settings. Reload failed. {fault}"
-              ));
+              let Ok(()) = console_notifications::notify(
+                console_notifications::Application("Settings"),
+                "Quick Workspace settings saved",
+                Some(&format!("Reload failed. {fault}")),
+              );
             }
           }
         }
-        Err(fault) => showing.note(&format!("Could not save Quick Workspace settings. {fault}")),
+        Err(fault) => {
+          let Ok(()) = console_notifications::notify(
+            console_notifications::Application("Settings"),
+            "Could not save Quick Workspace settings",
+            Some(&fault.to_string()),
+          );
+        }
       }
     });
     let Ok(row) = Row::new(&name, Aside(""), handler);

@@ -98,7 +98,7 @@ pub fn host() -> Result<String, Error> {
   }
 }
 
-const PIECES: [&str; 21] = [
+const PIECES: [&str; 20] = [
   "console-input-controller",
   "console-input-keyboard",
   "console-bar",
@@ -114,7 +114,6 @@ const PIECES: [&str; 21] = [
   "console-control-center",
   "console-overview",
   "console-idle",
-  "console-lock-power",
   "console-warm",
   "console-light",
   "console-wifi",

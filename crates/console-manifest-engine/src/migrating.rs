@@ -21,8 +21,8 @@
 //! it, which is the state being asked for. A path that is not there is the
 //! same, since every sweep has to be safe to run twice.
 //!
-//! On a machine that has never applied none of them is run and all of them are
-//! remembered, which is `done::Applied::Never` and argued for there.
+//! On a machine that has never applied, historical sweeps are remembered and
+//! setup migrations wait for the first installation to finish.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -31,7 +31,7 @@ use console_core_external_programs::Program;
 use console_manifest_migrations::done::{self, KEPT, Outstanding};
 use console_manifest_migrations::history::EVERY;
 use console_manifest_migrations::sweeping::{
-  self, CopySetting, Migration, Rewrite, Step, Timing,
+  self, CopySetting, FirstApply, Migration, Rewrite, Step, Timing,
 };
 use console_package_manager::system::{self, Removal};
 
@@ -85,7 +85,7 @@ pub fn run(user: User<'_>, timing: Timing) -> Result<(), Unapplied> {
         when == timing
       })
       .collect::<Vec<_>>(),
-    Outstanding::Remember(migrations) => return remembered(&migrations),
+    Outstanding::Remember(migrations) => return remember_sweeps(Path::new(KEPT), &migrations),
   };
 
   match ::core::primitive::bool::then_some(outstanding.is_empty(), ()) {
@@ -177,6 +177,7 @@ fn carried_out(step: &Step, attic: &Path, user: User<'_>) -> Result<(), Unapplie
 
       Ok(())
     }
+    Step::SetupNixDaemon => crate::nix_setup::run(),
     Step::RemoveIfEmpty(declared) => {
       let Ok(on) = install::on_machine(declared, user);
 
@@ -338,21 +339,17 @@ fn copied(copy: &CopySetting, user: User<'_>) -> Result<(), Unapplied> {
   Ok(())
 }
 
-fn remembered(migrations: &[Migration]) -> Result<(), Unapplied> {
-  match ::core::primitive::bool::then_some(migrations.is_empty(), ()) {
-    ::core::option::Option::Some(()) => return Ok(()),
-    ::core::option::Option::None => {}
-  }
-
-  println!(
-    "this machine has never applied, so the {} migrations in the history are marked done \
-         rather than run: each of them moves aside what an older manifest installed here, and \
-         nothing here was installed by one",
-    migrations.len()
-  );
+fn remember_sweeps(directory: &Path, migrations: &[Migration]) -> Result<(), Unapplied> {
+  std::fs::create_dir_all(directory)
+    .map_err(|fault| Unapplied::Directory(directory.to_path_buf(), fault))?;
 
   for migration in migrations {
-    done::remember(Path::new(KEPT), migration.moment)?;
+    let Ok(first) = migration.first_apply();
+
+    match first {
+      FirstApply::Remember => done::remember(directory, migration.moment)?,
+      FirstApply::Run => {}
+    }
   }
 
   Ok(())
@@ -362,6 +359,24 @@ fn remembered(migrations: &[Migration]) -> Result<(), Unapplied> {
 mod tests {
   use super::*;
   use crate::pruning::tests::{Failure, a_machine, place_file};
+
+  #[test]
+  fn first_install_marks_sweeps_and_leaves_nix_setup_pending() -> Result<(), Failure> {
+    let machine = a_machine("nix-setup-migrations")?;
+    remember_sweeps(&machine, EVERY)?;
+    let applied = done::already(&machine).map_err(Unapplied::from)?;
+    let Ok(pending) = done::pending(EVERY, &applied);
+    let setup: Vec<Migration> = EVERY
+      .iter()
+      .copied()
+      .filter(|migration| migration.steps.contains(&Step::SetupNixDaemon))
+      .collect();
+
+    assert_eq!(pending, Outstanding::Run(setup));
+    std::fs::remove_dir_all(&machine)?;
+
+    Ok(())
+  }
 
   #[test]
   fn a_path_that_is_there_goes_to_the_attic_and_one_that_is_not_is_nothing() -> Result<(), Failure>

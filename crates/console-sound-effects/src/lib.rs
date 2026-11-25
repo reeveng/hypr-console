@@ -26,17 +26,19 @@
 pub mod balance;
 pub mod catalogue;
 pub mod gain;
+pub mod preview;
 pub mod synthesis;
 
 use std::fmt;
-use std::fs::{OpenOptions, TryLockError};
 use std::io;
 use std::num::NonZeroU32;
 use std::time::Duration;
 
-use console_audio_streams::{CueError, Pcm, Sample, VolumePreview, play_cue};
+use console_audio_streams::{CueError, Pcm, Sample, play_cue};
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
+
+pub use preview::play_volume;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Voice {
@@ -122,7 +124,7 @@ impl SoundEffects {
 #[derive(Debug)]
 pub enum PlaybackError {
   Cue(synthesis::RenderError),
-  PreviewLock(io::Error),
+  Preview(io::Error),
   Output(CueError),
 }
 
@@ -130,8 +132,8 @@ impl fmt::Display for PlaybackError {
   fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
       PlaybackError::Cue(fault) => write!(formatter, "{fault}"),
-      PlaybackError::PreviewLock(fault) => {
-        write!(formatter, "could not reserve the volume preview: {fault}")
+      PlaybackError::Preview(fault) => {
+        write!(formatter, "could not handle the volume preview: {fault}")
       }
       PlaybackError::Output(fault) => write!(formatter, "{fault}"),
     }
@@ -160,33 +162,6 @@ fn volume_samples() -> Result<Vec<u8>, synthesis::RenderError> {
   let Ok(cue) = catalogue::Sound::Volume.cue();
 
   synthesis::render(&cue, Degree(10))
-}
-
-#[cfg_attr(
-  dylint_lib = "explicit040_no_torn_write",
-  expect(
-    explicit040_no_torn_write,
-    reason = "the process holds an advisory lock on this file's inode and writes no bytes to the file"
-  )
-)]
-pub fn play_volume(sink: &str) -> Result<(), PlaybackError> {
-  let Ok(runtime) = console_core_places::runtime_or_user();
-  let lock = OpenOptions::new()
-    .create(true)
-    .append(true)
-    .open(runtime.join("console-volume-preview.lock"))
-    .map_err(PlaybackError::PreviewLock)?;
-
-  match lock.try_lock() {
-    Ok(()) => {
-      let sound = volume_samples().map_err(PlaybackError::Cue)?;
-
-      play_cue(CUE_PCM, &sound, Some(VolumePreview { target: sink, lock }))
-        .map_err(PlaybackError::Output)
-    }
-    Err(TryLockError::WouldBlock) => Ok(()),
-    Err(TryLockError::Error(fault)) => Err(PlaybackError::PreviewLock(fault)),
-  }
 }
 
 #[cfg(test)]

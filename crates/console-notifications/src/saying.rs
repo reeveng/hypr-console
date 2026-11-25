@@ -28,6 +28,8 @@ use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_core_words::Words;
 use console_operating_system_linux::notification;
+use console_operating_system_linux::program_runtime::commands::reap_in_background;
+use console_program_lifetime::let_go;
 use console_waiting::{Outcome, Ready, Schedule, until_handed};
 
 const NEVER_SAID_BEFORE: u32 = 0;
@@ -60,6 +62,108 @@ pub struct Notification {
 pub struct Content<'a> {
   pub summary: &'a str,
   pub body: &'a str,
+}
+
+#[derive(Clone, Copy)]
+pub struct Application(pub &'static str);
+
+pub fn notify(application: Application, summary: &str, body: Option<&str>) -> Result<(), Never> {
+  let options = notification::Options {
+    app_name: Some(application.0),
+    ..notification::Options::default()
+  };
+  let Ok(command) = options.command(summary, body);
+
+  post(command)
+}
+
+fn post(mut command: Command) -> Result<(), Never> {
+  match let_go(&mut command) {
+    Ok(child) => reap_in_background(child),
+    Err(fault) => {
+      console_core_logging::warn!("Could not send a desktop notification: {fault}");
+
+      Ok(())
+    }
+  }
+}
+
+pub struct LiveNotification {
+  application: Application,
+  id: Option<u32>,
+}
+
+impl LiveNotification {
+  pub fn new(application: Application) -> Result<Self, Never> {
+    Ok(Self {
+      application,
+      id: None,
+    })
+  }
+
+  pub fn update(&mut self, summary: &str) -> Result<(), Never> {
+    let options = notification::Options {
+      app_name: Some(self.application.0),
+      expire_ms: Some(60_000),
+      history: notification::History::Transient,
+      id_output: notification::IdOutput::Requested,
+      replace_id: self.id,
+      ..notification::Options::default()
+    };
+    let Ok(arguments) = options.invocation(summary, None);
+    let Ok(answer) = said_within(&arguments, WAITING);
+
+    match answer.map(|text| text.trim().parse::<u32>()) {
+      Some(Ok(id)) => self.id = Some(id),
+      Some(Err(fault)) => {
+        console_core_logging::warn!("Could not read the notification ID: {fault}")
+      }
+      None => {}
+    }
+
+    Ok(())
+  }
+}
+
+impl Drop for LiveNotification {
+  fn drop(&mut self) {
+    match self.id {
+      Some(id) => {
+        let Ok(effect) = crate::serving::closing_one(id);
+        let Ok(program) = effect.program.name();
+        let mut command = Command::new(program);
+        command.args(effect.arguments);
+        let Ok(()) = post(command);
+      }
+      None => {}
+    }
+  }
+}
+
+pub fn report(application: Application, kind: &str, said: Content<'_>) -> Result<(), Never> {
+  let Ok(line) = for_the_journal(kind, said);
+  let Ok(()) = journal(&line);
+  let Ok(counter) = StatePath::counting(kind);
+  let Ok(count) = counter.again();
+  let Ok(offered) = fault(said, count);
+
+  match offered {
+    Some(notification) => {
+      let Ok(arguments) = notification.arguments_for(application);
+
+      match arguments.split_first() {
+        Some((program, parameters)) => {
+          let mut command = Command::new(program);
+          command.args(parameters).stdout(Stdio::null());
+          let Ok(()) = post(command);
+        }
+        None => {}
+      }
+    }
+    None => {}
+  }
+
+  Ok(())
 }
 
 impl Notification {
@@ -105,6 +209,10 @@ impl Notification {
   }
 
   pub fn arguments(&self) -> Result<Vec<String>, Never> {
+    self.arguments_for(Application("Console"))
+  }
+
+  fn arguments_for(&self, application: Application) -> Result<Vec<String>, Never> {
     let urgency = match self.urgency {
       Urgency::Normal => notification::Urgency::Normal,
       Urgency::Critical => notification::Urgency::Critical,
@@ -114,7 +222,7 @@ impl Notification {
       Expiry::Milliseconds(many) => many,
     };
     let options = notification::Options {
-      app_name: Some("Console"),
+      app_name: Some(application.0),
       expire_ms: Some(expiry),
       urgency,
       id_output: notification::IdOutput::Requested,

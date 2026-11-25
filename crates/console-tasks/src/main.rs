@@ -300,7 +300,7 @@ fn test_run(arguments: &[String]) -> Result<Run, TaskError> {
     [name] => match name.as_str() {
       "quick" => task::QUICK.to_vec(),
       "e2e" => task::E2E.to_vec(),
-      "all" => task::QUICK.into_iter().chain(task::E2E).collect(),
+      "all" => Suite::VARIANTS.to_vec(),
       word => {
         let Ok(selected) = Suite::from_word(word);
 

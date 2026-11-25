@@ -4,33 +4,16 @@
 //!     calendar-panel
 //! ```
 //!
-//! The bar's clock opens it, and what it is for is the thing a clock cannot
-//! say: which day of the week the fourteenth is, and how far that is from
-//! today. So it is one page, a month wide, with today lit the way every other
-//! panel lights what is already true.
-//!
-//! The month is a level rather than a pair of buttons. Left and right on a
-//! level are already a promise this desktop keeps -- the d-pad, a swipe across
-//! the row, and the two marks drawn on its ends -- so a month that is a level
-//! is three ways of reaching the month before it, and none of them had to be
-//! written here. What the row carries is [`crate::month::Month`] stepped by
-//! however far the panel has walked from the month it opened in, which is the
-//! whole of this panel's state: nothing is remembered between openings,
-//! because a calendar opened tomorrow that is still showing last March is a
-//! calendar that lied about what day it is.
-//!
-//! Today is read each time the rows are built rather than once when the card
-//! is, because a panel left open over midnight is a panel that would otherwise
-//! keep lighting yesterday.
+//! The bar's clock opens the current month. The panel's tab strip can walk
+//! either way from there, adding another month as it approaches either end.
+//! Each month's tab carries the localized name and year from `cal`. The rows
+//! start with the weekday names and highlight today in the month that holds it.
 
-use console_actor::Actor;
 use console_core_arguments::{Command, Operands};
 use console_core_external_programs::Program;
 use console_core_never::Never;
-use console_core_state_machine::{Machine, Queue};
 use console_panel::card::{Card, Door};
-use console_panel::marks;
-use console_panel::page::{Active, Aside, Cell, Ends, Page, Row, Rows};
+use console_panel::page::{Active, Cell, Neighbor, Page, Row, Rows};
 
 use crate::month::{self, Day, Grid, Holds, Month};
 
@@ -38,34 +21,9 @@ pub const WHO: &str = "calendar-panel";
 
 const DOOR: &str = "calendar";
 
-const TITLE: &str = "Calendar";
-
-const WHERE_IT_OPENED: i32 = 0;
-
 const TODAY: &str = "+%Y %m %d";
 
 const NO_DAY: &str = "Date Unavailable";
-
-struct Calendar;
-
-impl Machine for Calendar {
-  type Input = ();
-  type State = i32;
-  type Request = i32;
-  type Effect = Never;
-
-  fn initialize(
-    _input: &(),
-    _previous: Option<i32>,
-    _effects: &mut Queue<Never>,
-  ) -> Result<i32, Never> {
-    Ok(WHERE_IT_OPENED)
-  }
-
-  fn handle(offset: i32, step: i32, _effects: &mut Queue<Never>) -> Result<i32, Never> {
-    Ok(offset.wrapping_add(step))
-  }
-}
 
 pub const COMMAND: Command = Command {
   name: "calendar-panel",
@@ -79,66 +37,88 @@ pub fn door(_argv: &[String]) -> Result<Door, Never> {
 }
 
 pub fn card(_argv: &[String]) -> Result<Card, Never> {
-  Card::supervised::<Calendar, _>((), pages)
+  let Ok(now) = today();
+  let at = match now {
+    Some(day) => {
+      let Ok(month) = day.month();
+      month
+    }
+    None => return unavailable(),
+  };
+  let Ok(opening) = month_page(at);
+  let current = match opening {
+    Some(page) => page,
+    None => return unavailable(),
+  };
+  let title = current.title.clone();
+  let Ok(card) = Card::new(move || {
+    let Ok(before) = neighbor(at, Neighbor::Before);
+    let Ok(after) = neighbor(at, Neighbor::After);
+
+    before.into_iter().chain([current]).chain(after).collect()
+  });
+
+  card.opening_at(Some(&title))
 }
 
-fn pages(held: &Actor<Calendar>) -> Result<Vec<Page>, Never> {
-  let reading = held.clone();
+fn unavailable() -> Result<Card, Never> {
+  Card::new(|| {
+    let Ok(page) = Page::new(NO_DAY, Rows::Fixed(Vec::new()));
+    vec![page]
+  })
+}
+
+fn neighbor(at: Month, direction: Neighbor) -> Result<Option<Page>, Never> {
+  let Ok(month) = match direction {
+    Neighbor::Before => at.before(),
+    Neighbor::After => at.after(),
+  };
+
+  match (month.year > 0 && month != at).then_some(()) {
+    Some(()) => month_page(month),
+    None => Ok(None),
+  }
+}
+
+fn month_page(at: Month) -> Result<Option<Page>, Never> {
+  let Ok(said) = run_cal(at);
+  let Ok(grid) = month::read(&said);
+
+  match grid.said.as_str() {
+    "" => Ok(None),
+    _ => {
+      let Ok(page) = tab(at, grid);
+      Ok(Some(page))
+    }
+  }
+}
+
+fn tab(at: Month, grid: Grid) -> Result<Page, Never> {
+  let title = grid.said.clone();
   let compute = move || {
-    let Ok(rows) = rows(&reading);
+    let Ok(now) = today();
+    let Ok(rows) = rows(&grid, at, now);
 
     rows
   };
   let Ok(rows) = Rows::computed(compute.clone());
-  let Ok(page) = Page::new(TITLE, rows);
-  let Ok(with_preview) = page.meanwhile(compute);
+  let Ok(page) = Page::new(&title, rows);
+  let Ok(preview) = page.meanwhile(compute);
 
-  Ok(vec![with_preview])
+  preview.with_neighbors(move |direction| neighbor(at, direction))
 }
 
-fn rows(held: &Actor<Calendar>) -> Result<Vec<Row>, Never> {
-  let Ok(today) = today();
-  let offset = held.get();
-
-  let (today_3, months) = match (today, offset) {
-    (Some(today_2), Ok(months)) => (today_2, months),
-    (None, _) | (Some(_), Err(console_actor::Closed)) => {
-      let Ok(row) = Row::placeholder(NO_DAY);
-
-      return Ok(vec![row]);
-    }
-  };
-
-  let Ok(opened) = today_3.month();
-  let Ok(at) = opened.add_months(months);
-  let Ok(said) = run_cal(at);
-  let Ok(grid) = month::read(&said);
-
-  let Ok(over) = month_row(held, &grid);
-  let Ok(weekdays) = weekday_row(&grid);
-  let mut rows = vec![over, weekdays];
+fn rows(grid: &Grid, at: Month, today: Option<Day>) -> Result<Vec<Row>, Never> {
+  let Ok(weekdays) = weekday_row(grid);
+  let mut rows = vec![weekdays];
 
   for week in &grid.weeks {
-    let Ok(row) = week_row(week, at, today_3);
+    let Ok(row) = week_row(week, at, today);
 
     rows.push(row);
   }
 
   Ok(rows)
-}
-
-fn month_row(held: &Actor<Calendar>, grid: &Grid) -> Result<Row, Never> {
-  let stepping = held.clone();
-  let Ok(row) = Row::text(&grid.said, Aside(""));
-  let Ok(row_2) = row.adjusting(move |by| {
-        #[cfg_attr(dylint_lib = "explicit060_no_reasonless_discard", expect(explicit060_no_reasonless_discard, reason = "the callback can only fail after the calendar actor has closed, when no panel remains to move or show an error"))]
-        let _ = stepping.send(by);
-    });
-
-  row_2.ended(Ends {
-    less: marks::BEFORE,
-    more: marks::AFTER,
-  })
 }
 
 fn weekday_row(grid: &Grid) -> Result<Row, Never> {
@@ -153,11 +133,17 @@ fn weekday_row(grid: &Grid) -> Result<Row, Never> {
   Row::naming_cells(cells)
 }
 
-fn week_row(week: &[String], at: Month, today: Day) -> Result<Row, Never> {
+fn week_row(week: &[String], at: Month, today: Option<Day>) -> Result<Row, Never> {
   let mut cells = Vec::new();
 
   for day in week {
-    let Ok(now) = highlight(day, at, today);
+    let now = match today {
+      Some(today_day) => {
+        let Ok(active) = highlight(day, at, today_day);
+        active
+      }
+      None => Active::No,
+    };
     let Ok(cell) = Cell::new(day, now);
 
     cells.push(cell);
@@ -263,17 +249,23 @@ mod tests {
   use super::*;
 
   #[test]
-  fn the_level_steps_the_month_in_both_directions() -> Result<(), Box<dyn std::error::Error>> {
-    let console_actor::Booted { actor, scope, .. } = console_actor::boot::<Calendar>(())?;
-    let Ok(grid) = month::read("October 2026");
-    let Ok(row) = month_row(&actor, &grid);
-    let adjust = row.level.ok_or("the month row must expose its level")?;
-
-    adjust(1);
-    assert_eq!(actor.get(), Ok(1));
-    adjust(-1);
-    assert_eq!(actor.get(), Ok(0));
-    let Ok(()) = scope.close();
+  fn the_month_name_is_in_the_tab_and_the_grid_starts_with_weekdays()
+  -> Result<(), Box<dyn std::error::Error>> {
+    let Ok(grid) = month::read(
+      "    January 2027
+Su Mo Tu We Th Fr Sa
+                1  2",
+    );
+    let at = Month {
+      year: 2027,
+      month: 1,
+    };
+    let Ok(page) = tab(at, grid);
+    assert_eq!(page.title, "January 2027");
+    let Ok(rows) = page.rows.read();
+    let first = rows.first().ok_or("missing weekdays")?;
+    let labels: Vec<_> = first.cells.iter().map(|cell| cell.says.as_str()).collect();
+    assert_eq!(labels, ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"]);
 
     Ok(())
   }

@@ -682,7 +682,7 @@ impl Looking {
     let change = match planned {
       Planned::Change(change) => change,
       Planned::ZoomInFirst => {
-        return Ok(EditReply::Note(ZOOM_IN_FIRST.to_owned()));
+        return Ok(EditReply::ZoomInFirst);
       }
     };
 
@@ -693,7 +693,7 @@ impl Looking {
 
         let Ok(told) = unsaved(&why);
 
-        return Ok(EditReply::Note(told));
+        return Ok(EditReply::Failed(told));
       }
     };
 
@@ -749,7 +749,8 @@ enum Reply {
 
 enum EditReply {
   Saved,
-  Note(String),
+  ZoomInFirst,
+  Failed(String),
 }
 
 struct View {
@@ -1141,7 +1142,20 @@ fn edited(
 
   match reply {
     Some(Reply::Edited(EditReply::Saved)) => showing.refresh(),
-    Some(Reply::Edited(EditReply::Note(note))) => showing.note(&note),
+    Some(Reply::Edited(EditReply::ZoomInFirst)) => {
+      let Ok(()) = console_notifications::notify(
+        console_notifications::Application("Media Viewer"),
+        ZOOM_IN_FIRST,
+        None,
+      );
+    }
+    Some(Reply::Edited(EditReply::Failed(fault))) => {
+      let Ok(()) = console_notifications::notify(
+        console_notifications::Application("Media Viewer"),
+        &fault,
+        None,
+      );
+    }
     Some(_) | None => {}
   }
 

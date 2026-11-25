@@ -131,15 +131,15 @@ enum WindowActionOutcome {
   Failed,
 }
 
-fn act(
-  action: WindowAction,
-  target: &Task,
-  showing: &dyn Showing,
-) -> Result<WindowActionOutcome, Never> {
+fn act(action: WindowAction, target: &Task) -> Result<WindowActionOutcome, Never> {
   let open = match console_compositor::ask(Clients) {
     Ok(open) => open,
     Err(_cannot_list_windows) => {
-      showing.note("Couldn’t read open windows");
+      let Ok(()) = console_notifications::notify(
+        console_notifications::Application("Task Manager"),
+        "Couldn’t read open windows",
+        None,
+      );
       return Ok(WindowActionOutcome::Failed);
     }
   };
@@ -147,7 +147,11 @@ fn act(
 
   match present {
     WindowPresence::Closed => {
-      showing.note("That window has closed");
+      let Ok(()) = console_notifications::notify(
+        console_notifications::Application("Task Manager"),
+        "That window has closed",
+        None,
+      );
       return Ok(WindowActionOutcome::Failed);
     }
     WindowPresence::Open => {}
@@ -158,7 +162,11 @@ fn act(
   Ok(match outcome {
     DispatchResult::Success => WindowActionOutcome::Completed,
     DispatchResult::Failure(_could_not_dispatch) => {
-      showing.note("The compositor couldn’t complete that action");
+      let Ok(()) = console_notifications::notify(
+        console_notifications::Application("Task Manager"),
+        "The compositor couldn’t complete that action",
+        None,
+      );
       WindowActionOutcome::Failed
     }
   })
@@ -252,7 +260,11 @@ fn task_rows(names: &BTreeMap<String, String>, selected: &Selection) -> Result<V
       match selection.send(SelectionRequest::Choose(task.clone())) {
         Ok(_chosen) => showing.replace(2),
         Err(SendError::Closed | SendError::MachineDefect(_)) => {
-          showing.note("Couldn’t select that window");
+          let Ok(()) = console_notifications::notify(
+            console_notifications::Application("Task Manager"),
+            "Couldn’t select that window",
+            None,
+          );
         }
       }
     });
@@ -288,7 +300,7 @@ fn return_to_windows_after(
   selected: &Selection,
   showing: &dyn Showing,
 ) -> Result<(), Never> {
-  let Ok(outcome) = act(action, task, showing);
+  let Ok(outcome) = act(action, task);
 
   match outcome {
     WindowActionOutcome::Completed => {
@@ -350,8 +362,8 @@ fn action_rows(task: &Task, selected: &Selection) -> Result<Vec<Row>, Never> {
     let Ok(_returned) = back(&back_selection, showing);
   });
   let Ok(task_row) = Row::stacked(Picture::None, &task.name, Aside(&task.detail));
-  let Ok(focus) = Handler::call(move |showing| {
-    let Ok(outcome) = act(WindowAction::Focus, &go, showing);
+  let Ok(focus) = Handler::call(move |_| {
+    let Ok(outcome) = act(WindowAction::Focus, &go);
 
     match outcome {
       WindowActionOutcome::Completed => ActionOutcome::Close,

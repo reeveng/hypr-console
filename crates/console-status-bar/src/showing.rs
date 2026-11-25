@@ -117,12 +117,13 @@ pub const BETWEEN: Share = Share(105);
 
 pub const ICON: Share = Share(579);
 
-const SIDE: Share = Share(2200);
+const SIDE: Share = Share(1210);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Face {
   Icon,
   Clock,
+  SideClock,
   Reading,
   Small,
 }
@@ -130,7 +131,7 @@ pub enum Face {
 impl Face {
   pub fn weight(self) -> Result<Weight, Never> {
     Ok(match self {
-      Face::Clock => Weight::Bold,
+      Face::Clock | Face::SideClock => Weight::Bold,
       Face::Icon | Face::Reading | Face::Small => Weight::Plain,
     })
   }
@@ -181,6 +182,12 @@ impl Fitting {
     Ok(body.saturating_add(self.thin))
   }
 
+  pub fn sidebar_content_width(&self, width: u32) -> Result<u32, Never> {
+    Ok(width
+      .saturating_sub(self.thin)
+      .saturating_sub(self.margin.saturating_mul(4)))
+  }
+
   pub fn font(&self, face: Face) -> Result<Font, Never> {
     match face {
       Face::Icon => {
@@ -192,7 +199,7 @@ impl Fitting {
         })
       }
       Face::Clock | Face::Reading => TextStyle::Callout.font(),
-      Face::Small => TextStyle::Caption.font(),
+      Face::SideClock | Face::Small => TextStyle::Caption.font(),
     }
   }
 }
@@ -236,7 +243,13 @@ pub struct Slot {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Measured {
   pub slot: Slot,
-  pub runs: Vec<Size<u32>>,
+  pub runs: Vec<MeasuredRun>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MeasuredRun {
+  pub width: u32,
+  pub twice_ink_center: i32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -453,7 +466,7 @@ fn the_icon_alone(one: &Measured) -> Result<Measured, Never> {
   for (one_2, run) in one.slot.spans.iter().zip(&one.runs) {
     match one_2.face {
       Face::Small => {}
-      Face::Icon | Face::Clock | Face::Reading => {
+      Face::Icon | Face::Clock | Face::SideClock | Face::Reading => {
         spans.push(one_2.clone());
         runs.push(*run);
       }
@@ -671,10 +684,14 @@ pub fn sidebar(
       };
       let Ok(text_width) = content_width(one, fitting);
       let Ok(pad) = fitted::<u32, i32>(width.saturating_sub(text_width).div_ceil(2));
+      let flow = match (one.slot.action == Some(BarAction::Calendar)).then_some(()) {
+        Some(()) => Flow::Down,
+        None => Flow::Across(pad),
+      };
       let Ok(()) = draw_slot(
         one,
         panel,
-        pad,
+        flow,
         fitting,
         wearing,
         &mut shapes,
@@ -827,7 +844,15 @@ fn layout(
       edge: Edge::None,
     };
 
-    let Ok(()) = draw_slot(one, panel, pad, fitting, wearing, shapes, touching);
+    let Ok(()) = draw_slot(
+      one,
+      panel,
+      Flow::Across(pad),
+      fitting,
+      wearing,
+      shapes,
+      touching,
+    );
     let Ok(step) = advance(one, fitting);
     let Ok(step_2) = fitted::<u32, i32>(step);
 
@@ -837,10 +862,15 @@ fn layout(
   Ok(())
 }
 
+enum Flow {
+  Across(i32),
+  Down,
+}
+
 fn draw_slot(
   measured: &Measured,
   panel: Panel,
-  pad: i32,
+  flow: Flow,
   fitting: Fitting,
   wearing: &Wearing,
   shapes: &mut Vec<Shape>,
@@ -857,15 +887,19 @@ fn draw_slot(
   }
 
   let Ok(ink) = wearing.ink(measured.slot.tone, measured.slot.lit);
-  let mut at = panel.at.x.saturating_add(pad);
+  let Ok(count) = fitted::<_, u32>(measured.runs.len());
+  let mut offset = match flow {
+    Flow::Across(pad) => pad,
+    Flow::Down => 0,
+  };
 
   for (span, run) in measured.slot.spans.iter().zip(&measured.runs) {
     let Ok(font) = fitting.font(span.face);
     let Ok(weight) = span.face.weight();
-    let Ok(down) = centered(panel, *run);
+    let Ok((at, step)) = run_position(panel, *run, &flow, offset, count, fitting);
 
     shapes.push(Shape::Text(Text {
-      at: Point { x: at, y: down },
+      at,
       width: run.width,
       said: span.text.clone(),
       weight,
@@ -873,16 +907,66 @@ fn draw_slot(
       ink,
     }));
 
-    let Ok(step) = fitted::<u32, i32>(run.width.saturating_add(fitting.between));
-
-    at = at.saturating_add(step);
+    offset = offset.saturating_add(step);
   }
 
   Ok(())
 }
 
-fn centered(panel: Panel, run: Size<u32>) -> Result<i32, Never> {
-  let Ok(spare) = fitted::<u32, i32>(panel.size.height.saturating_sub(run.height).div_ceil(2));
+fn run_position(
+  panel: Panel,
+  run: MeasuredRun,
+  flow: &Flow,
+  offset: i32,
+  count: u32,
+  fitting: Fitting,
+) -> Result<(Point<i32>, i32), Never> {
+  match flow {
+    Flow::Across(_) => {
+      let Ok(y) = centered(panel, run);
+      let Ok(step) = fitted::<u32, i32>(run.width.saturating_add(fitting.between));
+      Ok((
+        Point {
+          x: panel.at.x.saturating_add(offset),
+          y,
+        },
+        step,
+      ))
+    }
+    Flow::Down => {
+      let height = panel.size.height.saturating_div(count.max(1));
+      let Ok(step) = fitted::<u32, i32>(height);
+      let band = Panel {
+        at: Point {
+          y: panel.at.y.saturating_add(offset),
+          ..panel.at
+        },
+        size: Size {
+          height,
+          ..panel.size
+        },
+        ..panel
+      };
+      let Ok(y) = centered(band, run);
+      let Ok(padding) =
+        fitted::<u32, i32>(panel.size.width.saturating_sub(run.width).div_ceil(2));
+      Ok((
+        Point {
+          x: panel.at.x.saturating_add(padding),
+          y,
+        },
+        step,
+      ))
+    }
+  }
+}
+
+fn centered(panel: Panel, run: MeasuredRun) -> Result<i32, Never> {
+  let Ok(height) = fitted::<u32, i32>(panel.size.height);
+  let spare = height
+    .saturating_sub(run.twice_ink_center)
+    .saturating_add(1)
+    .div_euclid(2);
 
   Ok(panel.at.y.saturating_add(spare))
 }
@@ -932,17 +1016,17 @@ mod tests {
     let runs = spans
       .iter()
       .map(|one| match one.face {
-        Face::Icon => Size {
+        Face::Icon => MeasuredRun {
           width: 14,
-          height: 22,
+          twice_ink_center: 26,
         },
-        Face::Clock | Face::Reading => Size {
+        Face::Clock | Face::Reading => MeasuredRun {
           width: 40,
-          height: 18,
+          twice_ink_center: 18,
         },
-        Face::Small => Size {
+        Face::SideClock | Face::Small => MeasuredRun {
           width: 24,
-          height: 13,
+          twice_ink_center: 11,
         },
       })
       .collect();
@@ -1486,7 +1570,7 @@ mod tests {
     let Ok(words) = words(&drawn);
     let middles: Vec<u32> = words
       .iter()
-      .zip([22_u32, 13])
+      .zip([26_u32, 11])
       .map(|(run, tall)| {
         let Ok(down) = fitted::<i32, u32>(run.at.y);
 

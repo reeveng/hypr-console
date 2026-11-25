@@ -359,24 +359,19 @@ impl Question for WorkspaceLocations {
 
 #[must_use]
 pub fn workspace_selector(id: i64, name: &str) -> Result<String, Never> {
-  Ok(
-    match {
-      ::core::primitive::bool::then_some(name == "special" || name.starts_with("special:"), ())
+  let Ok(kind) = crate::WorkspaceKind::of(name);
+
+  Ok(match kind {
+    crate::WorkspaceKind::Special => name.to_owned(),
+    crate::WorkspaceKind::Regular => match {
+      ::core::primitive::bool::then_some(id < 0 && !name.is_empty() && name != id.to_string(), ())
     } {
-      ::core::option::Option::Some(()) => name.to_owned(),
-      ::core::option::Option::None => match {
-        ::core::primitive::bool::then_some(
-          id < 0 && !name.is_empty() && name != id.to_string(),
-          (),
-        )
-      } {
-        ::core::option::Option::Some(()) => {
-          format!("name:{name}")
-        }
-        ::core::option::Option::None => id.to_string(),
-      },
+      ::core::option::Option::Some(()) => {
+        format!("name:{name}")
+      }
+      ::core::option::Option::None => id.to_string(),
     },
-  )
+  })
 }
 
 #[derive(Debug, Clone, Copy)]

@@ -13,8 +13,7 @@ use console_core_arguments::Command;
 use console_core_geometry::Size;
 use console_core_internal_programs::InternalProgram;
 use console_core_never::Never;
-use console_draw_surface::standing::{KeyboardEvent, PointerEvent};
-use console_draw_surface::{Keysym, Surface};
+use console_draw_surface::{KeyPress, Keysym, PointerEvent, Surface};
 
 use crate::card::refusal;
 use crate::picker::{self, Alone};
@@ -28,6 +27,14 @@ pub enum Update {
 
 pub trait Responder {
   fn key_pressed(&mut self, key: Keysym, room: Size<u32>) -> Result<Update, Never>;
+
+  fn key_pressed_with_modifiers(
+    &mut self,
+    press: KeyPress,
+    room: Size<u32>,
+  ) -> Result<Update, Never> {
+    self.key_pressed(press.key, room)
+  }
 
   fn pointer_event(&mut self, event: PointerEvent, room: Size<u32>) -> Result<Update, Never>;
 }
@@ -68,12 +75,12 @@ pub fn handle_input(
   surface: &mut Surface,
   room: Size<u32>,
 ) -> Result<Update, Never> {
-  let Ok(keys) = surface.keyboard_events();
+  let Ok(keys) = surface.key_presses();
   let Ok(pointer) = surface.pointer_events();
   let mut outcome = Update::None;
 
-  for KeyboardEvent::Down { key } in keys {
-    let Ok(update) = responder.key_pressed(key, room);
+  for press in keys {
+    let Ok(update) = responder.key_pressed_with_modifiers(press, room);
     let Ok(merged) = merge(outcome, update);
 
     outcome = merged;

@@ -6,14 +6,14 @@
 //! are three questions `cal` has answered correctly since before this machine
 //! existed, in one process, in the locale it is run in. What is here is the
 //! walk from one month to the next, which is the only thing a person pressing
-//! the ends of a row is asking for, and the reading of what came back.
+//! the arrows beside the tabs is asking for, and the reading of what came back.
 //!
 //! A month is read as columns rather than as words between spaces, because the
 //! blanks are where the answer is: a week beginning on a Wednesday is three
 //! empty columns and then a 1, and a line split on whitespace says only that
 //! it has five days in it and not which five. Each column is three characters
 //! wide, and the first line of the answer -- the month and the year,
-//! centered -- is what the panel says over the grid, so the words stay the
+//! centered -- is what the tab says, so the words stay the
 //! locale's rather than being spelled again here.
 
 use console_core_never::Never;

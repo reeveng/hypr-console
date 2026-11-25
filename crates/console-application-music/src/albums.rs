@@ -64,8 +64,14 @@ pub fn groups(songs: &[Song]) -> Result<Vec<Album<'_>>, Never> {
       let track = &song.tags.album;
 
       (
-        track.disc.unwrap_or(1),
-        track.track.unwrap_or(u32::MAX),
+        match track.disc {
+          ::core::option::Option::Some(option_value) => option_value,
+          ::core::option::Option::None => 1,
+        },
+        match track.track {
+          ::core::option::Option::Some(option_value) => option_value,
+          ::core::option::Option::None => u32::MAX,
+        },
         title.to_lowercase(),
       )
     });
@@ -81,6 +87,7 @@ pub fn release_id(said: &str) -> Result<Option<&str>, Never> {
     match parts.next() {
       Some(part) => {
         let Ok(bytes) = console_core_number_conversion::fitted::<_, u32>(part.len());
+
         match (bytes == length && part.bytes().all(|byte| byte.is_ascii_hexdigit())).then_some(())
         {
           Some(()) => {}
@@ -108,9 +115,10 @@ mod tests {
 
   #[test]
   fn compilation_tracks_follow_disc_and_track_numbers() {
-    let track = |artist: &str, n: u32, disc: u32| Song {
-      path: PathBuf::from(format!("/music/{artist}.flac")),
-      tags: Tags {
+    let track = |artist: &str, n: u32, disc: u32| {
+      let path = PathBuf::from(format!("/music/{artist}.flac"));
+      let Ok(mut song) = Song::of(&path);
+      song.tags = Tags {
         title: artist.to_owned(),
         artist: artist.to_owned(),
         album: TagsAlbum {
@@ -121,11 +129,13 @@ mod tests {
           ..TagsAlbum::default()
         },
         ..Tags::default()
-      },
-      ..Song::default()
+      };
+
+      song
     };
     let library = [track("A", 1, 2), track("B", 2, 1), track("C", 1, 1)];
     let Ok(albums) = groups(&library);
+
     match albums.as_slice() {
       [album] => {
         assert_eq!(album.artist, "Various Artists");

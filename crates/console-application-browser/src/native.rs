@@ -2646,7 +2646,8 @@ fn open_download(view: &mut DownloadView) -> io::Result<downloads::Id> {
 fn checked_downloads(browser: &mut Browser) -> io::Result<CheckedDownloads> {
   for character in "report 127.0.0.1".chars() {
     let Ok(key) = Keysym::from_char(character);
-    browser.keyboard(KeyPress { key, modifiers: 0 })?;
+    let Ok(press) = KeyPress::unmodified(key);
+    browser.keyboard(press)?;
   }
 
   let view = &mut browser.download_view;
@@ -2796,10 +2797,8 @@ impl DownloadCheck {
 
         match ready.then_some(()) {
           Some(()) => {
-            browser.keyboard(KeyPress {
-              key: Keysym::j,
-              modifiers: 4,
-            })?;
+            let Ok(press) = KeyPress::with_modifiers(Keysym::j, KeyPress::CONTROL);
+            browser.keyboard(press)?;
             *self = Self::Catalog;
           }
           None => {}

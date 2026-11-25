@@ -87,6 +87,62 @@ pub enum Icon {
   Umbrella,
   #[words(name = "edit-clear-symbolic", glyph = "\u{f0b5c}")]
   Backspace,
+  #[words(name = "audio-volume-high-symbolic", glyph = "\u{f057e}")]
+  Sound,
+  #[words(name = "bluetooth-active-symbolic", glyph = "\u{f00af}")]
+  Bluetooth,
+  #[words(
+    name = "network-wireless-signal-excellent-symbolic",
+    glyph = "\u{f0928}"
+  )]
+  Wifi,
+  #[words(name = "battery-full-symbolic", glyph = "\u{f0079}")]
+  Battery,
+  #[words(
+    name = "preferences-system-notifications-symbolic",
+    glyph = "\u{f1a2a}"
+  )]
+  NotificationSettings,
+  #[words(name = "mail-unread-symbolic", glyph = "\u{f009c}")]
+  NotificationCenter,
+  #[words(name = "computer-symbolic", glyph = "\u{f0379}")]
+  Display,
+  #[words(name = "color-select-symbolic", glyph = "\u{f03d8}")]
+  Theme,
+  #[words(name = "insert-image-symbolic", glyph = "\u{f02e9}")]
+  Wallpaper,
+  #[words(name = "preferences-desktop-locale-symbolic", glyph = "\u{f05ca}")]
+  Language,
+  #[words(name = "preferences-system-symbolic", glyph = "\u{f0493}")]
+  Settings,
+  #[words(name = "user-bookmarks-symbolic", glyph = "\u{f00bd}")]
+  Books,
+  #[words(name = "system-lock-screen-symbolic", glyph = "\u{f0341}")]
+  Security,
+  #[words(name = "view-app-grid-symbolic", glyph = "\u{f003b}")]
+  Launcher,
+  #[words(name = "input-keyboard-symbolic", glyph = "\u{f030c}")]
+  Keyboard,
+  #[words(name = "edit-paste-symbolic", glyph = "\u{f014e}")]
+  Clipboard,
+  #[words(name = "view-grid-symbolic", glyph = "\u{f0570}")]
+  Workspaces,
+  #[words(name = "alarm-symbolic", glyph = "\u{f0150}")]
+  Clock,
+  #[words(name = "folder-music-symbolic", glyph = "\u{f075a}")]
+  Music,
+  #[words(name = "view-refresh-symbolic", glyph = "\u{f06b0}")]
+  Updates,
+  #[words(name = "go-up-symbolic", glyph = "\u{f06fc}")]
+  PanelTop,
+  #[words(name = "go-down-symbolic", glyph = "\u{f06fb}")]
+  PanelBottom,
+  #[words(name = "go-previous-symbolic", glyph = "\u{f06fd}")]
+  PanelLeft,
+  #[words(name = "go-next-symbolic", glyph = "\u{f06fe}")]
+  PanelRight,
+  #[words(name = "applications-utilities-symbolic", glyph = "\u{f0431}")]
+  Applet,
 }
 
 pub const EVERY: &[Icon] = &[
@@ -120,6 +176,31 @@ pub const EVERY: &[Icon] = &[
   Icon::Humidity,
   Icon::Umbrella,
   Icon::Backspace,
+  Icon::Sound,
+  Icon::Bluetooth,
+  Icon::Wifi,
+  Icon::Battery,
+  Icon::NotificationSettings,
+  Icon::NotificationCenter,
+  Icon::Display,
+  Icon::Theme,
+  Icon::Wallpaper,
+  Icon::Language,
+  Icon::Settings,
+  Icon::Books,
+  Icon::Security,
+  Icon::Launcher,
+  Icon::Keyboard,
+  Icon::Clipboard,
+  Icon::Workspaces,
+  Icon::Clock,
+  Icon::Music,
+  Icon::Updates,
+  Icon::PanelTop,
+  Icon::PanelBottom,
+  Icon::PanelLeft,
+  Icon::PanelRight,
+  Icon::Applet,
 ];
 
 #[cfg(test)]

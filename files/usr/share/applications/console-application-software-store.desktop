@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
-Name=Software Store
-Comment=Find and install Nix applications
+Name=Console Store
+Comment=Find and manage applications and tools
 Exec=/usr/local/bin/console-application-software-store
 Icon=system-software-install
 Terminal=false

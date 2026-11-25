@@ -13,7 +13,12 @@ path = "src/lib.rs"
 name = "console-bar"
 path = "src/bin/console-bar.rs"
 
+[[bench]]
+name = "status_bar"
+harness = false
+
 [dependencies]
+console-concurrency.workspace = true
 console-applications.workspace = true
 console-bluetooth.workspace = true
 console-bus.workspace = true
@@ -62,3 +67,4 @@ workspace = true
 console-bluetooth = { workspace = true, features = ["written"] }
 console-core-temporary-directories.workspace = true
 console-settings.workspace = true
+criterion.workspace = true

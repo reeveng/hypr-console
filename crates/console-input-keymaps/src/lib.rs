@@ -41,6 +41,7 @@ pub use xkb::diagnostic::DiagnosticHandler;
 pub use xkb::diagnostic::DiagnosticKind;
 pub use xkb::diagnostic::Severity;
 pub use xkb::keymap::Formatter;
+pub use xkb::keymap::KeyRepeat;
 pub use xkb::rmlvo::Group;
 
 pub(crate) use group_type::hidden::GroupType;

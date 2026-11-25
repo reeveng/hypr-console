@@ -1,9 +1,11 @@
-//! Automatic lock preferences shared by Settings and the idle service.
+//! Inactivity preferences shared by Settings and the idle service.
 
-use console_battery::{PowerSource, power_source};
+use console_battery::PowerSource;
 use console_core_never::Never;
 
 use crate::LockScreen;
+
+pub mod policy;
 
 pub const SERVICE: &str = "console-idle.service";
 const DELAY_SETTING: &str = "lock-screen-idle-delay";
@@ -24,11 +26,12 @@ impl Default for Delay {
 impl Delay {
   pub const MAX_SECONDS: u32 = u32::MAX / 1000;
   pub const NEVER: Self = Self(None);
-  pub const PRESETS: [(Self, &'static str); 5] = [
+  pub const PRESETS: [(Self, &'static str); 6] = [
     (Self(Some(30)), "30 seconds"),
     (Self(Some(60)), "1 minute"),
     (Self(Some(120)), "2 minutes"),
     (Self(Some(300)), "5 minutes"),
+    (Self(Some(600)), "10 minutes"),
     (Self::NEVER, "Never"),
   ];
 
@@ -44,6 +47,10 @@ impl Delay {
   #[must_use]
   pub fn seconds(self) -> Result<Option<u32>, Never> {
     Ok(self.0)
+  }
+
+  pub fn milliseconds(self) -> Result<Option<u32>, Never> {
+    Ok(self.0.map(|seconds| seconds.saturating_mul(1000)))
   }
 
   #[must_use]
@@ -82,7 +89,7 @@ impl Delay {
   }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Profile {
   General,
   OnBattery,
@@ -135,12 +142,6 @@ pub fn delay(profile: Profile) -> Result<Delay, Never> {
   })
 }
 
-#[must_use]
-pub fn effective_delay() -> Result<Delay, Never> {
-  let Ok(source) = power_source();
-  delay(Profile::from(source))
-}
-
 pub fn choose_delay(profile: Profile, delay: Delay) -> Result<(), Never> {
   let Ok(seconds) = delay.seconds();
   let value = seconds.map_or_else(|| "never".to_owned(), |timeout| timeout.to_string());
@@ -160,6 +161,49 @@ pub fn on_suspend() -> Result<LockScreen, Never> {
 
 pub fn choose_on_suspend(chosen: LockScreen) -> Result<(), Never> {
   crate::set_switch(SUSPEND_SETTING, chosen)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Action {
+  Dim,
+  Blank,
+  Suspend,
+}
+
+impl Action {
+  pub const ALL: [Self; 3] = [Self::Dim, Self::Blank, Self::Suspend];
+
+  fn preference(self) -> Result<(&'static str, Delay), Never> {
+    Ok(match self {
+      Self::Dim => ("screen-dim-idle-delay", Delay(Some(120))),
+      Self::Blank => ("screen-blank-idle-delay", Delay(Some(300))),
+      Self::Suspend => ("system-suspend-idle-delay", Delay(Some(600))),
+    })
+  }
+
+  pub fn delay(self) -> Result<Delay, Never> {
+    let Ok((key, default)) = self.preference();
+    let Ok(value) = console_defaults::setting(key);
+
+    Ok(match value.as_deref() {
+      Some(text) => {
+        let Ok(found) = Delay::stored(text);
+
+        match found {
+          Some(saved) => saved,
+          None => default,
+        }
+      }
+      None => default,
+    })
+  }
+
+  pub fn choose(self, delay: Delay) -> Result<(), Never> {
+    let Ok((key, _default)) = self.preference();
+    let Ok(seconds) = delay.seconds();
+    let value = seconds.map_or_else(|| "never".to_owned(), |timeout| timeout.to_string());
+    console_defaults::set(console_defaults::Setting { key, value: &value })
+  }
 }
 
 #[cfg(test)]

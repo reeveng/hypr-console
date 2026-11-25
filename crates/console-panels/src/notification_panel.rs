@@ -13,22 +13,24 @@
 //! the panel used to ask mako twice, once for what was waiting and once for
 //! the history, and the two answers were two moments -- a tab opened between
 //! them showed a notification in neither list or in both. What each tab holds
-//! once it has been read is `crate::rows`; where a press
-//! leaves you is `crate::notifications`, which is a
+//! once it has been read is `crate::notification_rows`; where a press
+//! leaves you is `console_notifications::notifications`, which is a
 //! `console_core_state_machine::Machine` and holds the whole of what this panel
 //! decides. The actor is what makes that state reachable from a closure on
-//! GTK's thread; a press is handed to it with `send`, and the effects it answers
+//! the drawing thread; a press is handed to it with `send`, and the effects it answers
 //! with are carried out in the callback that has the surface in its hand.
 
-use crate::notifications::{
-  Closes, Destination, Notifications, NotificationsEffect, NotificationsEvent, closes,
+use crate::notification_rows::{
+  Chosen, cleared_rows, earlier_rows, on_back, one_rows, tab, waiting_rows,
 };
-use crate::reading::Notification;
-use crate::rows::{Chosen, cleared_rows, earlier_rows, on_back, one_rows, tab, waiting_rows};
-use crate::serving;
 use console_actor::Actor;
 use console_core_arguments::{Command, Operands};
 use console_core_never::Never;
+use console_notifications::notifications::{
+  Closes, Destination, Notifications, NotificationsEffect, NotificationsEvent, closes,
+};
+use console_notifications::reading::Notification;
+use console_notifications::serving;
 use console_panel::card::{Card, Door};
 use console_panel::page::{ActionOutcome, Handler, Page, Row, Rows, Showing};
 use console_panel::running::run_output;

@@ -11,13 +11,14 @@
 //! each button is -- and the daemon reads this file itself. There is nothing
 //! left to make true.
 
-use std::path::PathBuf;
+use std::collections::btree_map::Entry;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use console_core_atomic_writes::Stored;
 use console_core_never::Never;
 use console_input_bindings::moved::{Tasks, path_in};
-use console_input_controller::actions::Table;
+use console_input_controller::actions::{Table, special_workspace_job};
 use console_input_gamepad::front::{DEVICES, Front, Read, capabilities_command};
 
 use crate::Unmapped;
@@ -43,45 +44,144 @@ pub fn read() -> Result<Tasks, Never> {
     None => return Ok(Tasks::default()),
   };
 
-  let Ok(held) = console_core_atomic_writes::read(&at);
-
-  let said = match held {
-    Stored::Text(said) => said,
-    Stored::Absent => return Ok(Tasks::default()),
-
-    Stored::Failed(fault) => {
-      eprintln!("{}: reading the button table: {fault}", at.display());
-      return Ok(Tasks::default());
-    }
-  };
-
-  Ok(match Tasks::read(&said) {
+  Ok(match read_at(&at) {
     Ok(jobs) => jobs,
-
     Err(fault) => {
-      eprintln!("{}: {fault}", at.display());
+      console_core_logging::warn!("{fault}");
       Tasks::default()
     }
   })
 }
 
-pub fn write(jobs: &Tasks) -> Result<(), Unmapped> {
-  let Ok(at) = at();
+fn read_at(path: &Path) -> Result<Tasks, Unmapped> {
+  let Ok(stored) = console_core_atomic_writes::read(path);
 
-  let at_3 = match at {
-    Some(at_2) => at_2,
+  match stored {
+    Stored::Text(contents) => {
+      Tasks::read(&contents).map_err(|fault| Unmapped::Decoding(path.to_path_buf(), fault))
+    }
+    Stored::Absent => Ok(Tasks::default()),
+    Stored::Failed(fault) => Err(Unmapped::Reading(path.to_path_buf(), fault)),
+  }
+}
+
+pub enum Change<T> {
+  Save(T),
+  Keep(T),
+}
+
+pub fn register_special_workspace(name: &str) -> Result<(), Unmapped> {
+  let Ok(job) = special_workspace_job(name);
+  let registration = job.ok_or(Unmapped::InvalidWorkspaceName);
+  let slug = registration?;
+
+  change(move |jobs| {
+    Ok(match jobs.moved.entry(slug) {
+      Entry::Occupied(_) => Change::Keep(()),
+      Entry::Vacant(entry) => {
+        let _bindings = entry.insert(Vec::new());
+        Change::Save(())
+      }
+    })
+  })
+}
+
+pub fn change<T>(
+  apply: impl FnOnce(&mut Tasks) -> Result<Change<T>, Never>,
+) -> Result<T, Unmapped> {
+  let Ok(path) = at();
+  let target = match path {
+    Some(target) => target,
     None => return Err(Unmapped::NoOnes),
   };
 
-  match at_3.parent() {
+  change_at(&target, apply)
+}
+
+fn change_at<T>(
+  target: &Path,
+  apply: impl FnOnce(&mut Tasks) -> Result<Change<T>, Never>,
+) -> Result<T, Unmapped> {
+  let lock = lock_at(target);
+  let _held = lock?;
+  let current = read_at(target);
+  let mut jobs = current?;
+  let Ok(change) = apply(&mut jobs);
+
+  match change {
+    Change::Save(value) => {
+      let Ok(contents) = jobs.serialize();
+      let saved = store(target, &contents);
+      saved?;
+      Ok(value)
+    }
+    Change::Keep(value) => Ok(value),
+  }
+}
+
+pub(crate) fn write_contents(path: &Path, contents: &str) -> Result<(), Unmapped> {
+  let lock = lock_at(path);
+  let _held = lock?;
+
+  store(path, contents)
+}
+
+fn lock_at(path: &Path) -> Result<std::fs::File, Unmapped> {
+  match path.parent() {
     Some(holding) => std::fs::create_dir_all(holding)
       .map_err(|fault| Unmapped::Holding(holding.to_path_buf(), fault))?,
     None => {}
   }
 
-  let Ok(written) = jobs.serialize();
+  let lock = path.with_extension("lock");
+  let opened = console_core_atomic_writes::open_lock_file(&lock)
+    .map_err(|fault| Unmapped::Locking(lock.clone(), fault));
+  let file = opened?;
+  let locked = file
+    .try_lock()
+    .map_err(|fault| Unmapped::Locking(lock, std::io::Error::from(fault)));
+  locked?;
+  Ok(file)
+}
 
-  console_core_atomic_writes::whole(&at_3, written.as_bytes()).map_err(Unmapped::Writing)
+fn store(at: &Path, contents: &str) -> Result<(), Unmapped> {
+  console_core_atomic_writes::whole(at, contents.as_bytes()).map_err(Unmapped::Writing)
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn overlapping_edits_do_not_overwrite_the_shortcut_table()
+  -> Result<(), Box<dyn std::error::Error>> {
+    let fresh = console_core_temporary_directories::fresh("mapping-lock");
+    let root = fresh?;
+    let file = root.join("buttons.toml");
+    let locked = lock_at(&file);
+    let guard = locked?;
+
+    assert!(matches!(
+      change_at(&file, |_| Ok(Change::Save(()))),
+      Err(Unmapped::Locking(_, fault)) if fault.kind() == std::io::ErrorKind::WouldBlock
+    ));
+    drop(guard);
+
+    let saved = change_at(&file, |jobs| {
+      jobs
+        .moved
+        .insert("special-workspace-notes".to_owned(), Vec::new());
+      Ok(Change::Save(()))
+    });
+    saved?;
+    let read = read_at(&file);
+    let jobs = read?;
+
+    assert!(jobs.moved.contains_key("special-workspace-notes"));
+    let removed = std::fs::remove_dir_all(root);
+    removed?;
+    Ok(())
+  }
 }
 
 pub fn table() -> Result<Table, Never> {

@@ -29,7 +29,6 @@ use console_bluetooth_agent::agent::{self, PinEntry};
 use console_bluetooth_agent::cards;
 use console_bluetooth_agent::command::{self, Action, Once};
 use console_core_controls::Switch;
-use console_core_words::Words;
 use console_input_dictation::languages;
 use console_notifications::reading::DoNotDisturb;
 use console_panel::page::{
@@ -48,6 +47,7 @@ use crate::learned::Following;
 use crate::level::{CELLS, Muted, bar, said as level_said, slider};
 use crate::machine::MachineSetting;
 use crate::named::{self, Allowed};
+use crate::power_profile::Profile;
 use crate::size::{EVERY, Size};
 use crate::turning::{self, Turn};
 use crate::warm::NightShift;
@@ -748,6 +748,8 @@ pub fn screen_rows(
   }
 
   rows.push(warmth);
+  let Ok(timing) = display_idle_rows();
+  rows.extend(timing);
 
   match scale {
     Some(scale_2) => {
@@ -835,17 +837,16 @@ pub fn battery_rows(
 ) -> Result<Vec<Row>, Never> {
   let Ok(how_fast_the_machine_runs) = text(&Word::PowerMode);
   let running_3 = running.and_then(|running_2| {
-    PROFILES
+    Profile::ALL
       .iter()
       .copied()
       .find(|profile| profile.written() == Ok(running_2))
   });
   let Ok(speeds) = one_of(
     &how_fast_the_machine_runs,
-    (&PROFILES, running_3),
+    (&Profile::ALL, running_3),
     |profile| {
-      let Ok(word) = word_of_profile(profile);
-      let Ok(said) = text(&word);
+      let Ok(said) = profile.label();
       let Ok(written) = profile.written();
       let Ok(runs) = Command::external(Program::Powerprofilesctl, &["set", written]);
 
@@ -891,7 +892,11 @@ fn charge_limit_row(label: &str, limit: battery::charge_limit::Limit) -> Result<
       let percent = match parsed {
         Some(percent) => percent,
         None => {
-          showing_2.note("Enter a charge limit from 1 to 100 percent");
+          let Ok(()) = console_notifications::notify(
+            console_notifications::Application("Settings"),
+            "Enter a charge limit from 1 to 100 percent",
+            None,
+          );
           return;
         }
       };
@@ -905,7 +910,8 @@ fn charge_limit_row(label: &str, limit: battery::charge_limit::Limit) -> Result<
         ],
       );
       let Ok(task) = Task::of(command);
-      let Ok(task_2) = task.then(|answer| {
+      let Ok(attributed) = task.from_application(console_notifications::Application("Settings"));
+      let Ok(task_2) = attributed.then(|answer| {
         let details = answer.error_output.trim();
         Ok(
           matches!(
@@ -927,26 +933,6 @@ fn charge_limit_row(label: &str, limit: battery::charge_limit::Limit) -> Result<
     );
   });
   Row::new(label, Aside(&format!("{}%", limit.percent)), edit)
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Words)]
-enum Profile {
-  #[words(written = "power-saver")]
-  Saving,
-  #[words(written = "balanced")]
-  Balanced,
-  #[words(written = "performance")]
-  Fast,
-}
-
-const PROFILES: [Profile; 3] = [Profile::Saving, Profile::Balanced, Profile::Fast];
-
-fn word_of_profile(profile: Profile) -> Result<Word, Never> {
-  Ok(match profile {
-    Profile::Saving => Word::LowPower,
-    Profile::Balanced => Word::Automatic,
-    Profile::Fast => Word::HighPower,
-  })
 }
 
 pub fn strength(signal: i32) -> Result<String, Never> {
@@ -1066,7 +1052,8 @@ const TURNING_OFF: Underway<'static> = Underway("Turning Off");
 fn bluetooth_task(action: &Action) -> Result<Task, Never> {
   let Ok(command) = command::of(action);
   let Ok(task) = Task::of(command);
-  let Ok(answered) = task.then(cards::told);
+  let Ok(attributed) = task.from_application(console_notifications::Application("Settings"));
+  let Ok(answered) = attributed.then(cards::told);
 
   match action {
     Action::Introduce { .. } => answered.out_loud(),
@@ -1267,7 +1254,11 @@ fn pair_row(device: &Device) -> Result<Row, Never> {
             None => {
               let Ok(refused) = not_a_pin();
 
-              answered.note(&refused);
+              let Ok(()) = console_notifications::notify(
+                console_notifications::Application("Settings"),
+                &refused,
+                None,
+              );
             }
           }
         });
@@ -1479,11 +1470,12 @@ fn apply_lock_timing(
     let Ok(()) = console_panel::running::on_exit(command, |result| match result {
       console_panel::running::Exit::Success => {}
       console_panel::running::Exit::Failure { said } => {
-        console_core_logging::warn!("applying lock timing: {said}");
-        let Ok(()) = console_panel::running::say(
-          "lock-settings",
-          console_panel::running::Notification {
-            summary: "Could not apply lock settings",
+        console_core_logging::warn!("applying screen and lock preferences: {said}");
+        let Ok(()) = console_notifications::saying::report(
+          console_notifications::Application("Settings"),
+          "idle-settings",
+          console_notifications::saying::Content {
+            summary: "Could not apply inactivity settings",
             body: &said,
           },
         );
@@ -1495,7 +1487,13 @@ fn apply_lock_timing(
   Ok(())
 }
 
-fn idle_lock_rows(label: &str, profile: LockProfile, delay: Delay) -> Result<Vec<Row>, Never> {
+#[derive(Clone, Copy)]
+enum DelayTarget {
+  Lock(LockProfile),
+  Display(idle::Action),
+}
+
+fn idle_delay_rows(label: &str, target: DelayTarget, delay: Delay) -> Result<Vec<Row>, Never> {
   let preset = Delay::PRESETS
     .iter()
     .zip(0_u32..)
@@ -1526,7 +1524,7 @@ fn idle_lock_rows(label: &str, profile: LockProfile, delay: Delay) -> Result<Vec
     {
       match Delay::PRESETS.get(index) {
         Some((delay_2, _)) => {
-          let Ok(()) = save_idle_delay(showing, profile, *delay_2);
+          let Ok(()) = save_idle_delay(showing, target, *delay_2);
         }
         ::core::option::Option::None => {}
       };
@@ -1534,13 +1532,16 @@ fn idle_lock_rows(label: &str, profile: LockProfile, delay: Delay) -> Result<Vec
   });
   let Ok(picker) = Row::picking(label, control);
   let Ok(edit) = Handler::and_stay(move |showing| {
-    let Ok(explicit_value) = ask_idle_delay(showing, profile, delay);
+    let Ok(explicit_value) = ask_idle_delay(showing, target, delay);
     explicit_value
   });
-  let custom_label = match profile {
-    LockProfile::General => "Custom Delay…",
-    LockProfile::OnBattery => "Custom Battery Delay…",
-    LockProfile::PluggedIn => "Custom Plugged-In Delay…",
+  let custom_label = match target {
+    DelayTarget::Lock(LockProfile::General) => "Custom Lock Delay…",
+    DelayTarget::Lock(LockProfile::OnBattery) => "Custom Battery Delay…",
+    DelayTarget::Lock(LockProfile::PluggedIn) => "Custom Plugged-In Delay…",
+    DelayTarget::Display(idle::Action::Dim) => "Custom Dim Delay…",
+    DelayTarget::Display(idle::Action::Blank) => "Custom Display Off Delay…",
+    DelayTarget::Display(idle::Action::Suspend) => "Custom Suspend Delay…",
   };
   let Ok(custom_2) = Row::new(custom_label, Aside(""), edit);
   Ok(vec![picker, custom_2])
@@ -1548,7 +1549,7 @@ fn idle_lock_rows(label: &str, profile: LockProfile, delay: Delay) -> Result<Vec
 
 fn ask_idle_delay(
   showing: &dyn Showing,
-  profile: LockProfile,
+  target: DelayTarget,
   delay: Delay,
 ) -> core::result::Result<(), console_core_never::Never> {
   {
@@ -1556,18 +1557,24 @@ fn ask_idle_delay(
     let initial = timeout.map_or_else(String::new, |seconds| seconds.to_string());
     let Ok(respond) = answer(move |showing_2, written| match Delay::custom(written) {
       Ok(parsed) => {
-        let Ok(explicit_value) = save_idle_delay(showing_2, profile, parsed);
+        let Ok(explicit_value) = save_idle_delay(showing_2, target, parsed);
         explicit_value
       }
-      Err(idle::InvalidDelay) => showing_2.note(&format!(
-        "Enter a delay from 1 to {} seconds",
-        Delay::MAX_SECONDS
-      )),
+      Err(idle::InvalidDelay) => {
+        let Ok(()) = console_notifications::notify(
+          console_notifications::Application("Settings"),
+          &format!("Enter a delay from 1 to {} seconds", Delay::MAX_SECONDS),
+          None,
+        );
+      }
     });
-    let prompt = match profile {
-      LockProfile::General => "Inactivity delay (e.g. 90s, 15m, 2h)",
-      LockProfile::OnBattery => "Battery inactivity delay (e.g. 90s, 15m, 2h)",
-      LockProfile::PluggedIn => "Plugged-in inactivity delay (e.g. 90s, 15m, 2h)",
+    let prompt = match target {
+      DelayTarget::Lock(LockProfile::General) => "Lock delay (e.g. 90s, 15m, 2h)",
+      DelayTarget::Lock(LockProfile::OnBattery) => "Battery lock delay (e.g. 90s, 15m, 2h)",
+      DelayTarget::Lock(LockProfile::PluggedIn) => "Plugged-in lock delay (e.g. 90s, 15m, 2h)",
+      DelayTarget::Display(idle::Action::Dim) => "Dim delay (e.g. 90s, 15m, 2h)",
+      DelayTarget::Display(idle::Action::Blank) => "Display off delay (e.g. 90s, 15m, 2h)",
+      DelayTarget::Display(idle::Action::Suspend) => "Suspend delay (e.g. 90s, 15m, 2h)",
     };
     showing.ask_aloud(prompt, Initial(&initial), respond);
   };
@@ -1577,15 +1584,24 @@ fn ask_idle_delay(
 
 fn save_idle_delay(
   showing: &dyn Showing,
-  profile: LockProfile,
+  target: DelayTarget,
   delay: Delay,
 ) -> core::result::Result<(), console_core_never::Never> {
   {
-    let Ok(before) = idle::effective_delay();
-    let Ok(()) = idle::choose_delay(profile, delay);
-    let Ok(after) = idle::effective_delay();
+    let before = match target {
+      DelayTarget::Lock(profile) => {
+        let Ok(current) = idle::delay(profile);
+        let Ok(()) = idle::choose_delay(profile, delay);
+        current
+      }
+      DelayTarget::Display(action) => {
+        let Ok(current) = action.delay();
+        let Ok(()) = action.choose(delay);
+        current
+      }
+    };
 
-    match (after != before).then_some(()) {
+    match (delay != before).then_some(()) {
       ::core::option::Option::Some(()) => {
         let Ok(()) = apply_lock_timing(showing);
       }
@@ -1604,14 +1620,26 @@ fn automatic_lock_rows(power: battery::PowerSource) -> Result<Vec<Row>, Never> {
   match power {
     battery::PowerSource::WithoutBattery => {
       let Ok(general_delay) = idle::delay(LockProfile::General);
-      idle_lock_rows(LABEL, LockProfile::General, general_delay)
+      idle_delay_rows(
+        LABEL,
+        DelayTarget::Lock(LockProfile::General),
+        general_delay,
+      )
     }
     battery::PowerSource::OnBattery | battery::PowerSource::PluggedIn => {
       let Ok(heading) = Row::naming(LABEL, Aside(""));
       let Ok(battery_delay) = idle::delay(LockProfile::OnBattery);
-      let Ok(battery) = idle_lock_rows("On Battery", LockProfile::OnBattery, battery_delay);
+      let Ok(battery) = idle_delay_rows(
+        "On Battery",
+        DelayTarget::Lock(LockProfile::OnBattery),
+        battery_delay,
+      );
       let Ok(plugged_delay) = idle::delay(LockProfile::PluggedIn);
-      let Ok(plugged) = idle_lock_rows("Plugged In", LockProfile::PluggedIn, plugged_delay);
+      let Ok(plugged) = idle_delay_rows(
+        "Plugged In",
+        DelayTarget::Lock(LockProfile::PluggedIn),
+        plugged_delay,
+      );
       Ok(
         std::iter::once(heading)
           .chain(battery)
@@ -1620,6 +1648,22 @@ fn automatic_lock_rows(power: battery::PowerSource) -> Result<Vec<Row>, Never> {
       )
     }
   }
+}
+
+fn display_idle_rows() -> Result<Vec<Row>, Never> {
+  let mut rows = Vec::new();
+
+  for (label, action) in [
+    ("Dim After Inactivity", idle::Action::Dim),
+    ("Turn Display Off After Inactivity", idle::Action::Blank),
+    ("Suspend After Inactivity", idle::Action::Suspend),
+  ] {
+    let Ok(delay) = action.delay();
+    let Ok(controls) = idle_delay_rows(label, DelayTarget::Display(action), delay);
+    rows.extend(controls);
+  }
+
+  Ok(rows)
 }
 
 fn unlock_method() -> Result<Row, Never> {
@@ -1816,7 +1860,13 @@ fn running(command: Command, note: Option<String>, back: impl Chosen) -> Result<
 
   Handler::and_stay(move |showing| {
     match &note {
-      Some(said) => showing.note(said),
+      Some(said) => {
+        let Ok(()) = console_notifications::notify(
+          console_notifications::Application("Settings"),
+          said,
+          None,
+        );
+      }
       None => {}
     }
 
@@ -2020,7 +2070,13 @@ pub fn called_row(name: &str) -> Result<Row, Never> {
 
           showing_2.run(names);
         }
-        Allowed::No => showing_2.note(NOT_A_NAME),
+        Allowed::No => {
+          let Ok(()) = console_notifications::notify(
+            console_notifications::Application("Settings"),
+            NOT_A_NAME,
+            None,
+          );
+        }
       }
     });
     showing.ask(&asking, respond);
@@ -2226,7 +2282,6 @@ mod tests {
   struct Pressed {
     typed: &'static str,
     asked: std::cell::Cell<Vec<String>>,
-    noted: std::cell::Cell<Vec<String>>,
     ran: std::cell::Cell<Vec<console_program_contract::Command>>,
     speaking: std::cell::Cell<Vec<Speaks>>,
   }
@@ -2284,10 +2339,6 @@ mod tests {
 
     fn turn_to(&self, _tab: u32) {}
 
-    fn note(&self, said: &str) {
-      let Ok(()) = written(&self.noted, said.to_string());
-    }
-
     fn run(&self, task: Task) {
       let Ok(()) = written(&self.speaking, task.speaks);
       let Ok(()) = written(&self.ran, task.command);
@@ -2306,7 +2357,6 @@ mod tests {
     let pressing = Pressed {
       typed: typing.0,
       asked: std::cell::Cell::new(Vec::new()),
-      noted: std::cell::Cell::new(Vec::new()),
       ran: std::cell::Cell::new(Vec::new()),
       speaking: std::cell::Cell::new(Vec::new()),
     };
@@ -3269,10 +3319,7 @@ mod tests {
     let Ok(rows) = meeting_rows(&old, nowhere);
     let pairing = pressed(&rows, PAIR, Typing("0123456789abcdefg"))?;
 
-    let Ok(refused) = not_a_pin();
-
     assert_eq!(read_back(&pairing.ran), Ok(Vec::new()));
-    assert_eq!(read_back(&pairing.noted), Ok(vec![refused]));
 
     Ok(())
   }
@@ -3379,7 +3426,6 @@ mod tests {
     let stopping = Pressed {
       typed: "",
       asked: std::cell::Cell::new(Vec::new()),
-      noted: std::cell::Cell::new(Vec::new()),
       ran: std::cell::Cell::new(Vec::new()),
       speaking: std::cell::Cell::new(Vec::new()),
     };

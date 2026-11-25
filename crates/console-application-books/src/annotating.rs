@@ -26,8 +26,9 @@
 
 use console_core_geometry::Point;
 use console_core_never::Never;
-use console_core_number_conversion::fitted;
+use console_core_number_conversion::{fitted, index};
 use console_core_state_machine::{EffectDependencies, Machine, Queue, Service};
+use console_core_text_boundaries::previous_word_start;
 
 use crate::notes::{self, Mark, Note, Popup, Scope, Spot, Stroke};
 use crate::reading::Turn;
@@ -139,6 +140,7 @@ pub enum Made {
 pub enum Typed {
   Letter(char),
   Backspace,
+  BackspaceWord,
   Newline,
   Finished,
 }
@@ -794,7 +796,7 @@ fn typed_into(
 
   let at = match (writing, typed) {
     (Some(_), Typed::Finished) => return finished(state, effects),
-    (Some(at), Typed::Letter(_) | Typed::Newline | Typed::Backspace) => at,
+    (Some(at), Typed::Letter(_) | Typed::Newline | Typed::Backspace | Typed::BackspaceWord) => at,
     (None, _) => return Ok(state),
   };
 
@@ -813,7 +815,14 @@ fn typed_into(
     (Typed::Backspace, Some(text_4)) => {
       let _taken = text_4.pop();
     }
-    (Typed::Letter(_) | Typed::Newline | Typed::Backspace, None) => return Ok(state),
+    (Typed::BackspaceWord, Some(edited)) => {
+      let Ok(from) = previous_word_start(edited);
+      let Ok(start) = index(from);
+      edited.truncate(start);
+    }
+    (Typed::Letter(_) | Typed::Newline | Typed::Backspace | Typed::BackspaceWord, None) => {
+      return Ok(state);
+    }
   }
 
   saved(state, effects)

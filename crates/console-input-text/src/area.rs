@@ -24,7 +24,7 @@ use std::ops::Range;
 
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
-use console_draw_surface::Keysym;
+use console_draw_surface::{KeyPress, Keysym};
 
 use crate::boundaries;
 use crate::field::{TextField, Typed};
@@ -69,7 +69,13 @@ impl TextArea {
   }
 
   pub fn typed(&mut self, key: Keysym, rows: &[Row]) -> Result<Typed, Never> {
-    match key {
+    let Ok(press) = KeyPress::unmodified(key);
+
+    self.typed_press(press, rows)
+  }
+
+  pub fn typed_press(&mut self, press: KeyPress, rows: &[Row]) -> Result<Typed, Never> {
+    match press.key {
       Keysym::Return | Keysym::KP_Enter => self.field.insert('\n'),
       Keysym::Up => self.stepped(rows, Way::Up, 1),
       Keysym::Down => self.stepped(rows, Way::Down, 1),
@@ -90,7 +96,7 @@ impl TextArea {
           None => last,
         })
       }
-      key_2 => self.field.typed(key_2),
+      _ => self.field.typed_press(press),
     }
   }
 

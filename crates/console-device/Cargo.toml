@@ -26,6 +26,7 @@ name = "console-update"
 path = "src/bin/console-update.rs"
 
 [dependencies]
+console-notifications.workspace = true
 console-core-arguments.workspace = true
 console-awake.workspace = true
 console-core-external-programs.workspace = true

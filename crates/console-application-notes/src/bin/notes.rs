@@ -57,7 +57,7 @@ use console_core_number_conversion::{fitted, toward_zero_i32, whole_u32};
 use console_core_shapes::{Edge, Font, Panel, Picture, Pixels, Round, Shape, Text, Weight};
 use console_draw_painting::Run;
 use console_draw_surface::standing::{Closed, PointerEvent, SurfaceError, Window};
-use console_draw_surface::{Activation, Keysym, Surface};
+use console_draw_surface::{Activation, KeyPress, Keysym, Surface};
 use console_input_text::area::row_at;
 use console_input_text::{Row, TextArea, Typed, Way, between};
 use console_panel::keys::{Driving, Meaning, meaning};
@@ -152,13 +152,6 @@ enum PageAction {
   Step(i32),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum Notice {
-  None,
-  Copy(String),
-  Error(String),
-}
-
 struct List {
   folder: PathBuf,
   notes: Vec<Note>,
@@ -166,15 +159,20 @@ struct List {
   first: u32,
   prompt: Prompt,
   pressed: Option<u32>,
-  notice: Notice,
+}
+
+#[derive(Clone, Copy)]
+struct ListPosition {
+  selected: u32,
+  first: u32,
 }
 
 struct OpenNote {
   at: Option<PathBuf>,
   known: String,
   area: TextArea,
-  notice: Notice,
   mode: PageMode,
+  list_position: ListPosition,
 }
 
 enum PageMode {
@@ -575,7 +573,7 @@ impl App {
 
           match absent.then_some(()) {
             Some(()) => {}
-            None => return self.report_open_error(&candidate, &read_fault),
+            None => return report_open_error(&candidate, &read_fault),
           }
         }
       },
@@ -585,7 +583,7 @@ impl App {
     match (fault.kind(), caret) {
       (io::ErrorKind::NotFound, None) => self.show_note(Some(at), String::new()),
       (io::ErrorKind::NotFound | io::ErrorKind::IsADirectory, Some(_)) => Ok(()),
-      _ => self.report_open_error(&at, &fault),
+      _ => report_open_error(&at, &fault),
     }
   }
 
@@ -667,7 +665,7 @@ impl App {
         Err(fault) => match (fault.kind() == io::ErrorKind::NotFound).then_some(()) {
           Some(()) => String::new(),
           None => {
-            let Ok(()) = self.report_open_error(path, &fault);
+            let Ok(()) = report_open_error(path, &fault);
 
             return Ok(Update::Redraw);
           }
@@ -690,27 +688,27 @@ impl App {
       None => String::new(),
     };
     let Ok(area) = TextArea::holding(&text);
+    let list_position = match &self.view {
+      View::List(list) => ListPosition {
+        selected: list.selected,
+        first: list.first,
+      },
+      View::Page(note) => note.list_position,
+    };
     self.view = View::Page(Box::new(OpenNote {
       at,
       known,
       area,
-      notice: Notice::None,
       mode: PageMode::Writing,
+      list_position,
     }));
 
     show_keyboard()
   }
 
-  fn report_open_error(&mut self, at: &Path, fault: &io::Error) -> Result<(), Never> {
-    match &mut self.view {
-      View::List(list) => list.notice = Notice::Error(format!("{}: {fault}", at.display())),
-      View::Page(_) => {}
-    }
+  fn page_key(&mut self, press: KeyPress, room: Size<u32>) -> Result<Update, Never> {
+    let key = press.key;
 
-    Ok(())
-  }
-
-  fn page_key(&mut self, key: Keysym, room: Size<u32>) -> Result<Update, Never> {
     match key {
       Keysym::F5 | Keysym::F18 | Keysym::XF86Launch9 => {
         return self.page_action(Activation::Focused, Some(PageAction::ToggleDiagrams));
@@ -764,7 +762,7 @@ impl App {
 
         writing.area.stepped(&rows, way, by)
       }
-      key_2 => writing.area.typed(key_2, &rows),
+      _ => writing.area.typed_press(press, &rows),
     };
 
     match typed {
@@ -884,8 +882,20 @@ impl App {
   }
 
   fn back(&mut self) -> Result<Update, Never> {
+    let position = match &self.view {
+      View::Page(writing) => writing.list_position,
+      View::List(_) => return Ok(Update::None),
+    };
     let Ok(left) = self.leave_page();
-    let Ok(list) = List::of(&self.folder, left.as_deref());
+    let Ok(mut list) = List::of(&self.folder, left.as_deref());
+    let Ok(last) = list.last();
+
+    match list.selected {
+      0 => list.selected = position.selected.min(last),
+      1.. => {}
+    }
+
+    list.first = position.first.min(last);
 
     self.view = View::List(list);
 
@@ -925,11 +935,21 @@ impl App {
 
 impl Responder for App {
   fn key_pressed(&mut self, key: Keysym, room: Size<u32>) -> Result<Update, Never> {
+    let Ok(press) = KeyPress::unmodified(key);
+
+    self.key_pressed_with_modifiers(press, room)
+  }
+
+  fn key_pressed_with_modifiers(
+    &mut self,
+    press: KeyPress,
+    room: Size<u32>,
+  ) -> Result<Update, Never> {
     let Ok(screen) = self.screen();
 
     match screen {
-      Screen::List => self.list_key(key, room),
-      Screen::Page => self.page_key(key, room),
+      Screen::List => self.list_key(press.key, room),
+      Screen::Page => self.page_key(press, room),
     }
   }
 
@@ -982,29 +1002,58 @@ impl OpenNote {
         known,
         destination,
       }) => {
-        self.notice = match (destination, &self.notice) {
-          (Destination::Copy, _) => Notice::Copy(format!(
-            "This note changed somewhere else, so this is kept as {}",
-            at.display()
-          )),
-          (Destination::Original, Notice::Copy(said)) => Notice::Copy(said.clone()),
-          (Destination::Original, Notice::None | Notice::Error(_)) => Notice::None,
-        };
+        match destination {
+          Destination::Copy => {
+            let message = format!(
+              "This note changed somewhere else. Your copy was saved as {}.",
+              at.display()
+            );
+            let Ok(()) = console_notifications::notify(
+              console_notifications::Application("Notes"),
+              "Saved a copy of the note",
+              Some(&message),
+            );
+          }
+          Destination::Original => {}
+        }
+
         self.at = Some(at);
         self.known = known;
       }
-      Err(fault) => self.notice = Notice::Error(fault.to_string()),
+      Err(fault) => {
+        let Ok(()) = console_notifications::notify(
+          console_notifications::Application("Notes"),
+          "Could not save note",
+          Some(&fault.to_string()),
+        );
+      }
     }
 
     Ok(())
   }
 }
 
+fn report_open_error(at: &Path, fault: &io::Error) -> Result<(), Never> {
+  console_notifications::notify(
+    console_notifications::Application("Notes"),
+    "Could not open note",
+    Some(&format!("{}: {fault}", at.display())),
+  )
+}
+
 impl List {
   fn of(folder: &Path, standing: Option<&Path>) -> Result<List, Never> {
-    let (notes, notice) = match folder::listed(folder) {
-      Ok(notes) => (notes, Notice::None),
-      Err(fault) => (Vec::new(), Notice::Error(fault.to_string())),
+    let notes = match folder::listed(folder) {
+      Ok(notes) => notes,
+      Err(fault) => {
+        let Ok(()) = console_notifications::notify(
+          console_notifications::Application("Notes"),
+          "Could not list notes",
+          Some(&fault.to_string()),
+        );
+
+        Vec::new()
+      }
     };
 
     let found = (1_u32..)
@@ -1023,7 +1072,6 @@ impl List {
       first: 0,
       prompt: Prompt::None,
       pressed: None,
-      notice,
     })
   }
 
@@ -1179,10 +1227,16 @@ impl List {
       None => return Ok(()),
     };
 
-    let notice = match console_gio::trash(at) {
-      Ok(()) => Notice::None,
-      Err(fault) => Notice::Error(fault.to_string()),
-    };
+    match console_gio::trash(at) {
+      Ok(()) => {}
+      Err(fault) => {
+        let Ok(()) = console_notifications::notify(
+          console_notifications::Application("Notes"),
+          "Could not trash note",
+          Some(&fault.to_string()),
+        );
+      }
+    }
 
     let Ok(listed) = List::of(&self.folder, None);
     let Ok(last) = listed.last();
@@ -1190,10 +1244,58 @@ impl List {
     *self = List {
       selected: self.selected.min(last),
       first: self.first,
-      notice,
       ..listed
     };
 
+    Ok(())
+  }
+}
+
+#[cfg(test)]
+mod navigation_tests {
+  use super::*;
+
+  #[test]
+  fn back_from_a_note_restores_the_list_viewport() -> Result<(), Box<dyn std::error::Error>> {
+    let folder = console_core_temporary_directories::fresh("notes-scroll")?;
+
+    for row in 0_u32..8 {
+      let Ok(at) = console_application_notes::folder::path(&folder, &format!("Note {row}"));
+      console_core_atomic_writes::whole(&at, format!("# Note {row}\n").as_bytes())?;
+    }
+
+    let Ok(appearance) = Appearance::current();
+    let Ok(area) = TextArea::holding("");
+    let Ok(palette) = console_core_color::palette::read(include_str!(
+      "../../../../files/usr/local/lib/console/palette.sh"
+    ));
+    let wearing = Wearing::out_of(&palette)?;
+    let mut app = App {
+      folder,
+      wearing,
+      appearance,
+      view: View::Page(Box::new(OpenNote {
+        at: None,
+        known: String::new(),
+        area,
+        mode: PageMode::Writing,
+        list_position: ListPosition {
+          first: 3,
+          selected: 5,
+        },
+      })),
+    };
+    let Ok(_) = app.back();
+    let list = match app.view {
+      View::List(list) => list,
+      View::Page(_) => {
+        return Err(Box::<dyn std::error::Error>::from(
+          "Back did not return to the note list",
+        ));
+      }
+    };
+
+    assert_eq!((list.first, list.selected), (3, 5));
     Ok(())
   }
 }
@@ -1575,37 +1677,7 @@ fn list_shapes(list: &List, wearing: &Wearing, room: Size<u32>) -> Result<Vec<Sh
     }
   }
 
-  let Ok(()) = say(&mut shapes, &list.notice, wearing, room);
-
   Ok(shapes)
-}
-
-fn say(
-  shapes: &mut Vec<Shape>,
-  said: &Notice,
-  wearing: &Wearing,
-  room: Size<u32>,
-) -> Result<(), Never> {
-  let words_said = match said {
-    Notice::None => return Ok(()),
-    Notice::Copy(said_2) | Notice::Error(said_2) => said_2,
-  };
-
-  let Ok(column) = appearance::column(room);
-  let foot = room
-    .height
-    .saturating_sub(READING_EDGE.saturating_div(2))
-    .saturating_sub(SMALL);
-  let Ok(told) = words(
-    words_said,
-    (column.left, foot),
-    (SMALL, Weight::Plain),
-    (column.width, wearing.coral),
-  );
-
-  shapes.push(told);
-
-  Ok(())
 }
 
 fn page_shapes(
@@ -1712,8 +1784,6 @@ fn page_shapes(
     }
     ::core::option::Option::None => {}
   }
-
-  let Ok(()) = say(&mut shapes, &writing.notice, wearing, room);
 
   Ok(shapes)
 }

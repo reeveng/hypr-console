@@ -25,6 +25,8 @@ mod at_1790218469;
 mod at_1790221016;
 mod at_1790221017;
 mod at_1795535160;
+mod at_1795614091;
+mod at_1795621878;
 
 use crate::sweeping::Migration;
 
@@ -48,6 +50,8 @@ pub const EVERY: &[Migration] = &[
   at_1790221016::MIGRATION,
   at_1790221017::MIGRATION,
   at_1795535160::MIGRATION,
+  at_1795614091::MIGRATION,
+  at_1795621878::MIGRATION,
 ];
 
 pub const CRATE: &str = "crates/console-manifest-migrations";
@@ -79,6 +83,19 @@ mod tests {
       night_light
         .steps
         .contains(&Step::RemovePackage("hyprsunset"))
+    );
+  }
+
+  #[test]
+  fn the_nix_daemon_is_configured_after_deployment_even_on_the_first_apply() {
+    use crate::sweeping::{FirstApply, Timing};
+
+    let nix = at_1795614091::MIGRATION;
+    assert_eq!(nix.timing(), Ok(Timing::AfterDeployment));
+    assert_eq!(nix.first_apply(), Ok(FirstApply::Run));
+    assert_eq!(
+      at_1795535160::MIGRATION.first_apply(),
+      Ok(FirstApply::Remember)
     );
   }
 

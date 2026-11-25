@@ -13,7 +13,12 @@ path = "src/lib.rs"
 name = "console-panels"
 path = "src/bin/console-panels.rs"
 
+[[bin]]
+name = "notifications-panel"
+path = "src/bin/notifications-panel.rs"
+
 [dependencies]
+console-actor.workspace = true
 console-concurrency.workspace = true
 console-core-iteration.workspace = true
 console-core-logging = { workspace = true, features = ["std"] }
@@ -29,9 +34,12 @@ console-application-music.workspace = true
 console-core-internal-programs.workspace = true
 console-core-arguments.workspace = true
 console-core-never.workspace = true
+console-core-number-conversion.workspace = true
 console-device.workspace = true
+console-events.workspace = true
 console-notifications.workspace = true
 console-panel.workspace = true
+console-program-contract.workspace = true
 console-settings.workspace = true
 console-application-task-manager.workspace = true
 console-application-media-viewer.workspace = true

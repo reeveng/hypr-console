@@ -210,18 +210,23 @@ pub(super) fn choose_from<'a>(
   )
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
-
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Wanted {
-  pub follow: bool,
-
+  pub selection: Selection,
   pub picture: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Selection {
+  Following,
+  Still,
+  Live(String),
 }
 
 impl Default for Wanted {
   fn default() -> Self {
     Wanted {
-      follow: true,
+      selection: Selection::Following,
       picture: String::new(),
     }
   }
@@ -255,6 +260,13 @@ impl Set {
 }
 
 impl Wanted {
+  pub fn scene(&self) -> Result<Option<&str>, Never> {
+    Ok(match &self.selection {
+      Selection::Following | Selection::Still => None,
+      Selection::Live(name) => Some(name.as_str()),
+    })
+  }
+
   pub fn read(held: &str) -> Result<Self, Never> {
     Ok(match toml::from_str(held) {
       Ok(wanted) => wanted,
@@ -300,9 +312,9 @@ impl Wanted {
 }
 
 pub fn pinned<'a>(pictures: &'a [Picture], asked: &Wanted) -> Result<Option<&'a Picture>, Never> {
-  Ok(match ::core::primitive::bool::then_some(asked.follow, ()) {
-    ::core::option::Option::Some(()) => None,
-    ::core::option::Option::None => pictures
+  Ok(match asked.selection {
+    Selection::Following => None,
+    Selection::Still | Selection::Live(_) => pictures
       .iter()
       .find(|picture| picture.name == asked.picture),
   })
@@ -629,7 +641,7 @@ mod tests {
   fn a_pinned_picture_is_the_one_that_is_up() {
     let Ok(set) = pictures(&SET);
     let asked = Wanted {
-      follow: false,
+      selection: Selection::Still,
       picture: "lazy-river".to_string(),
     };
     let snowing = Outside {
@@ -648,7 +660,7 @@ mod tests {
   fn a_pinned_picture_that_is_gone_goes_back_to_following_the_weather() {
     let Ok(set) = pictures(&SET);
     let asked = Wanted {
-      follow: false,
+      selection: Selection::Still,
       picture: "sledding".to_string(),
     };
     let snowing = Outside {
@@ -667,15 +679,15 @@ mod tests {
   fn a_pinned_picture_is_known_without_anything_being_asked_of_the_weather() {
     let Ok(set) = pictures(&SET);
     let pinned_on = Wanted {
-      follow: false,
+      selection: Selection::Still,
       picture: "lazy-river".to_string(),
     };
     let following = Wanted {
-      follow: true,
+      selection: Selection::Following,
       picture: "lazy-river".to_string(),
     };
     let gone = Wanted {
-      follow: false,
+      selection: Selection::Still,
       picture: "sledding".to_string(),
     };
 
@@ -688,7 +700,7 @@ mod tests {
   fn a_pinned_picture_does_not_take_turns_with_anything() {
     let Ok(set) = pictures(&[STAR_RIDE, DANCING_FROGS]);
     let asked = Wanted {
-      follow: false,
+      selection: Selection::Still,
       picture: "star-ride".to_string(),
     };
     let night = Outside {
@@ -708,7 +720,7 @@ mod tests {
   #[test]
   fn what_was_asked_for_is_written_and_read_back_the_same() {
     let asked = Wanted {
-      follow: false,
+      selection: Selection::Still,
       picture: "star-ride".to_string(),
     };
     let Ok(written) = asked.serialize();
@@ -771,6 +783,12 @@ mod tests {
   #[test]
   fn a_file_that_is_not_one_reads_as_following_the_weather() {
     assert_eq!(Wanted::read("follow = maybe"), Ok(Wanted::default()));
-    assert!(matches!(Wanted::read(""), Ok(Wanted { follow: true, .. })));
+    assert!(matches!(
+      Wanted::read(""),
+      Ok(Wanted {
+        selection: Selection::Following,
+        ..
+      })
+    ));
   }
 }

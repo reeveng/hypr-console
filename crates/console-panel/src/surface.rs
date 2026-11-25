@@ -70,6 +70,7 @@ use console_core_shapes::{
   Clip, Covers, Edge, Font, Panel as ShapePanel, Picture as ShapePicture, Pixels, Round, Shape,
   Text, Weight,
 };
+use console_core_state_machine::SingleEffectMachine;
 pub use console_draw_painting::text::FontCatalog;
 use console_draw_painting::{self as painting, Frame, Run};
 pub use console_draw_surface::Drawing;
@@ -85,21 +86,25 @@ use console_operating_system_linux::program_runtime::commands::{
 use console_program_runtime::commands::{Invocation, Streams};
 
 use console_draw_surface::{
-  Anchor, Composition, InputContent, Keyboard, KeyboardEvent, KeyboardFocus, Keysym, Margin,
-  Part, PointerEvent, Room, Surface, Surrounding, TextInputState, Under, Visible, Wanted, Window,
+  Anchor, Composition, InputContent, KeyPress, KeyPressKind, Keyboard, KeyboardFocus, Keysym,
+  Margin, Part, PhysicalKeyPress, PointerEvent, Room, Surface, Surrounding, TextInputState,
+  Under, Visible, Wanted, Window,
 };
 
 use crate::description;
 use crate::fitting;
-use crate::keys::{self, Driving, Meaning};
+use crate::keys::{
+  Driving, Meaning, Navigation, NavigationEffect, NavigationInput, NavigationKeys, TabMotion,
+};
 use crate::marks;
 use crate::page::{
-  ActionOutcome, Answer, Bare, Beside, Choices, Confirmation, Control, Handler, Heading, Holds,
-  Nudged, Page, Picture, Progress, Row, Step, Subscription, WakeOutcome, Wears, walked,
+  Action, ActionOutcome, Answer, Bare, Beside, Choices, Confirmation, Control, Handler, Heading,
+  Holds, Nudged, Page, Picture, Progress, Row, Step, Subscription, WakeOutcome, Wears, walked,
 };
+use crate::scrolling::{self, LogicalPixels};
 use crate::shape;
 use crate::strip;
-use crate::tasks::{self, TaskEvent, Tasks};
+use crate::tasks::{self, Tasks};
 use console_sound_effects::catalogue::Sound;
 use console_sound_effects::{Degree, SoundEffects};
 
@@ -119,7 +124,7 @@ const WHATEVER_THE_SCREEN_IS: Size<u32> = Size {
   width: 0,
   height: 0,
 };
-const FINGER: i32 = EM * 8 / 3;
+const FINGER: i32 = strip::HEIGHT;
 const GLYPH: i32 = EM * 4 / 3;
 const PRESS_WIDE: i32 = FINGER * 3 / 2;
 const CONTROL_TALL: i32 = EM * 14 / 9;
@@ -127,7 +132,7 @@ const SLIDER_MOST: i32 = EM * 14;
 const PICKER_MOST: i32 = EM * 22;
 const CARD_ROUND: u32 = (EM * 8 / 9).unsigned_abs();
 const CARD_EDGE: u32 = (EM / 9).unsigned_abs();
-const TAB_ROUND: u32 = (EM * 2 / 3).unsigned_abs();
+const TAB_ROUND: u32 = strip::ROUND;
 const ROW_ROUND: u32 = (EM * 2 / 3).unsigned_abs();
 const BETWEEN_ROWS: i32 = fitting::ROW - FINGER;
 const INSIDE_A_ROW: i32 = EM * 8 / 9;
@@ -284,7 +289,6 @@ pub(crate) struct Measured<'a> {
   typed: MeasuredLine,
   answers: Vec<Size<u32>>,
   reveal: Size<u32>,
-  note: Size<u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -713,12 +717,6 @@ fn measured_now<'a>(
     None => NO_ROOM,
   };
 
-  let Ok(noting) = noted_now(state);
-  let note = match noting {
-    Some(said_3) => sized_as(said_3, Weight::Plain, TextStyle::Callout)?,
-    None => NO_ROOM,
-  };
-
   Ok(Measured {
     tabs,
     rows,
@@ -726,7 +724,6 @@ fn measured_now<'a>(
     typed,
     answers,
     reveal,
-    note,
   })
 }
 
@@ -928,31 +925,7 @@ fn centred(
   face: Font,
   ink: Oklch,
 ) -> Result<Text, Never> {
-  let Ok(wide) = fitted::<u32, i32>(within.size.width);
-  let Ok(tall) = fitted::<u32, i32>(within.size.height);
-  let Ok(said_wide) = fitted::<u32, i32>(measured.width);
-  let Ok(down) = middle(
-    Band {
-      top: within.at.y,
-      height: tall,
-    },
-    measured,
-  );
-
-  Ok(Text {
-    at: Point {
-      x: within
-        .at
-        .x
-        .saturating_add(wide.saturating_sub(said_wide).max(0).saturating_div(2)),
-      y: down,
-    },
-    width: measured.width.saturating_add(2).min(within.size.width),
-    said: said.to_string(),
-    weight,
-    font: face,
-    ink,
-  })
+  strip::centred(said, measured, within, weight, face, ink)
 }
 
 struct Button<'a> {
@@ -965,25 +938,17 @@ struct Button<'a> {
 }
 
 fn button(button: Button<'_>, wearing: &Wearing) -> Result<(Vec<Shape>, HitRegion), Never> {
-  let (fill, ink) = match button.stood {
-    Highlight::Yes => (wearing.pink, wearing.night),
-    Highlight::No => (wearing.night, wearing.text),
+  let state = match button.stood {
+    Highlight::Yes => strip::Control::Focused,
+    Highlight::No => strip::Control::Ready,
   };
-  let panel = ShapePanel {
-    at: button.at,
-    size: button.size,
-    round: Round(TAB_ROUND),
-    fill,
-    edge: Edge::None,
-  };
-  let Ok(face) = font(TextStyle::Body);
-  let Ok(words) = centred(
+  let Ok((panel, words)) = strip::control(
+    button.at,
+    button.size,
     button.said,
     button.measured,
-    &panel,
-    Weight::Bold,
-    face,
-    ink,
+    state,
+    wearing,
   );
 
   Ok((
@@ -1053,31 +1018,32 @@ fn arrow_shapes(
     ),
   ];
 
-  for (shown, at_x, said, said_size, lands) in arrows {
-    match ::core::primitive::bool::then_some(shown, ()) {
-      ::core::option::Option::Some(()) => {
-        let Ok((drawn, reached)) = button(
-          Button {
-            at: Point {
-              x: at_x,
-              y: band.top,
-            },
-            size: Size {
-              width: finger,
-              height: finger,
-            },
-            said,
-            measured: said_size,
-            lands,
-            stood: Highlight::No,
-          },
-          wearing,
-        );
+  for (available, at_x, said, said_size, lands) in arrows {
+    let look = match available.then_some(()) {
+      Some(()) => strip::Control::Ready,
+      None => strip::Control::Unavailable,
+    };
+    let Ok((panel, words)) = strip::control(
+      Point {
+        x: at_x,
+        y: band.top,
+      },
+      Size {
+        width: finger,
+        height: finger,
+      },
+      said,
+      said_size,
+      look,
+      wearing,
+    );
+    shapes.extend([Shape::Panel(panel), Shape::Text(words)]);
 
-        shapes.extend(drawn);
-        touching.push(reached);
+    match look {
+      strip::Control::Ready | strip::Control::Focused => {
+        touching.push(HitRegion { panel, lands })
       }
-      ::core::option::Option::None => {}
+      strip::Control::Unavailable => {}
     }
   }
 
@@ -1243,46 +1209,20 @@ fn tab_shapes(
       (None, _) => NO_ROOM,
     };
 
-    match ::core::primitive::bool::then_some(here, ()) {
-      ::core::option::Option::Some(()) => {
-        let pill_wide = said
-          .width
-          .saturating_add(INSIDE_A_ROW.unsigned_abs().saturating_mul(2))
-          .min(tab_wide);
-        let Ok(pill_wide_i) = fitted::<u32, i32>(pill_wide);
-
-        shapes.push(Shape::Panel(ShapePanel {
-          at: Point {
-            x: cell
-              .at
-              .x
-              .saturating_add(tab_wide_i.saturating_sub(pill_wide_i).saturating_div(2)),
-            y: top,
-          },
-          size: Size {
-            width: pill_wide,
-            height: finger,
-          },
-          round: Round(TAB_ROUND),
-          fill: match state.leaving {
-            Leaving::Standing => wearing.ground,
-            Leaving::No => wearing.pink,
-          },
-          edge: Edge::None,
-        }));
-      }
-      ::core::option::Option::None => {}
-    }
-
-    let (weight, ink) = match (here, state.leaving) {
-      (true, Leaving::No) => (Weight::Bold, wearing.night),
-      (true, Leaving::Standing) => (Weight::Bold, wearing.text),
-      (false, _) => (Weight::Plain, wearing.soft),
+    let look = match (here, state.leaving) {
+      (true, Leaving::No) => strip::TabFace::Selected,
+      (true, Leaving::Standing) => strip::TabFace::Leaving,
+      (false, _) => strip::TabFace::Other,
     };
-
-    let Ok(words) = centred(&page.title, said, &cell, weight, tab_face.clone(), ink);
-
-    shapes.push(Shape::Text(words));
+    let Ok(()) = strip::tab_shapes(
+      &mut shapes,
+      cell,
+      &page.title,
+      said,
+      tab_face.clone(),
+      look,
+      wearing,
+    );
     touching.push(HitRegion {
       lands: Lands::Tab(tab),
       panel: cell,
@@ -1525,18 +1465,12 @@ fn stirred(state: &State) -> Result<WakeOutcome, Never> {
   })
 }
 
-enum Overlay {
-  Note,
-  None,
-}
-
 fn wait_for_frame(
   waking: &crate::frames::WakeReceiver,
   surface: &mut Surface,
   panelled: &Panelled,
   logical: Size<u32>,
   was: (Dirty, Stale),
-  overlay: Overlay,
   pending: &mut crate::frames::FrameReceived,
 ) -> Result<(Dirty, Stale), console_draw_surface::SurfaceError> {
   let (mut dirty, mut stale) = was;
@@ -1559,7 +1493,7 @@ fn wait_for_frame(
     crate::frames::FrameReceived::No => {}
   }
 
-  let frame = paint_animation(surface, panelled, logical, (dirty, overlay), pending)?;
+  let frame = paint_animation(surface, panelled, logical, dirty, pending)?;
 
   Ok((frame, stale))
 }
@@ -1568,7 +1502,7 @@ fn paint_animation(
   surface: &mut Surface,
   panelled: &Panelled,
   logical: Size<u32>,
-  (dirty, overlay): (Dirty, Overlay),
+  dirty: Dirty,
   pending: &mut crate::frames::FrameReceived,
 ) -> Result<Dirty, console_draw_surface::SurfaceError> {
   let moved = match (*pending, dirty, &panelled.moving) {
@@ -1589,12 +1523,9 @@ fn paint_animation(
   }
 
   *pending = crate::frames::FrameReceived::No;
-  let next = match overlay {
-    Overlay::Note => Dirty::Yes,
-    Overlay::None => match repainted(surface, moved, logical) {
-      Ok(Visible::Yes) => dirty,
-      Ok(Visible::NotYet) => Dirty::Yes,
-    },
+  let next = match repainted(surface, moved, logical) {
+    Ok(Visible::Yes) => dirty,
+    Ok(Visible::NotYet) => Dirty::Yes,
   };
   surface.pace_animation()?;
 
@@ -2240,7 +2171,12 @@ fn row_words(
       (lit, wearing),
     )?,
     Holds::Choices => picker_shapes(row, measured_row_2, (line, words_x), wearing)?,
-    Holds::None => aside_shapes(row, measured_row_2, Line { ink: quiet, ..line }, box_wide)?,
+    Holds::None => {
+      let Ok(available) = width(line.far.saturating_sub(words_x));
+      let wide = box_wide.saturating_div(2).min(available);
+
+      aside_shapes(row, measured_row_2, Line { ink: quiet, ..line }, wide)?
+    }
   };
 
   drawing.shapes.extend(said);
@@ -3523,38 +3459,54 @@ fn aside_shapes(
   row: &Row,
   measured_row: &MeasuredRow,
   line: Line,
-  box_wide: u32,
+  available: u32,
 ) -> Result<(Vec<Shape>, Vec<HitRegion>, i32), Never> {
   match ::core::primitive::bool::then_some(row.aside.is_empty(), ()) {
     ::core::option::Option::Some(()) => return Ok((Vec::new(), Vec::new(), line.far)),
     ::core::option::Option::None => {}
   }
 
-  let wide = measured_row.aside.width.min(box_wide.saturating_div(2));
-  let Ok(wide_i) = fitted::<u32, i32>(wide);
+  let Ok(face_callout) = font(TextStyle::Callout);
+  let (said, measured) = match row.says.as_str() {
+    "" => (
+      row.aside.clone(),
+      Size {
+        width: measured_row.aside.width.min(available),
+        height: measured_row.aside.height,
+      },
+    ),
+    _ => {
+      let Ok(label) = aside_label(&row.aside, measured_row.aside, &face_callout, available);
+
+      match label {
+        Some(fitted_label) => fitted_label,
+        None => return Ok((Vec::new(), Vec::new(), line.far)),
+      }
+    }
+  };
+  let Ok(wide_i) = fitted::<u32, i32>(measured.width);
   let Ok(down) = middle(
     Band {
       top: line.top,
       height: line.height,
     },
-    measured_row.aside,
+    measured,
   );
-  let Ok(face_callout) = font(TextStyle::Callout);
 
-  let said = Shape::Text(Text {
+  let text = Shape::Text(Text {
     at: Point {
       x: line.far.saturating_sub(wide_i),
       y: down,
     },
-    width: wide.saturating_add(2),
-    said: row.aside.clone(),
+    width: measured.width.saturating_add(2),
+    said,
     weight: Weight::Plain,
     font: face_callout,
     ink: line.ink,
   });
 
   Ok((
-    vec![said],
+    vec![text],
     Vec::new(),
     line
       .far
@@ -3563,43 +3515,37 @@ fn aside_shapes(
   ))
 }
 
-fn note_shapes(
+fn aside_label(
   said: &str,
-  measured: Size<u32>,
-  card: &Card,
-  wearing: &Wearing,
-) -> Result<Vec<Shape>, Never> {
-  let Ok(finger) = fitted::<i32, u32>(FINGER);
-  let wide = measured
-    .width
-    .saturating_add(INSIDE_A_ROW.unsigned_abs().saturating_mul(2));
-  let Ok(wide_i) = fitted::<u32, i32>(wide);
-  let pill = ShapePanel {
-    at: Point {
-      x: card
-        .x
-        .saturating_add(card.width.saturating_sub(wide_i).saturating_div(2)),
-      y: card
-        .y
-        .saturating_add(card.height)
-        .saturating_sub(strip::MARGIN)
-        .saturating_sub(FINGER),
-    },
-    size: Size {
-      width: wide,
-      height: finger,
-    },
-    round: Round(TAB_ROUND),
-    fill: wearing.night,
-    edge: Edge::Of {
-      wide: CARD_EDGE,
-      color: wearing.pink,
-    },
-  };
-  let Ok(face) = font(TextStyle::Callout);
-  let Ok(words) = centred(said, measured, &pill, Weight::Plain, face, wearing.text);
+  natural: Size<u32>,
+  face: &Font,
+  width: u32,
+) -> Result<Option<(String, Size<u32>)>, Never> {
+  match (natural.width <= width && !said.contains(['\n', '\r'])).then_some(()) {
+    Some(()) => return Ok(Some((said.to_owned(), natural))),
+    None => {}
+  }
 
-  Ok(vec![Shape::Panel(pill), Shape::Text(words)])
+  let Ok(shortened) = painting::at_most(
+    Run {
+      said,
+      weight: Weight::Plain,
+      width,
+    },
+    face,
+    painting::Lines(1),
+  );
+  let Ok(measured) = measured_in(&shortened, Weight::Plain, face);
+
+  match (measured.width <= width).then_some(()) {
+    Some(()) => return Ok(Some((shortened, measured))),
+    None => {}
+  }
+
+  let ellipsis = painting::CUT.to_string();
+  let Ok(measured_ellipsis) = measured_in(&ellipsis, Weight::Plain, face);
+
+  Ok((measured_ellipsis.width <= width).then_some((ellipsis, measured_ellipsis)))
 }
 
 fn line_shapes(
@@ -3724,9 +3670,10 @@ pub(crate) enum Leaving {
 pub(crate) struct State {
   rows: Vec<Row>,
   row_layout: LayoutCache,
-  reveal: Reveal,
   model: CardModel,
   loading: bool,
+  navigation: Navigation,
+  wheel: scrolling::Position,
 }
 
 #[derive(Clone, Copy)]
@@ -3735,7 +3682,19 @@ enum Reveal {
   Scrolled,
 }
 
+#[derive(Clone, Copy, Default)]
+struct PageViewport {
+  at: Option<u32>,
+  scroll: i32,
+}
+
 impl State {
+  fn cancel_navigation(&mut self) -> Result<(), Never> {
+    let Ok(turn) = NavigationKeys::handle(self.navigation, NavigationInput::Cancel);
+    self.navigation = turn.state;
+    Ok(())
+  }
+
   fn layout(&self) -> Result<&RowLayout, Never> {
     self.row_layout.layout()
   }
@@ -3746,33 +3705,33 @@ impl State {
 
   fn reveal_focus(&mut self) -> Result<(), Never> {
     self.reveal = Reveal::Focus;
+    self.wheel = scrolling::Position::default();
     Ok(())
   }
 
   fn visible_scroll(&self, viewport: Viewport) -> Result<i32, Never> {
     let Ok(layout) = self.layout();
 
-    match (layout, self.reveal) {
-      (RowLayout::Wrapped(_), Reveal::Scrolled) => {
+    match (self.reveal, self.at) {
+      (Reveal::Scrolled, _) | (Reveal::Focus, None) => {
         let Ok(count) = fitted::<_, u64>(self.rows.len());
         clamped_scroll(layout, viewport, count)
       }
-      (RowLayout::Uniform, _) | (RowLayout::Wrapped(_), Reveal::Focus) => {
-        scrolled(self.at, viewport, layout)
-      }
+      (Reveal::Focus, Some(_)) => scrolled(self.at, viewport, layout),
     }
   }
 }
 
 pub(crate) struct CardModel {
   pages: Vec<Page>,
+  page_viewports: Vec<PageViewport>,
   leaving: Leaving,
   here: u32,
   at: Option<u32>,
   opened: Opened,
   from_tab: u32,
   scroll: i32,
-  note: Option<String>,
+  reveal: Reveal,
   typed: TextField,
   preedit: Option<Composition>,
   prompt_identity: u32,
@@ -3785,7 +3744,6 @@ pub(crate) struct CardModel {
   selected: Vec<String>,
   framing: Framing,
   tasks: Actor<Tasks>,
-  live: Option<String>,
 }
 
 impl std::ops::Deref for State {
@@ -3972,6 +3930,7 @@ pub(crate) fn what_it_drew(
     let Ok(heading) = row_3.heading();
     let Ok(wears) = crate::page::wears(row_3);
     let Ok(drew) = drawn_in(panelled, at);
+    let Ok(highlight) = row_highlight(state, row_3, at);
 
     lines.push(description::Line {
       at,
@@ -3989,10 +3948,10 @@ pub(crate) fn what_it_drew(
         Heading::Yes => description::Heading::Yes,
         Heading::No => description::Heading::No,
       },
-      standing: match (state.at == Some(at), state.beside) {
-        (true, Beside::Yes) => description::Standing::Beside,
-        (true, Beside::No) => description::Standing::On,
-        (false, Beside::Yes) | (false, Beside::No) => description::Standing::No,
+      standing: match (highlight, state.beside) {
+        (Highlight::Yes, Beside::Yes) => description::Standing::Beside,
+        (Highlight::Yes, Beside::No) => description::Standing::On,
+        (Highlight::No, _) => description::Standing::No,
       },
       spots,
       cells: row_3.cells.iter().map(|cell| cell.says.clone()).collect(),
@@ -4233,9 +4192,10 @@ pub(crate) fn shapes(
 
         let row_bottom = at_y.saturating_add(this_tall);
 
-        let highlight = match (state.at == Some(index_2), state.leaving) {
-          (true, Leaving::No) => Highlight::Yes,
-          (true, Leaving::Standing) | (false, _) => Highlight::No,
+        let Ok(focus) = row_highlight(state, row, index_2);
+        let highlight = match state.leaving {
+          Leaving::No => focus,
+          Leaving::Standing => Highlight::No,
         };
         let Ok(press) = pressed(state, index_2, row);
         let Ok(zoom) = zoom_on(state, row);
@@ -4294,17 +4254,6 @@ pub(crate) fn shapes(
 
   shapes.push(Shape::Clip(Clip::Lifted));
   shapes.extend(over_the_rows);
-
-  let Ok(noting) = noted_now(state);
-
-  match noting {
-    Some(said) => {
-      let Ok(noted) = note_shapes(said, measured.note, card, wearing);
-
-      shapes.extend(noted);
-    }
-    None => {}
-  }
 
   Ok(Panelled {
     shapes,
@@ -4634,7 +4583,10 @@ pub(crate) fn apply_meaning(
         None => BEFORE_THE_FIRST_ROW,
       };
       let Ok(going) = walked(rows, from, Step(step));
-      let Ok(landed) = fitted::<i32, u32>(going.max(0));
+      let landed = match u32::try_from(going) {
+        Ok(landed) => landed,
+        Err(_before_first) => return Ok(Outcome::None),
+      };
 
       state.at = Some(landed);
       state.beside = Beside::No;
@@ -4661,16 +4613,15 @@ pub(crate) fn apply_meaning(
       Outcome::Redrawn
     }
     Meaning::Nudge(step) => {
-      let at = match state.at {
-        Some(at) => at,
-        None => match ::core::primitive::bool::then_some(rows.is_empty(), ()) {
-          ::core::option::Option::Some(()) => return Ok(Outcome::None),
-          ::core::option::Option::None => {
-            state.at = Some(0);
-            0
-          }
-        },
+      let Ok(focus) = match state.at {
+        Some(at) => Ok(Some(at)),
+        None => first_selectable_row(rows),
       };
+      let at = match focus {
+        Some(at) => at,
+        None => return Ok(Outcome::None),
+      };
+      state.at = Some(at);
 
       let Ok(row) = nth(rows, at);
 
@@ -4782,6 +4733,41 @@ enum Selection {
   Else,
 }
 
+fn first_selectable_row(rows: &[Row]) -> Result<Option<u32>, Never> {
+  let Ok(first) = walked(rows, BEFORE_THE_FIRST_ROW, Step(1));
+
+  Ok(match first {
+    BEFORE_THE_FIRST_ROW => None,
+    _ => {
+      let Ok(at) = fitted::<i32, u32>(first);
+
+      Some(at)
+    }
+  })
+}
+
+fn selectable_row(rows: &[Row], at: u32) -> Result<Option<u32>, Never> {
+  let Ok(candidate) = nth(rows, at);
+  let Ok(interaction) = match candidate {
+    Some(row) => row.interaction(),
+    None => Ok(Action::None),
+  };
+
+  Ok(match interaction {
+    Action::Yes => Some(at),
+    Action::None => None,
+  })
+}
+
+fn row_highlight(state: &State, row: &Row, at: u32) -> Result<Highlight, Never> {
+  let Ok(interaction) = row.interaction();
+
+  Ok(match (state.at == Some(at), interaction) {
+    (true, Action::Yes) => Highlight::Yes,
+    (false, _) | (true, Action::None) => Highlight::No,
+  })
+}
+
 #[must_use]
 fn row_action(
   activation: Activation<u32>,
@@ -4795,25 +4781,6 @@ fn row_action(
     (Some(row), Selection::Else) => Outcome::Else(row),
     (None, _) => Outcome::None,
   })
-}
-
-fn noted_now(state: &State) -> Result<Option<&String>, Never> {
-  Ok(state.live.as_ref().or(state.note.as_ref()))
-}
-
-fn noted(
-  state: &mut CardModel,
-  notes: Vec<console_program_contract::Notification>,
-) -> Result<(), Never> {
-  let last = match notes.last() {
-    Some(last) => last,
-    None => return Ok(()),
-  };
-  let Ok(written) = tasks::written(last);
-
-  state.note = Some(written);
-
-  Ok(())
 }
 
 pub(crate) fn driving(state: &State) -> Result<Driving, Never> {
@@ -4835,10 +4802,18 @@ pub(crate) fn driving(state: &State) -> Result<Driving, Never> {
 fn pressed_here(
   state: &mut CardModel,
   rows: &[Row],
-  key: Keysym,
+  press: KeyPress,
   meaning: Meaning,
   driving: Driving,
 ) -> Result<ActionOutcome, Never> {
+  match (press.kind, meaning) {
+    (
+      KeyPressKind::Repeated,
+      Meaning::Abandon | Meaning::Choose | Meaning::Close | Meaning::More,
+    ) => return Ok(ActionOutcome::Stay),
+    _ => {}
+  }
+
   match (meaning, driving) {
     (Meaning::Abandon, Driving::Question) => {
       state.asking = None;
@@ -4866,10 +4841,13 @@ fn pressed_here(
       return Ok(ActionOutcome::Stay);
     }
     (Meaning::None, Driving::Question) => {
-      match key {
-        Keysym::Return | Keysym::KP_Enter => {
+      match (press.key, press.kind) {
+        (Keysym::Return | Keysym::KP_Enter, KeyPressKind::Initial) => {
           let Ok(()) = submit_answer(state, rows);
 
+          return Ok(ActionOutcome::Stay);
+        }
+        (Keysym::Return | Keysym::KP_Enter, KeyPressKind::Repeated) => {
           return Ok(ActionOutcome::Stay);
         }
         _ => {}
@@ -4881,14 +4859,14 @@ fn pressed_here(
       };
 
       let mut typed = asking.typed;
-      let Ok(_changed) = typed.typed(key);
+      let Ok(_changed) = typed.typed_press(press);
 
       state.asking = Some(Prompt { typed, ..asking });
 
       return Ok(ActionOutcome::Stay);
     }
     (Meaning::None, Driving::Search) => {
-      let Ok(changed) = state.typed.typed(key);
+      let Ok(changed) = state.typed.typed_press(press);
 
       match changed {
         Typed::Edited => {
@@ -4931,15 +4909,81 @@ fn column_kept(state: &mut CardModel, rows: &[Row], landed: u32) -> Result<(), N
 }
 
 fn stood_on(state: &mut CardModel, which: u32) -> Result<(), Never> {
+  let Ok(former) = index(state.here);
+  let Ok(next) = index(which);
+
+  match state.page_viewports.get_mut(former) {
+    Some(view) => {
+      *view = PageViewport {
+        at: state.at,
+        scroll: state.scroll,
+      }
+    }
+    None => {}
+  }
+
+  let restored = match state.page_viewports.get(next) {
+    Some(view) => *view,
+    None => PageViewport::default(),
+  };
   state.opened = Opened::No;
   state.leaving = Leaving::No;
   state.here = which;
-  state.at = None;
-  state.scroll = 0;
+  state.at = restored.at;
+  state.scroll = restored.scroll;
+  state.reveal = match restored.at {
+    Some(_) => Reveal::Scrolled,
+    None => Reveal::Focus,
+  };
   state.beside = Beside::No;
   state.selected = Vec::new();
 
   Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TabGrowth {
+  Grew,
+  Unchanged,
+}
+
+fn extend_tabs(state: &mut CardModel, shown: Option<u32>) -> Result<TabGrowth, Never> {
+  use crate::page::Neighbor;
+
+  let selected = state.here;
+
+  match (shown == Some(selected)).then_some(()) {
+    Some(()) => return Ok(TabGrowth::Unchanged),
+    None => {}
+  }
+
+  let Ok(last) = fitted::<_, u32>(state.pages.len().saturating_sub(1));
+  let edge = match (selected == 0, selected == last) {
+    (true, _) => Neighbor::Before,
+    (false, true) => Neighbor::After,
+    (false, false) => return Ok(TabGrowth::Unchanged),
+  };
+  let Ok(selected_page) = nth(&state.pages, selected);
+  let adjacent = match selected_page.and_then(|page| page.adjacent.as_ref()) {
+    Some(adjacent) => adjacent,
+    None => return Ok(TabGrowth::Unchanged),
+  };
+  let Ok(neighbor) = adjacent(edge);
+
+  Ok(match (edge, neighbor) {
+    (Neighbor::Before, Some(page)) => {
+      state.pages.insert(0, page);
+      state.page_viewports.insert(0, PageViewport::default());
+      state.here = selected.saturating_add(1);
+      TabGrowth::Grew
+    }
+    (Neighbor::After, Some(page)) => {
+      state.pages.push(page);
+      state.page_viewports.push(PageViewport::default());
+      TabGrowth::Grew
+    }
+    (_, None) => TabGrowth::Unchanged,
+  })
 }
 
 fn nudge_level(rows: &[Row], at: u32, step: i32) -> Result<Outcome, Never> {
@@ -5507,7 +5551,6 @@ pub fn run(
       Framing::Card,
       shut,
       Reported {
-        front: None,
         first_frame: FirstFrame::Hosted(first_frame),
         preparation: Some(preparation),
         tells,
@@ -5548,7 +5591,6 @@ pub fn show(
       Framing::Card,
       shut,
       Reported {
-        front: None,
         first_frame: FirstFrame::LocalPicker,
         preparation: None,
         tells,
@@ -5581,7 +5623,6 @@ pub fn app(who: &str, card: crate::card::Card) -> Result<(), Never> {
       Framing::Window,
       shut,
       Reported {
-        front: None,
         first_frame: FirstFrame::Reported,
         preparation: None,
         tells,
@@ -5616,23 +5657,27 @@ fn opened_on(
   framing: Framing,
   tasks: Actor<Tasks>,
 ) -> Result<State, Never> {
+  let page_viewports = vec![PageViewport::default(); pages.len()];
+
   Ok(State {
     rows: Vec::new(),
     row_layout: LayoutCache::Unmeasured,
-    reveal: Reveal::Focus,
     loading: false,
+    navigation: Navigation::Ready,
+    wheel: scrolling::Position::default(),
     model: CardModel {
       here: match crate::page::find(&pages, start) {
         Ok(index) => index,
         Err(never) => match never {},
       },
       pages,
+      page_viewports,
       leaving: Leaving::No,
       at: None,
       opened: Opened::No,
       from_tab: 0,
       scroll: 0,
-      note: None,
+      reveal: Reveal::Focus,
       typed: TextField::default(),
       preedit: None,
       prompt_identity: 0,
@@ -5645,7 +5690,6 @@ fn opened_on(
       selected: Vec::new(),
       framing,
       tasks,
-      live: None,
     },
   })
 }
@@ -5937,15 +5981,14 @@ fn worth(event: &Received, listening: Option<&Subscription>) -> Result<Worth, Ne
 }
 
 struct Reading {
-  here: u32,
-  arrived: mpsc::Receiver<Vec<Row>>,
+  arrived: mpsc::Receiver<crate::page::LoadedRows>,
 }
 
-fn reading(page: &Page, here: u32) -> Result<Reading, Never> {
+fn reading(page: &Page) -> Result<Reading, Never> {
   let (sending, arrived) = mpsc::sync_channel(1);
   let rows = page.rows.clone();
   let asking = thread::spawn(move || {
-    let Ok(read) = rows.read();
+    let Ok(read) = rows.fetch();
 
     match sending.send(read) {
       Ok(()) => {}
@@ -5956,7 +5999,44 @@ fn reading(page: &Page, here: u32) -> Result<Reading, Never> {
   });
   let Ok(()) = console_program_lifetime::threads::let_go(asking);
 
-  Ok(Reading { here, arrived })
+  Ok(Reading { arrived })
+}
+
+fn read_completed(
+  state: &mut State,
+  pending: &mut Option<Reading>,
+  stale: Stale,
+) -> Result<Dirty, Never> {
+  let loaded = match pending.as_ref().map(|read| read.arrived.try_recv()) {
+    Some(Ok(loaded)) => loaded,
+    Some(Err(mpsc::TryRecvError::Disconnected)) => {
+      *pending = None;
+      return Ok(Dirty::Yes);
+    }
+    Some(Err(mpsc::TryRecvError::Empty)) | None => return Ok(Dirty::No),
+  };
+  *pending = None;
+
+  match stale {
+    Stale::Yes => return Ok(Dirty::No),
+    Stale::No => {}
+  }
+
+  let Ok(()) = apply_rows(state, loaded.rows);
+
+  match loaded.after {
+    Some(after) => {
+      let Ok(()) = effects::dispatch(
+        &mut state.model,
+        &state.rows,
+        effects::Source::Page,
+        |showing, _| after(showing),
+      );
+    }
+    None => {}
+  }
+
+  Ok(Dirty::Yes)
 }
 
 fn meanwhile(page: Option<&Page>) -> Result<Vec<Row>, Never> {
@@ -6047,10 +6127,16 @@ fn outside(card: &Card, hit: Point<i32>) -> Result<Covers, Never> {
   })
 }
 
-fn scrolled_to(state: &mut State, viewport: Viewport) -> Result<(), Never> {
+fn scrolled_to(state: &mut State, viewport: Viewport) -> Result<Dirty, Never> {
   let Ok(count) = fitted::<_, u64>(state.rows.len());
   let Ok(layout) = state.layout();
   let Ok(y) = clamped_scroll(layout, viewport, count);
+
+  match (y == state.scroll).then_some(()) {
+    Some(()) => return Ok(Dirty::No),
+    None => {}
+  }
+
   let Ok((first, last)) = scroll_focus(layout, Viewport { y, ..viewport }, count);
 
   state.scroll = y;
@@ -6064,22 +6150,36 @@ fn scrolled_to(state: &mut State, viewport: Viewport) -> Result<(), Never> {
   let wanted = match (at < first, at > last) {
     (true, _) => walked(&state.rows, first.saturating_sub(1), Step(1)),
     (false, true) => walked(&state.rows, last.saturating_add(1), Step(-1)),
-    (false, false) => return Ok(()),
+    (false, false) => return Ok(Dirty::Yes),
   };
   let Ok(wanted_2) = wanted;
-  let Ok(landed) = fitted::<i32, u32>(wanted_2.max(0));
+  let landed = match u32::try_from(wanted_2) {
+    Ok(landed) => landed,
+    Err(_before_first) => return Ok(Dirty::Yes),
+  };
+  let Ok(focus) = selectable_row(&state.rows, landed);
 
-  state.at = Some(landed);
-  state.beside = Beside::No;
+  match focus {
+    Some(visible_row) => {
+      state.at = Some(visible_row);
+      state.beside = Beside::No;
+    }
+    None => {}
+  }
 
-  Ok(())
+  Ok(Dirty::Yes)
 }
 
 fn clamped_scroll(layout: &RowLayout, viewport: Viewport, count: u64) -> Result<i32, Never> {
-  let Ok(height) = layout.height(count);
-  let furthest = height.saturating_sub(viewport.room).max(0);
+  let Ok(limit) = scroll_limit(layout, viewport.room, count);
 
-  Ok(viewport.y.clamp(0, furthest))
+  Ok(viewport.y.clamp(0, limit))
+}
+
+fn scroll_limit(layout: &RowLayout, room: i32, count: u64) -> Result<i32, Never> {
+  let Ok(height) = layout.height(count);
+
+  Ok(height.saturating_sub(room).max(0))
 }
 
 fn scroll_focus(layout: &RowLayout, viewport: Viewport, count: u64) -> Result<(i32, i32), Never> {
@@ -6121,19 +6221,19 @@ fn tapped(
 
   Ok(match lands {
     Some(Lands::Row(landed)) => {
-      let Ok(many) = fitted::<_, u32>(rows.len());
+      let Ok(focus) = selectable_row(rows, landed);
 
-      match ::core::primitive::bool::then_some(landed < many, ()) {
-        ::core::option::Option::Some(()) => {
-          model.at = Some(landed);
+      match focus {
+        Some(at) => {
+          model.at = Some(at);
           model.beside = Beside::No;
 
-          let Ok(action) = row_action(Activation::At(landed), model.at, Selection::Chose);
+          let Ok(action) = row_action(Activation::At(at), model.at, Selection::Chose);
           let Ok(gone) = carried_out(model, rows, action);
 
           gone
         }
-        ::core::option::Option::None => ActionOutcome::Stay,
+        None => ActionOutcome::Stay,
       }
     }
     Some(Lands::Answer(which)) => {
@@ -6306,27 +6406,14 @@ fn serve(
       return Ok(());
     }
   };
-  let Ok(()) = serving(
+  serving(
     who,
     (build, tasks),
     start,
     framing,
     (shut, &waking),
     &mut reported_2,
-  );
-  let front = match reported_2.front {
-    Some(front) => front,
-    None => return Ok(()),
-  };
-
-  match console_onscreen::forget_if_still(&front) {
-    Ok(()) => {}
-    Err(fault) => console_core_logging::warn!(
-      "console-panel: the tab in front could not be forgotten: {fault}"
-    ),
-  }
-
-  Ok(())
+  )
 }
 
 fn built(build: crate::card::Build) -> Result<Vec<Page>, Never> {
@@ -6378,7 +6465,6 @@ impl FirstFrame {
 }
 
 struct Reported {
-  front: Option<String>,
   first_frame: FirstFrame,
   preparation: Option<Preparing>,
   tells: Option<String>,
@@ -6413,20 +6499,28 @@ fn tell(
   Ok(())
 }
 
-fn in_front(page: Option<&Page>, reported: &mut Reported) -> Result<(), Never> {
-  let page_3 = match page {
-    Some(page_2) => page_2,
+fn in_front(page: Option<&Page>) -> Result<(), Never> {
+  let Ok(owner) = crate::whose::name();
+  let Ok(reported) = settings_tab(&owner, page.map(|shown| shown.title.as_str()));
+  let title = match reported {
+    Some(active) => active,
     None => return Ok(()),
   };
 
-  match console_onscreen::write_tab(&page_3.title) {
-    Ok(()) => reported.front = Some(page_3.title.clone()),
+  match console_onscreen::write_tab(title) {
+    Ok(()) => {}
     Err(fault) => console_core_logging::warn!(
       "console-panel: the tab in front could not be written down: {fault}"
     ),
   }
 
   Ok(())
+}
+
+fn settings_tab<'a>(owner: &str, title: Option<&'a str>) -> Result<Option<&'a str>, Never> {
+  let Ok(settings) = console_core_internal_programs::InternalProgram::SettingsPanel.name();
+
+  Ok((owner == settings).then_some(title).flatten())
 }
 
 fn entered(state: &mut CardModel) -> Result<ActionOutcome, Never> {
@@ -6519,7 +6613,6 @@ fn serving(
   };
 
   let Ok(()) = crate::arrivals::follow();
-  let Ok(_nothing_to_say_before_a_card_is_up) = tasks::told(&tasks, TaskEvent::CardUp);
   let marks_measured = measure_marks()?;
   let Ok(()) = crate::opening::mark("fonts");
   let Ok(none) = InFront::none();
@@ -6555,8 +6648,6 @@ fn serving(
     Ok(()) => {}
     Err(fault) => console_core_logging::warn!("console-panel: the event loop stopped: {fault:?}"),
   }
-
-  let Ok(_said_as_notifications_once_nothing_is_up) = tasks::told(&tasks, TaskEvent::CardGone);
 
   Ok(())
 }
@@ -6815,11 +6906,12 @@ fn turn_once(turning: &mut Turning<'_>, still: Still<'_>) -> Result<ActionOutcom
   let Ok(card) = card_taking(surface, &surface_size, state.opened, state.framing);
   let card_wide_u32 = fitted::<i32, u32>(card.width)?;
 
+  let Ok(growth) = extend_tabs(&mut state.model, *rows_of);
   let sizing = (logical, card_wide_u32);
 
-  match ::core::primitive::bool::then_some(*sized_for == Some(sizing), ()) {
-    ::core::option::Option::Some(()) => {}
-    ::core::option::Option::None => {
+  match (*sized_for != Some(sizing) || growth == TabGrowth::Grew).then_some(()) {
+    None => {}
+    Some(()) => {
       let Ok(spent) = spent();
       let room = strip::room(strip::Card {
         width: card.width,
@@ -6830,6 +6922,11 @@ fn turn_once(turning: &mut Turning<'_>, still: Still<'_>) -> Result<ActionOutcom
       let Ok(cell) = widest_tab(&tabs);
       let Ok(fitting_tabs) = strip::fits(room, cell);
 
+      match growth {
+        TabGrowth::Grew => front.watching = None,
+        TabGrowth::Unchanged => {}
+      }
+
       *measured_tabs = tabs;
       *fits = fitting_tabs;
       measured_rows.get_mut().clear();
@@ -6838,7 +6935,7 @@ fn turn_once(turning: &mut Turning<'_>, still: Still<'_>) -> Result<ActionOutcom
     }
   }
 
-  let entering = *rows_of != Some(state.here);
+  let entering = growth == TabGrowth::Grew || *rows_of != Some(state.here);
 
   match ::core::primitive::bool::then_some(entering, ()) {
     ::core::option::Option::Some(()) => {
@@ -6866,34 +6963,42 @@ fn turn_once(turning: &mut Turning<'_>, still: Still<'_>) -> Result<ActionOutcom
   match ::core::primitive::bool::then_some(entering, ()) {
     ::core::option::Option::None => {}
     ::core::option::Option::Some(()) => {
-      let Ok(()) = in_front(page, reported);
+      let Ok(()) = in_front(page);
       let Ok(first) = meanwhile(page);
       let Ok(running) = tasks::running_now(&state.tasks);
       let Ok(first_2) = tasks::shown(first, &running);
-      let Ok(live) = running.live();
 
       state.rows = first_2;
       state.row_layout = LayoutCache::Unmeasured;
-      state.model.live = live;
 
-      match (state.at.is_none() && !state.rows.is_empty()).then_some(()) {
-        ::core::option::Option::Some(()) => {
-          state.model.at = Some(0);
+      match state.at {
+        None => {
+          let Ok(first_focus) = first_selectable_row(&state.rows);
+          state.model.at = first_focus;
         }
-        ::core::option::Option::None => {}
+        Some(_) => {}
       }
 
       measured_rows.get_mut().clear();
       *rows_of = Some(state.here);
+      *asked = None;
       *stale = Stale::Yes;
       *dirty = Dirty::Yes;
     }
   }
 
   let Ok(defer_rows) = DeferredRows::for_page(state.framing, *painted, page);
+  let Ok(updated) = read_completed(state, asked, *stale);
 
-  match (*stale, page, defer_rows) {
-    (Stale::Yes, Some(page_2), DeferredRows::ReadNow) => {
+  match updated {
+    Dirty::Yes => *dirty = Dirty::Yes,
+    Dirty::No => {}
+  }
+
+  let Ok(current_page) = nth(&state.model.pages, state.model.here);
+
+  match (*stale, current_page, defer_rows, asked.as_ref()) {
+    (Stale::Yes, Some(page_2), DeferredRows::ReadNow, None) => {
       match &page_2.rows {
         crate::page::Rows::Fixed(rows) => {
           let rows_2 = rows.clone();
@@ -6902,36 +7007,17 @@ fn turn_once(turning: &mut Turning<'_>, still: Still<'_>) -> Result<ActionOutcom
           *dirty = Dirty::Yes;
         }
         crate::page::Rows::Computed(_) => {
-          let Ok(started) = reading(page_2, state.here);
+          let Ok(started) = reading(page_2);
           *asked = Some(started);
         }
       }
 
       *stale = Stale::No;
     }
-    (Stale::No, _, _) | (_, None, _) | (_, _, DeferredRows::AfterFirstFrame) => {}
-  }
-
-  match asked
-    .as_ref()
-    .map(|reading| (reading.here, reading.arrived.try_recv()))
-  {
-    Some((here, Ok(read))) => {
-      *asked = None;
-
-      match ::core::primitive::bool::then_some(here == state.here, ()) {
-        ::core::option::Option::Some(()) => {
-          let Ok(()) = apply_rows(state, read);
-          *dirty = Dirty::Yes;
-        }
-        ::core::option::Option::None => {}
-      }
-    }
-    Some((_, Err(mpsc::TryRecvError::Disconnected))) => {
-      *asked = None;
-      *dirty = Dirty::Yes;
-    }
-    Some((_, Err(mpsc::TryRecvError::Empty))) | None => {}
+    (Stale::No, _, _, _)
+    | (_, None, _, _)
+    | (_, _, DeferredRows::AfterFirstFrame, _)
+    | (_, _, _, Some(_)) => {}
   }
 
   match { ::core::primitive::bool::then_some(shut.stop() == Ok(StopRequest::Requested), ()) } {
@@ -6939,16 +7025,6 @@ fn turn_once(turning: &mut Turning<'_>, still: Still<'_>) -> Result<ActionOutcom
       return Ok(ActionOutcome::Close);
     }
     ::core::option::Option::None => {}
-  }
-
-  match (state.at, state.rows.is_empty()) {
-    (None, false) => {
-      let Ok(first) = walked(&state.rows, BEFORE_THE_FIRST_ROW, Step(1));
-      let Ok(landed) = fitted::<i32, u32>(first.max(0));
-
-      state.at = Some(landed);
-    }
-    (None, true) | (Some(_), _) => {}
   }
 
   let Ok(room) = scroll_room(state, &card);
@@ -6992,22 +7068,12 @@ fn turn_once(turning: &mut Turning<'_>, still: Still<'_>) -> Result<ActionOutcom
         }
       }
 
-      match { ::core::primitive::bool::then_some(asked.is_none(), ()) } {
-        ::core::option::Option::Some(()) => {
-          let Ok(()) = record_position(state);
-        }
-        ::core::option::Option::None => {}
-      }
-
       let measured = measured_now(state, measured_tabs, measured_rows, marks_measured)?;
 
       let Ok(drawn) = shapes(state, &card, *fits, &measured, wearing);
       let already_drawn = *painted == Visible::Yes && panelled.shapes == drawn.shapes;
-      let Ok(note) = noted_now(&state);
 
-      match {
-        ::core::primitive::bool::then_some(panelled.moving != drawn.moving || note.is_some(), ())
-      } {
+      match { ::core::primitive::bool::then_some(panelled.moving != drawn.moving, ()) } {
         ::core::option::Option::Some(()) => {
           let Ok(()) = surface.clear_layer();
         }
@@ -7019,7 +7085,7 @@ fn turn_once(turning: &mut Turning<'_>, still: Still<'_>) -> Result<ActionOutcom
         panelled
           .moving
           .as_ref()
-          .filter(|_| note.is_none() && surface.dma_buf_support() == Ok(DmaBufSupport::Available))
+          .filter(|_| surface.dma_buf_support() == Ok(DmaBufSupport::Available))
           .filter(|moving| {
             !state.zoom.as_ref().is_some_and(|(path, zoom)| {
               path == &moving.of && zoom.zoomed() == Ok(crate::zoom::Zoomed::ZoomedIn)
@@ -7060,6 +7126,13 @@ fn turn_once(turning: &mut Turning<'_>, still: Still<'_>) -> Result<ActionOutcom
         }
       }
 
+      match asked.as_ref() {
+        None => {
+          let Ok(()) = record_position(state);
+        }
+        Some(_) => {}
+      }
+
       let Ok(keyboard) = surface.keyboard_focus();
       reported.keyboard = keyboard;
 
@@ -7098,13 +7171,21 @@ impl DeferredRows {
   fn for_page(framing: Framing, painted: Visible, page: Option<&Page>) -> Result<Self, Never> {
     let rows = page.map(|current| &current.rows);
     let fixed = page.and_then(|current| current.opening);
+    let opening_read = page.map(|current| current.opening_read);
 
-    Ok(match (framing, painted, rows, fixed) {
-      (Framing::Compact, Visible::NotYet, Some(crate::page::Rows::Computed(_)), _)
-      | (Framing::Card, Visible::NotYet, Some(crate::page::Rows::Computed(_)), Some(_)) => {
+    Ok(match (framing, painted, rows, fixed, opening_read) {
+      (
+        _,
+        Visible::NotYet,
+        Some(crate::page::Rows::Computed(_)),
+        _,
+        Some(crate::page::OpeningRead::AfterFirstFrame),
+      )
+      | (Framing::Compact, Visible::NotYet, Some(crate::page::Rows::Computed(_)), _, _)
+      | (Framing::Card, Visible::NotYet, Some(crate::page::Rows::Computed(_)), Some(_), _) => {
         Self::AfterFirstFrame
       }
-      (_, _, _, _) => Self::ReadNow,
+      (_, _, _, _, _) => Self::ReadNow,
     })
   }
 
@@ -7120,7 +7201,7 @@ impl DeferredRows {
 
         match current {
           Some(page) => {
-            let Ok(started) = reading(page, state.model.here);
+            let Ok(started) = reading(page);
             *asked = Some(started);
             *stale = Stale::No;
           }
@@ -7162,27 +7243,17 @@ fn redraw_card(
 ) -> Result<(), console_draw_surface::standing::SurfaceError> {
   let Ok(()) = surface.resize(points);
   let Ok(layer) = surface.layer_support();
-  let Ok(note) = noted_now(state);
   let part = match (state.framing, state.opened, layer, &panelled.moving) {
     (Framing::Compact, Opened::No, console_draw_surface::LayerSupport::Available, _)
     | (Framing::Card, Opened::No, console_draw_surface::LayerSupport::Available, None) => {
       let Ok(width) = fitted::<i32, u32>(card.width);
       let Ok(height) = fitted::<i32, u32>(card.height);
-      Some(match note {
-        Some(_) => Part {
-          at: Point { x: 0, y: card.y },
-          size: Size {
-            width: points.width,
-            height,
-          },
+      Some(Part {
+        at: Point {
+          x: card.x,
+          y: card.y,
         },
-        None => Part {
-          at: Point {
-            x: card.x,
-            y: card.y,
-          },
-          size: Size { width, height },
-        },
+        size: Size { width, height },
       })
     }
     (Framing::Compact | Framing::Card, Opened::Expanded, _, _) => {
@@ -7291,29 +7362,11 @@ fn paint_region(
 fn apply_rows(state: &mut State, read: Vec<Row>) -> Result<(), Never> {
   let Ok(running) = tasks::running_now(&state.tasks);
   let Ok(read_2) = tasks::shown(read, &running);
-  let Ok(notes) = tasks::told(&state.tasks, TaskEvent::Read);
-  let Ok(()) = noted(state, notes);
-  let Ok(live) = running.live();
 
   state.rows = read_2;
   state.row_layout = LayoutCache::Unmeasured;
-  state.live = live;
-
-  match (state.at.is_none() && !state.rows.is_empty()).then_some(()) {
-    ::core::option::Option::Some(()) => {
-      state.at = Some(0);
-    }
-    ::core::option::Option::None => {}
-  }
 
   let Ok(()) = asked_for(&state.rows);
-
-  let Ok(many) = fitted::<_, u32>(state.rows.len());
-
-  match ::core::primitive::bool::then_some(state.at.is_some_and(|at| at >= many), ()) {
-    ::core::option::Option::Some(()) => state.at = None,
-    ::core::option::Option::None => {}
-  }
 
   let Ok(page) = nth(&state.pages, state.here);
 
@@ -7321,22 +7374,37 @@ fn apply_rows(state: &mut State, read: Vec<Row>) -> Result<(), Never> {
     .and_then(|page_2| page_2.positions.as_ref())
     .and_then(|positions| (positions.read)())
   {
-    Some(position) => match position.key.as_deref() {
-      Some(key) => match state
-        .rows
-        .iter()
-        .position(|row| row.key.as_deref() == Some(key))
-      {
-        Some(index) => {
-          let Ok(index_2) = fitted::<_, u32>(index);
-          state.at = Some(index_2);
-          state.scroll = position.scroll.max(0);
-        }
+    Some(position) => {
+      let focused = position.key.as_deref().and_then(|key| {
+        (0_u32..)
+          .zip(&state.rows)
+          .find_map(|(at, row)| (row.key.as_deref() == Some(key)).then_some(at))
+      });
+
+      match focused {
+        Some(index) => state.at = Some(index),
         None => {}
-      },
-      None => state.scroll = position.scroll.max(0),
-    },
+      }
+
+      state.scroll = position.scroll.max(0);
+      state.reveal = Reveal::Scrolled;
+      state.wheel = scrolling::Position::default();
+    }
     ::core::option::Option::None => {}
+  }
+
+  let Ok(focus) = match state.at {
+    Some(at) => selectable_row(&state.rows, at),
+    None => Ok(None),
+  };
+
+  match focus {
+    Some(_) => {}
+    None => {
+      let Ok(first) = first_selectable_row(&state.rows);
+      state.at = first;
+      state.beside = Beside::No;
+    }
   }
 
   Ok(())
@@ -7375,18 +7443,12 @@ fn handle_input(
   let Ok(()) = surface.set_text_input(text_input);
   let Ok(focus) = surface.keyboard_focus();
   let Ok(()) = accessibility.update(accessibility_changed, focus, state, &panelled);
-  let Ok(note) = noted_now(&state);
-  let overlay = match note {
-    Some(_) => Overlay::Note,
-    None => Overlay::None,
-  };
   let updates = wait_for_frame(
     waking,
     surface,
     panelled,
     logical,
     (*dirty, *stale),
-    overlay,
     pending_animation,
   );
 
@@ -7470,9 +7532,9 @@ impl PanelInput<'_> {
       }
     }
 
-    let keys = surface.keyboard_events()?;
+    let keys = surface.physical_key_presses()?;
 
-    for KeyboardEvent::Down { key } in keys {
+    for key in keys {
       let Ok(outcome) = self.key(key);
 
       match outcome {
@@ -7482,6 +7544,13 @@ impl PanelInput<'_> {
     }
 
     let Ok(keyboard) = surface.keyboard_focus();
+
+    match keyboard {
+      KeyboardFocus::Elsewhere => {
+        let Ok(()) = self.state.cancel_navigation();
+      }
+      KeyboardFocus::Here => {}
+    }
 
     match (keyboard != self.reported.told_keyboard).then_some(()) {
       Some(()) => *self.dirty = Dirty::Yes,
@@ -7502,13 +7571,14 @@ impl PanelInput<'_> {
     Ok(ActionOutcome::Stay)
   }
 
-  fn key(&mut self, key: Keysym) -> Result<ActionOutcome, Never> {
+  fn key(&mut self, press: PhysicalKeyPress) -> Result<ActionOutcome, Never> {
     *self.dirty = Dirty::Yes;
     self.reported.presses = self.reported.presses.saturating_add(1);
     let Ok(wake) = stirred(self.state);
 
     match wake {
       WakeOutcome::Woke => {
+        let Ok(()) = self.state.cancel_navigation();
         *self.stale = Stale::Yes;
         return Ok(ActionOutcome::Stay);
       }
@@ -7516,13 +7586,25 @@ impl PanelInput<'_> {
     }
 
     let Ok(driving) = driving(self.state);
-    let Ok(meaning) = keys::meaning(key, driving);
+    let Ok(turn) = NavigationKeys::handle(
+      self.state.navigation,
+      NavigationInput::Press {
+        key: press,
+        driving,
+      },
+    );
+    self.state.navigation = turn.state;
+    let meaning = match turn.effect {
+      Some(NavigationEffect::Apply(meaning)) => meaning,
+      Some(NavigationEffect::Tab(motion)) => return self.switch_tab(motion),
+      None => return Ok(ActionOutcome::Stay),
+    };
     let before = self.state.at;
     self.state.preedit = None;
     let Ok(outcome) = pressed_here(
       &mut self.state.model,
       &self.state.rows,
-      key,
+      press.translated,
       meaning,
       driving,
     );
@@ -7552,9 +7634,31 @@ impl PanelInput<'_> {
     Ok(ActionOutcome::Stay)
   }
 
+  fn switch_tab(&mut self, motion: TabMotion) -> Result<ActionOutcome, Never> {
+    let from = match self.state.leaving {
+      Leaving::Standing => strip::Stop::Outside,
+      Leaving::No => strip::Stop::Tab(self.state.here),
+    };
+    let Ok(many) = fitted(self.state.pages.len());
+    let Ok(going) = strip::switched(many, from, motion);
+
+    match going {
+      Some(index) => {
+        let Ok(()) = stood_on(&mut self.state.model, index);
+        self.state.wheel = scrolling::Position::default();
+        *self.stale = Stale::Yes;
+      }
+      None => {}
+    }
+
+    Ok(ActionOutcome::Stay)
+  }
+
   fn pointer(&mut self, event: PointerEvent) -> Result<ActionOutcome, Never> {
     match event {
       PointerEvent::Down { at } => {
+        let Ok(()) = self.state.cancel_navigation();
+        self.state.wheel = scrolling::Position::default();
         let Ok(down) = finger_down(self.state, self.view, at);
         *self.finger = match down {
           Down::Woke => {
@@ -7569,10 +7673,7 @@ impl PanelInput<'_> {
         let Ok(()) = self.moved(at);
       }
       PointerEvent::Scrolled { by } => {
-        let Ok(pixels) = toward_zero_i32(by * f64::from(fitting::ROW) / A_NOTCH);
-        let y = self.state.scroll.saturating_add(pixels);
-        let Ok(()) = scrolled_to(self.state, Viewport { room: self.room, y });
-        *self.dirty = Dirty::Yes;
+        let Ok(()) = self.wheel(LogicalPixels(by * f64::from(fitting::ROW) / A_NOTCH));
       }
       PointerEvent::Pinched { by } => {
         match self.finger.as_mut() {
@@ -7595,6 +7696,37 @@ impl PanelInput<'_> {
     }
 
     Ok(ActionOutcome::Stay)
+  }
+
+  fn wheel(&mut self, by: LogicalPixels) -> Result<(), Never> {
+    let Ok(count) = fitted::<_, u64>(self.state.rows.len());
+    let Ok(layout) = self.state.layout();
+    let Ok(limit) = scroll_limit(layout, self.room, count);
+    let Ok(turn) = scrolling::Wheel::handle(
+      self.state.wheel,
+      scrolling::Motion {
+        at: self.state.scroll,
+        by,
+        limit,
+      },
+    );
+    self.state.wheel = turn.state;
+
+    match turn.effect {
+      Some(scrolling::ScrollTo(y)) => self.scroll(y),
+      None => Ok(()),
+    }
+  }
+
+  fn scroll(&mut self, y: i32) -> Result<(), Never> {
+    let Ok(dirty) = scrolled_to(self.state, Viewport { room: self.room, y });
+
+    match dirty {
+      Dirty::Yes => *self.dirty = Dirty::Yes,
+      Dirty::No => {}
+    }
+
+    Ok(())
   }
 
   fn moved(&mut self, at: (f64, f64)) -> Result<(), Never> {
@@ -7664,15 +7796,15 @@ impl PanelInput<'_> {
           *seen,
         );
         self.state.zoom = Some((still.clone(), panned));
+        *self.dirty = Dirty::Yes;
       }
       None => {
         let Ok(pixels) = toward_zero_i32(by);
         let y = held.scroll.saturating_sub(pixels);
-        let Ok(()) = scrolled_to(self.state, Viewport { room: self.room, y });
+        let Ok(()) = self.scroll(y);
       }
     }
 
-    *self.dirty = Dirty::Yes;
     Ok(())
   }
 
@@ -7689,19 +7821,15 @@ impl PanelInput<'_> {
       None => {}
     }
 
-    let Ok(hit) = nth(&self.state.rows, index);
-    let Ok(heading) = match hit {
-      Some(row) => row.heading(),
-      None => Ok(Heading::Yes),
-    };
+    let Ok(focus) = selectable_row(&self.state.rows, index);
 
-    match heading {
-      Heading::No => {
-        self.state.at = Some(index);
+    match focus {
+      Some(hovered_row) => {
+        self.state.at = Some(hovered_row);
         self.state.beside = Beside::No;
         *self.dirty = Dirty::Yes;
       }
-      Heading::Yes => {}
+      None => {}
     }
 
     Ok(())
@@ -7880,6 +8008,54 @@ mod tests {
   }
 
   #[test]
+  fn choosing_an_edge_tab_extends_its_neighbor_without_changing_the_selection()
+  -> Result<(), Failure> {
+    use crate::page::Neighbor;
+
+    let Ok(first) = page("October 2026", &["October"]);
+    let Ok(with_earlier) = first.with_neighbors(|direction| match direction {
+      Neighbor::Before => {
+        let Ok(earlier) = page("September 2026", &["September"]);
+        Ok(Some(earlier))
+      }
+      Neighbor::After => Ok(None),
+    });
+    let Ok(last) = page("November 2026", &["November"]);
+    let Ok(with_later) = last.with_neighbors(|direction| match direction {
+      Neighbor::Before => Ok(None),
+      Neighbor::After => {
+        let Ok(later) = page("December 2026", &["December"]);
+        Ok(Some(later))
+      }
+    });
+    let mut state = state_of(vec![with_earlier, with_later])?;
+    let Ok(()) = super::stood_on(&mut state.model, 0);
+    assert_eq!(
+      super::extend_tabs(&mut state.model, None),
+      Ok(super::TabGrowth::Grew)
+    );
+    assert_eq!(state.here, 1);
+    let Ok(()) = super::stood_on(&mut state.model, 2);
+    assert_eq!(
+      super::extend_tabs(&mut state.model, None),
+      Ok(super::TabGrowth::Grew)
+    );
+    assert_eq!(state.here, 2);
+    let titles: Vec<_> = state.pages.iter().map(|page| page.title.as_str()).collect();
+    assert_eq!(
+      titles,
+      [
+        "September 2026",
+        "October 2026",
+        "November 2026",
+        "December 2026"
+      ]
+    );
+
+    Ok(())
+  }
+
+  #[test]
   fn a_tab_without_rows_displays_loading_and_keeps_its_tab_controls() -> Result<(), Failure> {
     let Ok(sound) = page("Sound", &["Speakers"]);
     let Ok(battery) = page("Battery", &[]);
@@ -7890,6 +8066,12 @@ mod tests {
     let wearing = sample_palette()?;
     let Ok(card) = card();
     let Ok(panelled) = drawn(&state, &card, &wearing);
+
+    for mark in [crate::marks::BEFORE, crate::marks::AFTER] {
+      assert!(panelled.shapes.iter().any(|shape| {
+        matches!(shape, console_core_shapes::Shape::Text(text) if text.said == mark)
+      }));
+    }
 
     assert!(panelled.shapes.iter().any(|shape| {
       matches!(shape, console_core_shapes::Shape::Text(text) if text.said == "Loading…")
@@ -8050,7 +8232,8 @@ mod tests {
     let Ok(first_2) = first.selectable("/files/one");
     let Ok(second) = Row::text("Second file", Aside("File"));
     let Ok(second_2) = second.selectable("/files/two");
-    let Ok(page) = Page::new("Files", Rows::Fixed(vec![first_2, second_2]));
+    let Ok(detail) = Row::text("Available space", Aside("8 GB"));
+    let Ok(page) = Page::new("Files", Rows::Fixed(vec![first_2, second_2, detail]));
     let mut state = state_of(vec![page])?;
     let Ok(card) = card();
     let wearing = sample_palette()?;
@@ -8062,6 +8245,12 @@ mod tests {
     assert!(update.nodes.iter().any(|(id, node)| {
       *id == update.focus && node.role() == Role::ListItem && node.label() == Some("First file")
     }));
+    let (_, detail_node) = update
+      .nodes
+      .iter()
+      .find(|(_, node)| node.label() == Some("Available space"))
+      .ok_or("read-only detail missing from the accessibility tree")?;
+    assert!(!detail_node.supports_action(Action::Focus));
 
     state.at = Some(1);
     let Ok(view_2) = drawn(&state, &card, &wearing);
@@ -8165,13 +8354,8 @@ mod tests {
         let started = Instant::now();
         let Ok(driving) = driving(&state);
         let Ok(meaning) = crate::keys::meaning(Keysym::Down, driving);
-        let Ok(_outcome) = pressed_here(
-          &mut state.model,
-          &state.rows,
-          Keysym::Down,
-          meaning,
-          driving,
-        );
+        let Ok(press) = super::KeyPress::unmodified(Keysym::Down);
+        let Ok(_outcome) = pressed_here(&mut state.model, &state.rows, press, meaning, driving);
         let Ok(measured) = super::measured_now(&state, &tabs, &measurements, marks);
         let Ok(panel) = shapes(&state, &size, fits, &measured, &wearing);
         let elapsed = started.elapsed();
@@ -8214,8 +8398,175 @@ mod tests {
     Ok(visible)
   }
 
+  #[test]
+  #[ignore = "measures scroll layout and painting on the host CPU"]
+  fn scroll_update_timing() -> Result<(), Failure> {
+    use std::time::{Duration, Instant};
+
+    let card = Card {
+      x: 0,
+      y: 0,
+      width: 1280,
+      height: 800,
+    };
+    let wearing = sample_palette()?;
+    let Ok(fits) = fits_for(&card);
+    let Ok(page) = page("Files", &[]);
+    let mut state = state_of(vec![page])?;
+    state.rows = (0..1000)
+      .map(|entry| {
+        let Ok(row) = Row::text(
+          &format!("Directory item {entry:04} with a file name"),
+          Aside("Folder"),
+        );
+        row
+      })
+      .collect();
+    let Ok(width) = wide_of(&card);
+    let Ok(tabs) = measure_tabs(&state.pages, width);
+    let Ok(marks) = super::measure_marks();
+    let measurements = super::RefCell::new(super::BTreeMap::new());
+    let Ok(room) = super::scroll_room(&state, &card);
+    let Ok(()) = state.measure_rows(&card, marks);
+    let points = super::Size {
+      width: 1280,
+      height: 800,
+    };
+    let device = super::Size {
+      width: 1920,
+      height: 1200,
+    };
+    let frame = super::Frame { points, device };
+    let mut pixels = vec![0_u8; 9_216_000];
+
+    let mut samples = [Vec::new(), Vec::new(), Vec::new()];
+
+    for step in 0_i32..500 {
+      let started = Instant::now();
+      let Ok(_dirty) = super::scrolled_to(
+        &mut state,
+        super::Viewport {
+          room,
+          y: step.saturating_mul(4),
+        },
+      );
+      let Ok(_theme) = std::hint::black_box(super::ThemeSettings::current());
+      let Ok(measured) = super::measured_now(&state, &tabs, &measurements, marks);
+      let Ok(panel) = shapes(&state, &card, fits, &measured, &wearing);
+      let laid_out = started.elapsed();
+      super::painting::onto(&mut pixels, frame, &panel.shapes)?;
+      let elapsed = started.elapsed();
+      std::hint::black_box(&pixels);
+
+      match (step >= 100).then_some(()) {
+        Some(()) => {
+          for (set, time) in
+            samples
+              .iter_mut()
+              .zip([laid_out, elapsed.saturating_sub(laid_out), elapsed])
+          {
+            set.push(time);
+          }
+        }
+        None => {}
+      }
+    }
+
+    for (stage, times) in ["layout", "paint", "total"].into_iter().zip(&mut samples) {
+      times.sort_unstable();
+      let summary = [199, 379, 395, 399].map(|index| match times.get(index) {
+        Some(sample) => *sample,
+        None => Duration::ZERO,
+      });
+      println!("{stage} p50/p95/p99/max {summary:?}");
+    }
+
+    Ok(())
+  }
+
   fn wide_of(card: &Card) -> Result<u32, Never> {
     console_core_number_conversion::fitted::<i32, u32>(card.width)
+  }
+
+  #[test]
+  fn switching_panels_restores_each_panels_scroll_and_focus() -> Result<(), Failure> {
+    let Ok(first) = page("Files", &[]);
+    let Ok(second) = page("Downloads", &[]);
+    let mut state = state_of(vec![first, second])?;
+    state.at = Some(12);
+    state.scroll = 483;
+
+    let Ok(()) = super::stood_on(&mut state.model, 1);
+    assert_eq!((state.at, state.scroll), (None, 0));
+    state.at = Some(9);
+    state.scroll = 372;
+
+    let Ok(()) = super::stood_on(&mut state.model, 0);
+    assert_eq!((state.at, state.scroll), (Some(12), 483));
+    let Ok(()) = super::stood_on(&mut state.model, 1);
+    assert_eq!((state.at, state.scroll), (Some(9), 372));
+
+    Ok(())
+  }
+
+  #[test]
+  fn panels_focus_the_first_control_and_skip_passive_rows() -> Result<(), Failure> {
+    let Ok(page) = page("Display", &[]);
+    let mut state = state_of(vec![page])?;
+    let Ok(heading) = Row::naming("Built-in display", Aside(""));
+    let Ok(choose) = Handler::and_stay(|_| {});
+    let Ok(resolution) = Row::new("Resolution", Aside("1920 × 1200"), choose.clone());
+    let Ok(refresh) = Row::text("Refresh Rate", Aside("60 Hz"));
+    let Ok(brightness) = Row::new("Brightness", Aside("40%"), choose);
+    let passive = vec![heading.clone(), refresh.clone()];
+    let Ok(()) = super::apply_rows(&mut state, passive.clone());
+    assert_eq!(state.at, None);
+
+    let rows = vec![heading, resolution, refresh, brightness];
+    let Ok(()) = super::apply_rows(&mut state, rows.clone());
+    assert_eq!(state.at, Some(1));
+
+    let Ok(_up) = apply_meaning(&mut state.model, Meaning::Step(-1), &rows);
+    assert_eq!(state.at, Some(1));
+
+    let Ok(card) = card();
+    let hit = landing(&state, &card, Lands::Row(2))?;
+    let Ok(_tap) = super::tapped(&mut state, Some(hit.lands), hit.panel.at, &card);
+    assert_eq!(state.at, Some(1));
+
+    let Ok(_down) = apply_meaning(&mut state.model, Meaning::Step(1), &rows);
+    let Ok(()) = super::apply_rows(&mut state, rows);
+    assert_eq!(state.at, Some(3));
+
+    let Ok(()) = super::apply_rows(&mut state, passive.clone());
+    let Ok(_over_passive_rows) = apply_meaning(&mut state.model, Meaning::Step(1), &passive);
+    let Ok(_right) = apply_meaning(&mut state.model, Meaning::Nudge(1), &passive);
+    assert_eq!(state.at, None);
+
+    Ok(())
+  }
+
+  #[test]
+  fn returning_to_loaded_rows_keeps_the_saved_pixel_offset() -> Result<(), Failure> {
+    let position = crate::page::PagePosition {
+      key: None,
+      scroll: 73,
+    };
+    let Ok(page) = page("Files", &[]);
+    let Ok(remembering) = page.remembering_position(move || Some(position.clone()), |_| {});
+    let mut state = state_of(vec![remembering])?;
+    let Ok(row) = said_row("File");
+    let Ok(()) = super::apply_rows(&mut state, vec![row; 20]);
+
+    assert_eq!(
+      state.visible_scroll(super::Viewport {
+        room: 300,
+        y: state.scroll
+      }),
+      Ok(73)
+    );
+
+    Ok(())
   }
 
   fn fits_for(card: &Card) -> Result<u32, Never> {
@@ -8230,21 +8581,24 @@ mod tests {
   fn state_of(pages: Vec<Page>) -> Result<State, Failure> {
     let Ok(rows) = first_rows(&pages);
     let booted = console_actor::boot::<crate::tasks::Tasks>(())?;
+    let page_viewports = vec![super::PageViewport::default(); pages.len()];
 
     Ok(State {
       rows,
       row_layout: super::LayoutCache::Unmeasured,
-      reveal: super::Reveal::Focus,
+      wheel: super::scrolling::Position::default(),
       loading: false,
+      navigation: super::Navigation::Ready,
       model: super::CardModel {
         leaving: super::Leaving::No,
         pages,
+        page_viewports,
         here: 0,
         at: None,
         opened: Opened::No,
         from_tab: 0,
         scroll: 0,
-        note: None,
+        reveal: super::Reveal::Focus,
         typed: TextField::default(),
         preedit: None,
         prompt_identity: 0,
@@ -8257,7 +8611,6 @@ mod tests {
         selected: Vec::new(),
         framing: super::Framing::Card,
         tasks: booted.actor,
-        live: None,
       },
     })
   }
@@ -8571,7 +8924,11 @@ mod tests {
 
   #[test]
   fn highlight_selects_the_right_row() -> Result<(), Failure> {
-    let Ok(test) = page("test", &["a", "b", "c"]);
+    let Ok(first) = Row::naming("Storage", Aside(""));
+    let Ok(choose) = Handler::and_stay(|_| {});
+    let Ok(second) = Row::new("Browse files", Aside(""), choose);
+    let Ok(third) = Row::text("Available space", Aside("8 GB"));
+    let Ok(test) = Page::new("test", Rows::Fixed(vec![first, second, third]));
     let wearing = sample_palette()?;
     let Ok(card) = card();
     let mut state = state_of(vec![test])?;
@@ -8599,6 +8956,11 @@ mod tests {
         .saturating_add(super::BETWEEN_ROWS.saturating_div(2)),
       "the highlight is behind the row the pad is standing on"
     );
+
+    state.at = Some(2);
+    let Ok(passive) = drawn(&state, &card, &wearing);
+    let Ok(no_highlights) = highlighted_rows(&passive, &card, &wearing);
+    assert!(no_highlights.is_empty());
 
     Ok(())
   }
@@ -9001,7 +9363,6 @@ mod tests {
   #[test]
   fn what_a_row_asks_for_while_it_runs_is_what_the_panel_does_next() -> Result<(), Failure> {
     let Ok(does) = Handler::and_stay(|showing| {
-      showing.note("Copied");
       showing.turn_to(1);
     });
     let Ok(row) = Row::new("Copy", Aside(""), does);
@@ -9012,7 +9373,6 @@ mod tests {
 
     let Ok(_gone) = carried_out(&mut state, &rows, Outcome::Chose(0));
 
-    assert_eq!(state.note.as_deref(), Some("Copied"));
     assert_eq!(state.here, 1, "the row asked for the tab beside it");
 
     Ok(())
@@ -9021,29 +9381,32 @@ mod tests {
   #[test]
   fn entering_a_page_and_backing_out_of_it_apply_their_callbacks() -> Result<(), Failure> {
     let Ok(page) = page("Settings", &["First", "Second"]);
-    let Ok(page_2) = page.on_arriving(|showing| showing.note("Arrived"));
-    let Ok(page_3) = page_2.on_back(|showing| {
-      showing.note("Back");
+    let (record, callbacks) = mpsc::sync_channel(3);
+    let arriving = record.clone();
+    let Ok(page_2) = page.on_arriving(move |_| {
+      let _sent = arriving.try_send("Arrived");
+    });
+    let Ok(page_3) = page_2.on_back(move |showing| {
+      let _sent = record.try_send("Back");
       showing.replace(1);
       ActionOutcome::Stay
     });
     let mut state = state_of(vec![page_3])?;
     let Ok(outcome) = super::entered(&mut state.model);
     assert_eq!(outcome, ActionOutcome::Stay);
-    assert_eq!(state.note.as_deref(), Some("Arrived"));
+    assert_eq!(callbacks.try_recv(), Ok("Arrived"));
 
     let rows = state.rows.clone();
     let Ok(outcome_2) = pressed(&mut state, &rows, Keysym::Escape);
     assert_eq!(outcome_2, ActionOutcome::Stay);
-    assert_eq!(state.note.as_deref(), Some("Back"));
+    assert_eq!(callbacks.try_recv(), Ok("Back"));
     assert_eq!(state.at, Some(1));
 
-    state.note = None;
     let Ok(card) = card();
     let back = landing(&state, &card, Lands::Back)?;
     let Ok(outcome_3) = super::tapped(&mut state, Some(back.lands), back.panel.at, &card);
     assert_eq!(outcome_3, ActionOutcome::Stay);
-    assert_eq!(state.note.as_deref(), Some("Back"));
+    assert_eq!(callbacks.try_recv(), Ok("Back"));
     Ok(())
   }
 
@@ -9456,6 +9819,30 @@ mod tests {
     );
     assert_eq!(stage(&[a, b], room, layout), Ok(0));
     assert_eq!(stage(&[], room, layout), Ok(0));
+  }
+
+  #[test]
+  fn a_search_edits_and_notifies_with_control_backspace() -> Result<(), Failure> {
+    let (sent, heard) = mpsc::sync_channel(1);
+    let Ok(page) = Page::new("Menu", Rows::Fixed(Vec::new()));
+    let Ok(searchable) = page.searching("Search", move |_, query| {
+      assert!(matches!(sent.try_send(query.to_owned()), Ok(())));
+    });
+    let mut state = state_of(vec![searchable])?;
+    let Ok(typed) = TextField::holding("one two");
+    state.model.typed = typed;
+    let Ok(press) = super::KeyPress::with_modifiers(Keysym::BackSpace, super::KeyPress::CONTROL);
+    let Ok(driving) = driving(&state);
+    let Ok(meaning) = crate::keys::meaning(press.key, driving);
+
+    let Ok(outcome) = pressed_here(&mut state.model, &[], press, meaning, driving);
+    let query = heard.try_recv()?;
+
+    assert_eq!(outcome, ActionOutcome::Stay);
+    assert_eq!(state.model.typed.text(), Ok("one "));
+    assert_eq!(query, "one ");
+
+    Ok(())
   }
 
   #[test]
@@ -10690,9 +11077,8 @@ mod tests {
 
   fn picking(chosen: u32, heard: &mpsc::SyncSender<u32>) -> Result<Row, Never> {
     let hearing = heard.clone();
-    let Ok(report) = crate::page::retained(move |showing: &dyn crate::page::Showing, which| {
+    let Ok(report) = crate::page::retained(move |_: &dyn crate::page::Showing, which| {
       let _test_collects_choices = hearing.try_send(which);
-      showing.note("Choice applied");
     });
     let choices = crate::page::Choices {
       said: vec![
@@ -10772,7 +11158,6 @@ mod tests {
     assert_eq!(on, Outcome::Picked { row: 0, which: 2 });
     assert_eq!(past_the_end, Outcome::None);
     assert_eq!(chosen, vec![2]);
-    assert_eq!(state.note.as_deref(), Some("Choice applied"));
 
     Ok(())
   }
@@ -10811,7 +11196,6 @@ mod tests {
       vec![0],
       "a tap on the first of three did not choose it"
     );
-    assert_eq!(state.note.as_deref(), Some("Choice applied"));
 
     let Ok(room) = super::scroll_room(&state, &card);
     let Ok(mut reported) = focused_report();
@@ -10862,7 +11246,6 @@ mod tests {
 
   fn focused_report() -> Result<super::Reported, Never> {
     Ok(super::Reported {
-      front: None,
       first_frame: super::FirstFrame::Reported,
       preparation: None,
       tells: None,
@@ -10871,6 +11254,19 @@ mod tests {
       keyboard: super::KeyboardFocus::Here,
       told_keyboard: super::KeyboardFocus::Here,
     })
+  }
+
+  #[test]
+  fn only_settings_publishes_the_tab_used_by_the_bar() {
+    let Ok(settings) = console_core_internal_programs::InternalProgram::SettingsPanel.name();
+    let Ok(launcher) = console_core_internal_programs::InternalProgram::Launcher.name();
+
+    assert_eq!(
+      super::settings_tab(settings, Some("Display")),
+      Ok(Some("Display"))
+    );
+    assert_eq!(super::settings_tab(launcher, Some("Display")), Ok(None));
+    assert_eq!(super::settings_tab(settings, None), Ok(None));
   }
 
   #[test]
@@ -10922,7 +11318,6 @@ mod tests {
     });
     assert_eq!(outcome, ActionOutcome::Stay);
     assert_eq!(heard.try_recv(), Ok(2));
-    assert_eq!(state.note.as_deref(), Some("Choice applied"));
 
     let Ok(value) = snapshot.action(
       ActionRequest {
@@ -10963,6 +11358,58 @@ mod tests {
     assert_eq!(at_the_most, Outcome::None);
     assert_eq!(in_the_middle, Outcome::Redrawn);
     assert_eq!(stepped, vec![1]);
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_focused_slider_responds_to_arrows_and_physical_h_and_l() -> Result<(), Failure> {
+    use console_core_state_machine::SingleEffectMachine;
+    use console_draw_surface::{KeyPress, PhysicalKeyPress};
+    use console_input_event_devices::KeyCode;
+
+    let (record, heard) = mpsc::sync_channel(8);
+    let Ok(slider) = slid(5, &record);
+    let page = Page::new("Sound", Rows::Fixed(vec![slider]))?;
+    let mut state = state_of(vec![page])?;
+    state.at = Some(0);
+
+    for (code, key) in [
+      (KeyCode::KEY_LEFT, Keysym::Left),
+      (KeyCode::KEY_H, Keysym::m),
+      (KeyCode::KEY_RIGHT, Keysym::Right),
+      (KeyCode::KEY_L, Keysym::i),
+    ] {
+      let Ok(translated) = KeyPress::unmodified(key);
+      let press = PhysicalKeyPress {
+        code: u32::from(code.0),
+        depressed_modifiers: 0,
+        translated,
+      };
+      let Ok(turn) = super::NavigationKeys::handle(
+        state.navigation,
+        super::NavigationInput::Press {
+          key: press,
+          driving: Driving::Panel,
+        },
+      );
+      let meaning = match turn.effect {
+        Some(super::NavigationEffect::Apply(meaning)) => meaning,
+        Some(super::NavigationEffect::Tab(_)) | None => {
+          return Err(Failure::from("a slider key produced no adjustment"));
+        }
+      };
+      let Ok(_outcome) = pressed_here(
+        &mut state.model,
+        &state.rows,
+        press.translated,
+        meaning,
+        Driving::Panel,
+      );
+    }
+
+    let Ok(steps) = collected(&heard);
+    assert_eq!(steps, vec![-1, -1, 1, 1]);
 
     Ok(())
   }
@@ -11141,8 +11588,9 @@ mod tests {
   fn pressed(state: &mut State, rows: &[Row], key: Keysym) -> Result<ActionOutcome, Never> {
     let Ok(driving) = driving(state);
     let Ok(meaning) = crate::keys::meaning(key, driving);
+    let Ok(press) = super::KeyPress::unmodified(key);
 
-    pressed_here(state, rows, key, meaning, driving)
+    pressed_here(state, rows, press, meaning, driving)
   }
 
   #[test]
@@ -11832,7 +12280,7 @@ mod tests {
     let Ok(_turn) = crate::frames::serial_fixture();
     let waking = crate::frames::WakeReceiver::open()?;
     let Ok(now) = page("Now", &["one"]);
-    let Ok(reading) = super::reading(&now, 0);
+    let Ok(reading) = super::reading(&now);
     let Ok(woke) = woke_at_all(
       &waking,
       rustix::event::Timespec {
@@ -11847,10 +12295,39 @@ mod tests {
       "the rows were read and the loop asleep in poll was never woken to draw them"
     );
     assert_eq!(
-      reading.arrived.try_recv().map(|rows| rows.len()),
+      reading.arrived.try_recv().map(|loaded| loaded.rows.len()),
       Ok(1),
       "the loop was woken before the rows it was woken for"
     );
+
+    Ok(())
+  }
+
+  #[test]
+  fn superseded_rows_cannot_run_their_completion_effects() -> Result<(), Failure> {
+    let Ok(empty) = page("Now", &[]);
+    let mut state = state_of(vec![empty])?;
+
+    for (stale, expected) in [
+      (super::Stale::Yes, Err(mpsc::TryRecvError::Disconnected)),
+      (super::Stale::No, Ok("Loaded")),
+    ] {
+      let Ok(loaded) = crate::page::LoadedRows::new(Vec::new());
+      let (record, callbacks) = mpsc::sync_channel(1);
+      let Ok(with_completion) = loaded.then(move |_| {
+        let _sent = record.try_send("Loaded");
+      });
+      let (sending, arrived) = std::sync::mpsc::sync_channel(1);
+      sending
+        .send(with_completion)
+        .map_err(|_| "could not deliver the test rows")?;
+      let mut pending = Some(super::Reading { arrived });
+
+      let Ok(_dirty) = super::read_completed(&mut state, &mut pending, stale);
+
+      assert!(pending.is_none());
+      assert_eq!(callbacks.try_recv(), expected);
+    }
 
     Ok(())
   }
@@ -11876,6 +12353,38 @@ mod tests {
         })
         .collect(),
     )
+  }
+
+  #[test]
+  fn long_artist_credits_stay_on_one_line_beside_the_song() -> Result<(), Failure> {
+    let artists = "Jules Hiero, Antônio Neves, Ed Santana, Antônio Neves, Julian Wackers, \
+      Eduardo Sanatana, Luiz Octávio, Jules Hiero, Antônio Neves, Ed Santana";
+    let Ok(song) = Row::text("Aegean Breeze", Aside(artists));
+    let Ok(with_menu) = song.offering(|_| ActionOutcome::Stay);
+    let Ok(next) = Row::text("Affirmative Action", Aside("Nas, AZ, Cormega, Foxy Brown"));
+    let drawn = written_on(vec![with_menu, next])?;
+    let credit = drawn
+      .iter()
+      .find(|text| text.said.starts_with("Jules Hiero"))
+      .ok_or("missing artist credit")?;
+    let short = drawn
+      .iter()
+      .find(|text| text.said == "Nas, AZ, Cormega, Foxy Brown")
+      .ok_or("the short artist credit was changed")?;
+    let Ok(lines) = super::painting::wrapped(
+      super::Run {
+        said: &credit.said,
+        weight: credit.weight,
+        width: credit.width,
+      },
+      &credit.font,
+    );
+
+    assert_eq!(lines.len(), 1);
+    assert!(credit.said.ends_with(super::painting::CUT));
+    assert_eq!(short.at.y.saturating_sub(credit.at.y), crate::fitting::ROW);
+
+    Ok(())
   }
 
   fn glyph_of(icon: crate::icons::Icon) -> Result<String, Never> {

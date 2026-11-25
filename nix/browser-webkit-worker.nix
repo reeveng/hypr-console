@@ -1,4 +1,4 @@
-{ lib, rustPlatform, pkg-config, makeWrapper, mesa, wpewebkit
+{ lib, rustPlatform, pkg-config, makeWrapper, mesa, wpewebkit, python3, withTests ? false
 , glib-networking, gst_all_1, src, brotli, libidn2, libnghttp2, libpsl
 , libselinux, libsepol, pcre2, sqlite, util-linuxMinimal, zstd }:
 
@@ -24,6 +24,14 @@ rustPlatform.buildRustPackage {
     util-linuxMinimal zstd
   ];
   CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS = "-C target-cpu=x86-64";
+  doCheck = false;
+  postBuild = lib.optionalString withTests ''
+    set -o pipefail
+    test_binary=$(cargo test --manifest-path ${worker}/Cargo.toml --offline --locked \
+      --no-run --message-format=json \
+      | ${python3}/bin/python3 ${./test-executables.py})
+    install -Dm755 "$test_binary" "$out/libexec/console-webkit-tests"
+  '';
 
   postFixup = ''
     wrapProgram "$out/bin/console-browser-renderer-webkit" \

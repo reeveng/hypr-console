@@ -21,11 +21,11 @@
 //! run them, not a person.
 //!
 //! A machine with no record at all is not a machine that has run none of them:
-//! it is a machine that has never applied. [`Applied::Never`] is that, and
-//! every migration on such a machine is remembered rather than run. A sweep
-//! moves what an older manifest left behind, and an apply that never happened
-//! left nothing -- so there is nothing for any of them to find, and running
-//! them would be reaching into paths this desktop has never written. On a
+//! it is a machine that has never applied. [`Applied::Never`] is that. A fresh
+//! apply remembers historical sweeps and leaves initial setup pending until it
+//! has installed the generation. A sweep moves what an older manifest left
+//! behind, so running it on a fresh machine would reach into paths this desktop
+//! has never written. On a
 //! machine where it is installed beside another desktop those paths belong to
 //! that one: the first thing these scripts would have done on this laptop is
 //! put the other compositor's own config in the attic.

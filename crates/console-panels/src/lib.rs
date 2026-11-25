@@ -40,6 +40,8 @@ use console_panel::tasks::{self, InProgress};
 use console_waiting::{Outcome, Ready, Schedule, until};
 
 mod connection;
+pub mod notification_panel;
+mod notification_rows;
 
 const ACCEPTS_PER_TURN: u8 = 16;
 
@@ -87,10 +89,10 @@ pub const PANELS: &[Panel] = &[
     program: InternalProgram::MusicPanel,
   },
   Panel {
-    who: console_notifications::WHO,
-    command: console_notifications::COMMAND,
-    card: console_notifications::card,
-    door: console_notifications::door,
+    who: notification_panel::WHO,
+    command: notification_panel::COMMAND,
+    card: notification_panel::card,
+    door: notification_panel::door,
     program: InternalProgram::NotificationsPanel,
   },
   Panel {

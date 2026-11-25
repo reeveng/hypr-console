@@ -14,6 +14,7 @@ name = "console-control-center"
 path = "src/bin/console-control-center.rs"
 
 [dependencies]
+console-notifications.workspace = true
 console-operating-system-linux.workspace = true
 console-application-camera.workspace = true
 console-compositor.workspace = true

@@ -15,7 +15,7 @@ use console_core_number_conversion::{fitted, index, narrow_f32};
 use console_core_path_rasterizer::{
   Color, ColorU8, FillRule, FloatRectangle, Mask, Paint, Path, PathBuilder, PixmapMut, Transform,
 };
-use console_core_paths::Point;
+use console_core_paths::{HasSkewAnswer, Point};
 use console_core_shapes::Clip;
 use kurbo::{PathEl, RoundedRect, Shape};
 
@@ -24,7 +24,58 @@ use crate::Cannot;
 pub struct Canvas<'a> {
   pub(crate) pixels: PixmapMut<'a>,
   pub(crate) transform: Transform,
-  pub(crate) clip: Option<Mask>,
+  pub(crate) clip: Option<ClipMask>,
+}
+
+pub(crate) struct ClipMask {
+  opaque: Option<FloatRectangle>,
+  mask: Mask,
+}
+
+impl ClipMask {
+  #[must_use]
+  pub(crate) fn mask(&self) -> Result<&Mask, Never> {
+    Ok(&self.mask)
+  }
+
+  #[must_use]
+  pub(crate) fn mask_for(
+    &self,
+    bounds: FloatRectangle,
+    transform: Transform,
+  ) -> Result<Option<&Mask>, Never> {
+    let Ok(skew) = transform.has_skew();
+
+    match skew {
+      HasSkewAnswer::No => {}
+      HasSkewAnswer::Yes => return Ok(Some(&self.mask)),
+    }
+
+    let opaque = match self.opaque {
+      Some(opaque) => opaque,
+      None => return Ok(Some(&self.mask)),
+    };
+    let Ok(left) = bounds.left();
+    let Ok(top) = bounds.top();
+    let Ok(right) = bounds.right();
+    let Ok(bottom) = bounds.bottom();
+    let mut near = Point { x: left, y: top };
+    let mut far = Point {
+      x: right,
+      y: bottom,
+    };
+    let Ok(()) = transform.map_point(&mut near);
+    let Ok(()) = transform.map_point(&mut far);
+    let Ok(x) = opaque.left();
+    let Ok(y) = opaque.top();
+    let Ok(end_x) = opaque.right();
+    let Ok(end_y) = opaque.bottom();
+
+    Ok(match (near.x >= x && near.y >= y && far.x <= end_x && far.y <= end_y).then_some(()) {
+      Some(()) => None,
+      None => Some(&self.mask),
+    })
+  }
 }
 
 impl<'a> Canvas<'a> {
@@ -88,9 +139,19 @@ impl<'a> Canvas<'a> {
     paint: &Paint<'_>,
     rule: FillRule,
   ) -> Result<(), Never> {
+    let Ok(bounds) = path.bounds();
+    let mask = self
+      .clip
+      .as_ref()
+      .and_then(|clip| {
+        let Ok(mask) = clip.mask_for(bounds, self.transform);
+
+        mask
+      });
+
     self
       .pixels
-      .fill_path(path, paint, rule, self.transform, self.clip.as_ref())
+      .fill_path(path, paint, rule, self.transform, mask)
   }
 
   pub fn set_clip(&mut self, clip: Clip) -> Result<(), Cannot> {
@@ -109,10 +170,8 @@ impl<'a> Canvas<'a> {
         let Ok(width) = narrow_f32(f64::from(size.width));
         let Ok(height) = narrow_f32(f64::from(size.height));
 
-        match {
-          let Ok(explicit_value) = FloatRectangle::from_xywh(x, y, width, height);
-          explicit_value
-        } {
+        let Ok(bounds) = FloatRectangle::from_xywh(x, y, width, height);
+        let opaque = match bounds {
           Some(rect) => {
             let Ok(path_builder) = PathBuilder::from_rect(rect);
             let Ok(()) = mask.fill_path(
@@ -121,16 +180,44 @@ impl<'a> Canvas<'a> {
               console_core_path_rasterizer::CoverageMode::Antialiased,
               self.transform,
             );
+            let Ok(covered) = opaque_pixels(rect, self.transform);
+            covered
           }
-          None => {}
-        }
+          None => None,
+        };
 
-        Some(mask)
+        Some(ClipMask { opaque, mask })
       }
     };
 
     Ok(())
   }
+}
+
+fn opaque_pixels(
+  rect: FloatRectangle,
+  transform: Transform,
+) -> Result<Option<FloatRectangle>, Never> {
+  let Ok(skew) = transform.has_skew();
+
+  match skew {
+    HasSkewAnswer::No => {}
+    HasSkewAnswer::Yes => return Ok(None),
+  }
+
+  let Ok(left) = rect.left();
+  let Ok(top) = rect.top();
+  let Ok(right) = rect.right();
+  let Ok(bottom) = rect.bottom();
+  let mut near = Point { x: left, y: top };
+  let mut far = Point {
+    x: right,
+    y: bottom,
+  };
+  let Ok(()) = transform.map_point(&mut near);
+  let Ok(()) = transform.map_point(&mut far);
+
+  FloatRectangle::from_ltrb(near.x.ceil(), near.y.ceil(), far.x.floor(), far.y.floor())
 }
 
 impl Drop for Canvas<'_> {

@@ -1,5 +1,6 @@
 //! A small desktop-first catalogue alongside Nixpkgs search.
 
+pub use console_package_manager::catalogue::{Package, Source};
 use console_package_manager::user::Installable;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -57,10 +58,9 @@ impl Featured {
   fn package(self) -> core::result::Result<Package, core::convert::Infallible> {
     let Ok(installable) = Installable::nixpkgs(self.attribute);
     Ok(Package {
-      installable,
+      source: Source::Nix(installable),
       title: self.title.to_owned(),
       description: self.description.to_owned(),
-      category: self.category,
       version: String::new(),
     })
   }
@@ -141,15 +141,6 @@ const FEATURED: &[Featured] = &[
   },
 ];
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Package {
-  pub installable: Installable,
-  pub title: String,
-  pub description: String,
-  pub category: Category,
-  pub version: String,
-}
-
 #[must_use]
 pub fn featured(
   category: Category,
@@ -176,11 +167,9 @@ pub fn suggested(query: &str) -> core::result::Result<Vec<Package>, core::conver
     })
     .into_iter()
     .filter(|item| {
-      let searchable = format!(
-        "{} {} {}",
-        item.installable.attribute, item.title, item.description
-      )
-      .to_lowercase();
+      let Ok(name) = item.source.name();
+      let searchable = format!("{name} {} {}", item.title, item.description).to_lowercase();
+
       terms.iter().all(|word| searchable.contains(word))
     })
     .collect(),
@@ -188,23 +177,32 @@ pub fn suggested(query: &str) -> core::result::Result<Vec<Package>, core::conver
 }
 
 #[must_use]
-pub fn package(attribute: &str) -> core::result::Result<Package, core::convert::Infallible> {
-  Ok(
-    match FEATURED.iter().find(|row| row.attribute == attribute) {
-      Some(row) => {
-        let Ok(explicit_value) = row.package();
-        explicit_value
-      }
-      None => {
-        let Ok(installable) = Installable::nixpkgs(attribute);
-        Package {
-          installable,
-          title: attribute.to_owned(),
-          description: String::new(),
-          category: Category::All,
-          version: String::new(),
-        }
-      }
-    },
-  )
+pub fn category(package: &Package) -> Result<Category, core::convert::Infallible> {
+  let feature = match &package.source {
+    Source::Nix(item) => FEATURED.iter().find(|row| row.attribute == item.attribute),
+    Source::Pacman(_) | Source::Aur(_) | Source::Flatpak(_) | Source::Mise { .. } => None,
+  };
+
+  Ok(match feature {
+    Some(item) => item.category,
+    None => Category::All,
+  })
+}
+
+#[must_use]
+pub fn present(mut package: Package) -> Result<Package, core::convert::Infallible> {
+  let feature = match &package.source {
+    Source::Nix(item) => FEATURED.iter().find(|row| row.attribute == item.attribute),
+    Source::Pacman(_) | Source::Aur(_) | Source::Flatpak(_) | Source::Mise { .. } => None,
+  };
+
+  match feature {
+    Some(item) => {
+      package.title = item.title.to_owned();
+      package.description = item.description.to_owned();
+    }
+    None => {}
+  }
+
+  Ok(package)
 }

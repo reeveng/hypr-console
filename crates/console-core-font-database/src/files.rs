@@ -21,12 +21,14 @@
 use std::cmp::Ordering;
 use std::collections::BTreeSet;
 use std::fs::FileType;
+use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 
+use console_concurrency::{Cores, for_each};
 use console_core_iteration::Step;
 use console_core_never::Never;
 
-use crate::{Database, Emptiness, Source, faces};
+use crate::{Database, Emptiness, FaceInfo, Source, faces};
 #[cfg(feature = "memmap")]
 use crate::{SharedFontData, shared_font_data};
 
@@ -69,7 +71,7 @@ impl From<bool> for Visit {
 }
 
 struct Walk<'a> {
-  database: &'a mut Database,
+  files: Vec<PathBuf>,
   pending: Vec<std::fs::ReadDir>,
   seen: &'a mut Seen,
 }
@@ -77,8 +79,8 @@ struct Walk<'a> {
 impl Database {
   pub fn load_font_file<P: AsRef<Path>>(&mut self, path: P) -> Result<(), std::io::Error> {
     let file_path = path.as_ref();
-    let data = std::fs::read(file_path)?;
-    let Ok(()) = self.load_fonts_from_file(file_path, &data);
+    let read = read_faces(file_path)?;
+    let Ok(()) = self.record_faces(file_path, read);
 
     Ok(())
   }
@@ -89,11 +91,7 @@ impl Database {
     self.load_fonts_dir_impl(dir.as_ref(), &mut seen)
   }
 
-  fn load_fonts_from_file(&mut self, path: &Path, data: &[u8]) -> Result<(), Never> {
-    let source = Source::File(PathBuf::from(path));
-    let named = format_args!("'{}'", path.display());
-    let Ok(read) = faces::read(&source, data, &named);
-
+  fn record_faces(&mut self, path: &Path, read: Vec<FaceInfo>) -> Result<(), Never> {
     for face in read {
       match self.push_face_info(face) {
         Ok(_id) => {}
@@ -117,18 +115,40 @@ impl Database {
       }
     };
     let walk = Walk {
-      database: self,
+      files: Vec::new(),
       pending: Vec::from([directory]),
       seen,
     };
 
     match console_core_iteration::iterate(walk, step) {
-      Ok(()) => {}
-      Err(endless) => console_core_logging::error!(
-        "Font directory walk under '{}' ended: {}",
-        dir.display(),
-        endless
-      ),
+      Ok(files) => self.load_files(&files),
+      Err(endless) => {
+        console_core_logging::error!(
+          "Font directory walk under '{}' ended: {endless}",
+          dir.display()
+        );
+
+        Ok(())
+      }
+    }
+  }
+
+  fn load_files(&mut self, files: &[PathBuf]) -> Result<(), Never> {
+    let Ok(cores) = Cores::limited(NonZeroU32::MIN.saturating_add(3));
+    let answers = match for_each(cores, files, |path| read_faces(path)) {
+      Ok(answers) => answers,
+      Err(fault) => {
+        console_core_logging::warn!("Loading fonts concurrently: {fault}");
+
+        files.iter().map(|path| read_faces(path)).collect()
+      }
+    };
+
+    for (path, answer) in files.iter().zip(answers) {
+      match answer {
+        Ok(read) => self.record_faces(path, read)?,
+        Err(fault) => console_core_logging::warn!("Failed to load '{}': {fault}", path.display()),
+      }
     }
 
     Ok(())
@@ -206,10 +226,18 @@ impl Database {
   }
 }
 
-fn step(mut walk: Walk) -> Result<Step<Walk, ()>, Never> {
+fn read_faces(path: &Path) -> std::io::Result<Vec<FaceInfo>> {
+  let data = std::fs::read(path)?;
+  let source = Source::File(path.to_path_buf());
+  let Ok(read) = faces::read(&source, &data, &format_args!("'{}'", path.display()));
+
+  Ok(read)
+}
+
+fn step(mut walk: Walk) -> Result<Step<Walk, Vec<PathBuf>>, Never> {
   let next = match walk.pending.last_mut() {
     Some(directory) => directory.next(),
-    None => return Ok(Step::Halt(())),
+    None => return Ok(Step::Halt(walk.files)),
   };
 
   match next {
@@ -239,12 +267,7 @@ fn visit(walk: &mut Walk, entry: std::fs::DirEntry) -> Result<(), Never> {
       let Ok(font) = font_extension(&path);
 
       match font {
-        Extension::Font => match walk.database.load_font_file(&path) {
-          Ok(()) => {}
-          Err(fault) => {
-            console_core_logging::warn!("Failed to load '{}' cause {}.", path.display(), fault)
-          }
-        },
+        Extension::Font => walk.files.push(path),
         Extension::Other => {}
       }
     }

@@ -4,8 +4,6 @@
 //! grapheme properties and conformance vectors from unicode-segmentation 1.13.3, with a
 //! forward iterator that carries Indic, emoji and regional-indicator context as it walks.
 //! Each character is inspected at most twice. Byte positions are held in sixty-four bits.
-//! Word and sentence segmentation, reverse iteration and the chunked rope cursor were not
-//! used by this repository and are outside this interface.
 
 #![no_std]
 #![forbid(unsafe_code)]
@@ -328,4 +326,41 @@ impl UnicodeSegmentation for str {
       position: 0,
     })
   }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum WordPart {
+  Space,
+  Word,
+  Symbol,
+}
+
+#[doc = "Byte offset of the last word or symbol run, skipping trailing whitespace."]
+pub fn previous_word_start(text: &str) -> Result<u64, Never> {
+  let Ok(graphemes) = text.grapheme_indices(ClusterKind::Extended);
+  let mut previous = WordPart::Space;
+  let mut start = 0;
+
+  for (position, cluster) in graphemes {
+    let part = match (
+      cluster.chars().all(char::is_whitespace).then_some(()),
+      cluster
+        .chars()
+        .any(|part| part.is_alphanumeric() || part == '_')
+        .then_some(()),
+    ) {
+      (Some(()), _) => WordPart::Space,
+      (None, Some(())) => WordPart::Word,
+      (None, None) => WordPart::Symbol,
+    };
+
+    match (part, (part != previous).then_some(())) {
+      (WordPart::Word | WordPart::Symbol, Some(())) => start = position,
+      (WordPart::Space, _) | (_, None) => {}
+    }
+
+    previous = part;
+  }
+
+  Ok(start)
 }

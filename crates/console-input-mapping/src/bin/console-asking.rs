@@ -30,13 +30,9 @@
 //! screen as `Mode::Asking` and stands down. The claim is what makes that true
 //! rather than agreed.
 //!
-//! ## DeviceKind input it is asking about
-//!
-//! The word after the job. A keyboard is claimed the same way and read
-//! differently: what arrives is a key rather than a button, so what is held is
-//! the modifiers and the press is whatever is not one. The claim matters more
-//! here than it does on the pad -- Super and I with no claim would open the
-//! settings while someone was trying to say where the settings should be.
+//! Keyboard recording uses the compositor's focused seat and inhibits its
+//! shortcuts while the prompt is open. The keycode identifies the physical key,
+//! and the seat's modifier state includes layout options such as Caps as Super.
 
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
@@ -50,7 +46,8 @@ use console_core_number_conversion::fitted;
 use console_core_shapes::{Edge, Font, Panel, Round, Shape, Text, Weight};
 use console_draw_painting::{self as painting, Rendered, Run, painter};
 use console_draw_surface::{
-  Anchor, Keyboard, Margin, Room, Surface, SurfaceError, Under as Beneath, Wanted,
+  Anchor, Keyboard, Keysym, Margin, Room, ShortcutPress, Surface, SurfaceError, Under as Beneath,
+  Wanted,
 };
 
 use console_core_iteration::{Endless, Step};
@@ -58,12 +55,14 @@ use console_core_never::Never;
 use console_input_bindings::bound::{Binding, Input};
 use console_input_bindings::keys;
 use console_input_bindings::moved::Moved;
+use console_input_controller::actions::Table;
 use console_input_controller::mode::ASKING;
 use console_input_controller::reading::{Trigger, pulled};
 use console_input_focus::{self as claim, CONTROLLER, Claim, DeviceKind, Direction, InputEvent};
 use console_input_gamepad::vocabulary::{button_name, spoken_for, trigger_spoken};
 use console_input_mapping::rows::{Part, aloud, every, parts, question};
 use console_input_mapping::table;
+use console_input_mapping::update::REGISTER_SPECIAL_WORKSPACE;
 
 const PATIENCE: Duration = Duration::from_secs(12);
 
@@ -75,29 +74,22 @@ const UNSAID: (i32, i32) = (0, 1);
 
 const NO_WORD: &str = "Unknown button";
 
-const TYPING: [DeviceKind; 1] = [DeviceKind::Typing];
-
 enum Action {
   Settling,
   Prompting(Box<Reading>),
+  Keyboard,
   Replied(Instant, Duration),
 }
 
 struct Reading {
   claim: Claim,
   span: (i32, i32),
-  on: Input,
   held: Vec<String>,
 }
 
 impl Reading {
-  fn open(on: Input, complained: &mut Silent) -> Result<Option<Self>, Never> {
-    let wanted: &[DeviceKind] = match on {
-      Input::Pad => &CONTROLLER,
-      Input::Keyboard => &TYPING,
-    };
-
-    let claim = match Claim::of(wanted) {
+  fn open(complained: &mut Silent) -> Result<Option<Self>, Never> {
+    let claim = match Claim::of(&CONTROLLER) {
       Ok(claim) => claim,
       Err(refused) => {
         match *complained {
@@ -130,7 +122,6 @@ impl Reading {
     Ok(Some(Reading {
       claim,
       span,
-      on,
       held: Vec::new(),
     }))
   }
@@ -152,16 +143,15 @@ impl Reading {
             Direction::Up => self.held.retain(|held| held != spoken),
           }
         }
-        InputEvent::Typed { code, direction } => {
-          let Ok(typed) = self.handle_key(code, direction);
-
-          down = down.or(typed);
-        }
         InputEvent::Pulled { trigger, value } => {
           let Ok(()) = self.handle_pull(trigger, value);
         }
         InputEvent::Trigger {
           trigger: _,
+          direction: _,
+        }
+        | InputEvent::Typed {
+          code: _,
           direction: _,
         }
         | InputEvent::Unnamed {
@@ -177,33 +167,11 @@ impl Reading {
       None => return Ok(None),
     };
     let held: Vec<&str> = self.held.iter().map(String::as_str).collect();
-    let Ok(binding) = Binding::chord(self.on, &held, &pressed);
+    let Ok(binding) = Binding::chord(Input::Pad, &held, &pressed);
 
     self.held.push(pressed);
 
     Ok(Some(binding))
-  }
-
-  fn handle_key(&mut self, code: u16, direction: Direction) -> Result<Option<String>, Never> {
-    let Ok(modifier) = keys::modifier_of(KeyCode(code));
-
-    match (modifier, direction) {
-      (Some(word), Direction::Down) => {
-        match ::core::primitive::bool::then_some(self.held.iter().any(|held| held == word), ()) {
-          ::core::option::Option::Some(()) => {}
-          ::core::option::Option::None => self.held.push(word.to_string()),
-        }
-
-        Ok(None)
-      }
-      (Some(word), Direction::Up) => {
-        self.held.retain(|held| held != word);
-
-        Ok(None)
-      }
-      (None, Direction::Down) => keys::key_name(KeyCode(code)),
-      (None, Direction::Up) => Ok(None),
-    }
   }
 
   fn handle_pull(&mut self, named: &str, value: i32) -> Result<(), Never> {
@@ -224,6 +192,41 @@ impl Reading {
 
     Ok(())
   }
+}
+
+fn shortcut(press: ShortcutPress) -> Result<Option<Binding>, Never> {
+  match press.key {
+    Keysym::Super_L
+    | Keysym::Super_R
+    | Keysym::Control_L
+    | Keysym::Control_R
+    | Keysym::Shift_L
+    | Keysym::Shift_R
+    | Keysym::Alt_L
+    | Keysym::Alt_R
+    | Keysym::Meta_L
+    | Keysym::Meta_R
+    | Keysym::ISO_Level3_Shift => return Ok(None),
+    _ => {}
+  }
+
+  let code = match u16::try_from(press.code) {
+    Ok(code) => KeyCode(code),
+    Err(_outside_evdev) => return Ok(None),
+  };
+  let Ok(known_key) = keys::key_name(code);
+  let name = match known_key {
+    Some(name) => name,
+    None => return Ok(None),
+  };
+  let modifiers = u64::from(press.depressed_modifiers);
+  let held: Vec<&str> = keys::MODIFIERS
+    .iter()
+    .filter_map(|(word, _, mask, _, _)| (modifiers & mask != 0).then_some(*word))
+    .collect();
+  let Ok(binding) = Binding::chord(Input::Keyboard, &held, &name);
+
+  Ok(Some(binding))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -252,7 +255,7 @@ struct Card {
 }
 
 impl Card {
-  fn turn(&mut self) -> Result<Turned, Never> {
+  fn turn(&mut self, surface: &mut Surface) -> Result<Turned, Never> {
     let waited_too_long =
       self.since.elapsed() > PATIENCE && !matches!(self.effect, Action::Replied(_, _));
 
@@ -269,7 +272,7 @@ impl Card {
         }
       }
       Action::Settling => {
-        let Ok(opened) = Reading::open(self.part.on, &mut self.complained);
+        let Ok(opened) = Reading::open(&mut self.complained);
 
         match opened {
           Some(reading) => {
@@ -287,6 +290,15 @@ impl Card {
         let Ok(heard) = reading.pressed();
 
         heard
+      }
+      Action::Keyboard => {
+        let Ok(presses) = surface.shortcut_presses();
+
+        presses.into_iter().find_map(|press| {
+          let Ok(binding) = shortcut(press);
+
+          binding
+        })
       }
     };
 
@@ -311,22 +323,26 @@ impl Card {
   }
 
   fn moving(&self, onto: &Binding) -> Result<(String, String), Never> {
-    let Ok(mut jobs) = table::read();
-    let Ok(table) = table::table();
-    let Ok(every) = every(&table);
-    let Ok(said) = aloud(onto);
+    let updated = table::change(|jobs| {
+      let Ok(current) = Table::of(jobs);
+      let Ok(every) = every(&current);
+      let Ok(moved) = jobs.add(&every, &self.part.slug, onto);
 
-    let Ok(moved) = jobs.add(&every, &self.part.slug, onto);
+      Ok(match moved {
+        Moved::Already => table::Change::Keep(moved),
+        Moved::Onto | Moved::TookFrom(_) => table::Change::Save(moved),
+      })
+    });
+    let moved = match updated {
+      Ok(result) => result,
+      Err(fault) => return Ok((fault.to_string(), String::new())),
+    };
+    let Ok(said) = aloud(onto);
     let on = format!("{} is {}", self.part.does, said);
 
     match moved {
       Moved::Already => return Ok((format!("{on} already"), String::new())),
       Moved::Onto | Moved::TookFrom(_) => {}
-    }
-
-    match table::write(&jobs) {
-      Ok(()) => {}
-      Err(fault) => return Ok((fault.to_string(), String::new())),
     }
 
     let under = match moved {
@@ -435,19 +451,35 @@ const NAMED: [&str; 2] = [JOB, INPUT];
 const COMMAND: Command = Command {
   name: "console-asking",
   about: "the card that asks which button does JOB, pressed on INPUT, which is pad or keyboard",
-  flags: &[],
+  flags: &[REGISTER_SPECIAL_WORKSPACE],
   operands: Operands::Named(&NAMED),
 };
 
-fn request(words: &[String]) -> Result<(String, Input), ValidationError> {
+enum Request {
+  Capture(String, Input),
+  RegisterSpecialWorkspace(String),
+}
+
+fn request(words: &[String]) -> Result<Request, ValidationError> {
   let read = read(&COMMAND, words);
   let line = read?;
+  let Ok(workspace) = line.value(REGISTER_SPECIAL_WORKSPACE);
+
+  match workspace {
+    Some(name) => {
+      let operands = line.exactly([]);
+      let [] = operands?;
+      return Ok(Request::RegisterSpecialWorkspace(name.to_owned()));
+    }
+    None => {}
+  }
+
   let operands = line.exactly(NAMED);
   let [slug, input] = operands?;
   let Ok(on) = Input::from_word(input);
 
   match on {
-    Some(on_2) => Ok((slug.clone(), on_2)),
+    Some(on_2) => Ok(Request::Capture(slug.clone(), on_2)),
     None => {
       let Ok(refusal) = line.refusal(Reason::InvalidValue {
         of: INPUT,
@@ -463,7 +495,11 @@ fn main() -> ExitCode {
   let words: Vec<String> = std::env::args().skip(1).collect();
 
   let (slug, on) = match request(&words) {
-    Ok(request) => request,
+    Ok(Request::Capture(slug, on)) => (slug, on),
+    Ok(Request::RegisterSpecialWorkspace(name)) => {
+      let Ok(status) = register_special_workspace(&name);
+      return status;
+    }
     Err(refusal) => {
       let Ok(code) = refusal.print();
 
@@ -491,6 +527,16 @@ fn main() -> ExitCode {
       ExitCode::FAILURE
     }
   }
+}
+
+fn register_special_workspace(name: &str) -> Result<ExitCode, Never> {
+  Ok(match table::register_special_workspace(name) {
+    Ok(()) => ExitCode::SUCCESS,
+    Err(fault) => {
+      eprintln!("console-asking: {fault}");
+      ExitCode::FAILURE
+    }
+  })
 }
 
 const FONT: &str = "Noto Sans";
@@ -626,6 +672,10 @@ fn raised(part: Part, parts: Vec<Part>) -> Result<(), Unraised> {
   let Ok(asked) = question(&part);
   let wearing = Wearing::worn().map_err(Unraised::Palette)?;
   let mut surface = Surface::connect().map_err(Unraised::Surface)?;
+  let keyboard = match part.on {
+    Input::Keyboard => Keyboard::Takes,
+    Input::Pad => Keyboard::Declines,
+  };
 
   surface
     .show(&Wanted {
@@ -641,13 +691,13 @@ fn raised(part: Part, parts: Vec<Part>) -> Result<(), Unraised> {
         bottom: 0,
         left: 0,
       },
-      keyboard: Keyboard::Declines,
+      keyboard,
       room: Room::Over,
       under: Beneath::None,
     })
     .map_err(Unraised::Surface)?;
 
-  let card = Card {
+  let mut card = Card {
     effect: Action::Settling,
     since: Instant::now(),
     part,
@@ -656,6 +706,22 @@ fn raised(part: Part, parts: Vec<Part>) -> Result<(), Unraised> {
     saying: asked,
     hint: "\u{2026}".to_string(),
   };
+
+  match card.part.on {
+    Input::Pad => {}
+    Input::Keyboard => match surface.capture_shortcuts() {
+      Ok(()) => {
+        let Ok(waiting) = card.part.waiting();
+
+        card.effect = Action::Keyboard;
+        card.hint = waiting.to_string();
+      }
+      Err(fault) => {
+        eprintln!("console-asking: {fault}");
+        let Ok(()) = card.set_prompt("Keyboard shortcut capture is unavailable", Under(""));
+      }
+    },
+  }
 
   let shown = console_core_iteration::iterate(
     (card, Rendered::default(), surface),
@@ -674,7 +740,7 @@ fn framed(
   mut surface: Surface,
   wearing: &Wearing,
 ) -> Result<Frame, Never> {
-  let Ok(turned) = card.turn();
+  let Ok(turned) = card.turn(&mut surface);
 
   match turned {
     Turned::Over => return Ok(Step::Halt(Ok(()))),
@@ -714,5 +780,42 @@ fn draw_current(
       surface.draw(paint)
     }
     None => Ok(()),
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn a_shortcut_uses_the_physical_key_and_the_seats_held_modifiers() -> Result<(), Never> {
+    let recorded = shortcut(ShortcutPress {
+      code: u32::from(KeyCode::KEY_I.0),
+      key: Keysym::Greek_iota,
+      depressed_modifiers: 64 | 4,
+    })?;
+    let expected = Binding::chord(Input::Keyboard, &["super", "ctrl"], "i")?;
+
+    assert_eq!(recorded, Some(expected));
+    Ok(())
+  }
+
+  #[test]
+  fn caps_lock_remapped_to_super_waits_for_the_rest_of_the_shortcut() -> Result<(), Never> {
+    let modifier = shortcut(ShortcutPress {
+      code: u32::from(KeyCode::KEY_CAPSLOCK.0),
+      key: Keysym::Super_L,
+      depressed_modifiers: 0,
+    })?;
+    let key = shortcut(ShortcutPress {
+      code: u32::from(KeyCode::KEY_CAPSLOCK.0),
+      key: Keysym::Caps_Lock,
+      depressed_modifiers: 0,
+    })?;
+    let expected = Binding::chord(Input::Keyboard, &[], "capslock")?;
+
+    assert_eq!(modifier, None);
+    assert_eq!(key, Some(expected));
+    Ok(())
   }
 }

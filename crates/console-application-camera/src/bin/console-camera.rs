@@ -12,6 +12,8 @@ use console_core_shapes::Pixels;
 use console_draw_surface::{
   Closed, KeyboardEvent, Keysym, PointerEvent, Scale, Surface, SurfaceError, Window,
 };
+use console_panel::keys::{self, Driving, Meaning};
+use console_panel::strip::{self, Stop};
 
 #[path = "console-camera/source.rs"]
 mod source;
@@ -33,11 +35,6 @@ struct Camera {
 enum Refresh {
   Changed,
   Unchanged,
-}
-
-enum Direction {
-  Previous,
-  Next,
 }
 
 impl Camera {
@@ -139,36 +136,35 @@ impl Camera {
 
   fn act(&mut self, action: Action) -> Result<(), Infallible> {
     match action {
-      Action::Previous => self.switch_source(Direction::Previous),
-      Action::Next => self.switch_source(Direction::Next),
+      Action::Source(index) => self.select_source(index),
+      Action::Previous => self.switch_source(-1),
+      Action::Next => self.switch_source(1),
       Action::Retry => self.discover(),
       Action::Take => self.take_photo(),
       Action::Close => Ok(()),
     }
   }
 
-  fn switch_source(&mut self, direction: Direction) -> Result<(), Infallible> {
-    let count = match u32::try_from(self.sources.len()) {
-      Ok(0 | 1) => return Ok(()),
-      Ok(count) => count,
-      Err(_too_many_devices) => return Ok(()),
-    };
+  fn switch_source(&mut self, step: i32) -> Result<(), Infallible> {
+    let Ok(many) = console_core_number_conversion::fitted::<_, u32>(self.sources.len());
+    let Ok(next) = strip::along(many, Stop::Tab(self.selected), step);
 
-    self.selected = match direction {
-      Direction::Previous => match self.selected.checked_sub(1) {
-        Some(previous) => previous,
-        None => count.saturating_sub(1),
-      },
-      Direction::Next => {
-        let next = self.selected.saturating_add(1);
+    match next {
+      Stop::Tab(source) => self.select_source(source),
+      Stop::Outside => Ok(()),
+    }
+  }
 
-        match next.cmp(&count) {
-          std::cmp::Ordering::Less => next,
-          std::cmp::Ordering::Equal | std::cmp::Ordering::Greater => 0,
-        }
+  fn select_source(&mut self, source: u32) -> Result<(), Infallible> {
+    let Ok(index) = index(source);
+
+    match (self.selected != source && self.sources.get(index).is_some()).then_some(()) {
+      Some(()) => {
+        self.selected = source;
+        self.start()
       }
-    };
-    self.start()
+      None => Ok(()),
+    }
   }
 
   fn take_photo(&mut self) -> Result<(), Infallible> {
@@ -235,6 +231,7 @@ fn run(
   let drawing = WindowState {
     pressed: None,
     shown: Drawing::Pending,
+    layout: None,
   };
   let result = iterate(
     (surface, camera, drawing),
@@ -263,6 +260,7 @@ enum WindowChange {
 struct WindowState {
   pressed: Option<Action>,
   shown: Drawing,
+  layout: Option<Layout>,
 }
 
 impl WindowState {
@@ -281,12 +279,21 @@ impl WindowState {
 
     let Ok(points) = surface.logical();
     let Ok(scale) = surface.scale();
-    let layout = points.map(|window_size| {
-      let Ok(window_layout) = Layout::new(window_size, camera);
-      window_layout
-    });
 
-    match &layout {
+    match points {
+      Some(size) => {
+        match (self.layout.as_ref().map(|layout| layout.points) != Some(size)).then_some(()) {
+          Some(()) => {
+            let Ok(layout) = Layout::new(size, camera, wearing);
+            self.layout = Some(layout);
+          }
+          None => {}
+        }
+      }
+      None => self.layout = None,
+    }
+
+    match &self.layout {
       Some(visible) => {
         let current = Drawing::Ready {
           points: visible.points,
@@ -310,7 +317,7 @@ impl WindowState {
     let Ok(keys) = surface.keyboard_events();
 
     for event in events {
-      let Ok(change) = self.pointer(camera, layout.as_ref(), event);
+      let Ok(change) = self.pointer(camera, event);
 
       match change {
         WindowChange::Continue => {}
@@ -319,19 +326,19 @@ impl WindowState {
     }
 
     'keypress: for KeyboardEvent::Down { key } in keys {
-      let action = match key {
-        Keysym::Escape | Keysym::q => return Ok(WindowChange::Close),
-        Keysym::Left => Action::Previous,
-        Keysym::Right => Action::Next,
-        Keysym::r => Action::Retry,
-        Keysym::space | Keysym::Return | Keysym::KP_Enter => match &camera.stream {
-          Some(_stream) => Action::Take,
-          None => Action::Retry,
+      let Ok(meaning) = keys::meaning(key, Driving::Panel);
+      let action = match (meaning, key) {
+        (Meaning::Close, _) | (_, Keysym::q) => return Ok(WindowChange::Close),
+        (Meaning::Tab(-1) | Meaning::Nudge(-1), _) => Action::Previous,
+        (Meaning::Tab(1) | Meaning::Nudge(1), _) => Action::Next,
+        (_, Keysym::r) => Action::Retry,
+        (Meaning::Choose, _) => match view::capture_action(camera) {
+          Ok(Some(action)) => action,
+          Ok(None) => continue 'keypress,
         },
         _ => continue 'keypress,
       };
-      let Ok(()) = camera.act(action);
-      self.shown = Drawing::Pending;
+      let Ok(()) = self.act(camera, action);
     }
 
     let now = Instant::now();
@@ -345,15 +352,26 @@ impl WindowState {
     Ok(WindowChange::Continue)
   }
 
+  fn act(&mut self, camera: &mut Camera, action: Action) -> Result<(), Infallible> {
+    let Ok(()) = camera.act(action);
+    self.shown = Drawing::Pending;
+
+    match action {
+      Action::Retry | Action::Previous | Action::Next | Action::Source(_) => self.layout = None,
+      Action::Take | Action::Close => {}
+    }
+
+    Ok(())
+  }
+
   fn pointer(
     &mut self,
     camera: &mut Camera,
-    layout: Option<&Layout>,
     event: PointerEvent,
   ) -> Result<WindowChange, Infallible> {
     let at = |point| {
-      layout.and_then(|window_layout| {
-        let Ok(action) = window_layout.action(point);
+      self.layout.as_ref().and_then(|window_layout| {
+        let Ok(action) = window_layout.action(point, camera);
         action
       })
     };
@@ -366,8 +384,7 @@ impl WindowState {
       PointerEvent::Up => match self.pressed.take() {
         Some(Action::Close) => return Ok(WindowChange::Close),
         Some(action) => {
-          let Ok(()) = camera.act(action);
-          self.shown = Drawing::Pending;
+          let Ok(()) = self.act(camera, action);
         }
         None => {}
       },

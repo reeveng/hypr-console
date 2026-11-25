@@ -9,7 +9,7 @@ use std::sync::Arc;
 use console_core_never::Never;
 use console_panel::page::{Aside, Handler, Row, Showing};
 
-use crate::reading::Notification;
+use console_notifications::reading::Notification;
 
 pub const TABS: [&str; 2] = ["New", "Earlier"];
 
@@ -187,7 +187,7 @@ fn earlier_aside(notification: &Notification) -> Result<String, Never> {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::reading::Urgency;
+  use console_notifications::reading::Urgency;
   use console_panel::page::Action;
 
   type NotFound = &'static str;

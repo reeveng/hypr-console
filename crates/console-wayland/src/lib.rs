@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 
 pub mod buffer;
+pub mod key_repeat;
 #[cfg(feature = "virtual-keyboard")]
 pub mod keyboard;
 pub mod memory;

@@ -1,6 +1,6 @@
 //! The volume rocker on the top edge.
 //!
-//!     console-volume up | down | mute
+//!     console-volume up | down | mute | mic-mute
 //!
 //! What it does is `console_settings::rocker`, which can be asked without a
 //! sound server. This is the part that needs one, and the notification afterwards.
@@ -14,6 +14,7 @@
 
 use console_core_arguments::{Operands, read_with};
 use console_notifications::saying::{Content, Notification, StatePath, raise_kept};
+use console_settings::level::Muted;
 use console_settings::rocker::{self, ButtonPress, sound_server};
 use std::io;
 
@@ -53,20 +54,39 @@ fn show_volume(sink: &str) -> io::Result<()> {
   Ok(())
 }
 
-fn adjust(press: ButtonPress) -> io::Result<()> {
-  let default = sound_server(&["get-default-sink"])?;
-  let sink = default.trim();
+fn show_microphone(source: &str) -> io::Result<()> {
+  let mute = sound_server(&["get-source-mute", source])?;
+  let Ok(muted) = rocker::muted(&mute);
+  let summary = match muted {
+    Muted::Yes => "Microphone muted",
+    Muted::No => "Microphone unmuted",
+  };
+  let Ok(notification) = Notification::new(Content { summary, body: "" });
+  let Ok(notification_2) = notification.lasting(1500);
+  let Ok(kept) = StatePath::new("microphone");
+  let Ok(()) = raise_kept(notification_2, &kept);
 
-  match ::core::primitive::bool::then_some(sink.is_empty(), ()) {
-    ::core::option::Option::Some(()) => {
-      return Err(io::Error::other("pactl reported no default output"));
+  Ok(())
+}
+
+fn adjust(press: ButtonPress) -> io::Result<()> {
+  let (query, missing) = match press {
+    ButtonPress::Up | ButtonPress::Down | ButtonPress::Mute => {
+      ("get-default-sink", "pactl reported no default output")
     }
+    ButtonPress::MicMute => ("get-default-source", "pactl reported no default microphone"),
+  };
+  let default = sound_server(&[query])?;
+  let device = default.trim();
+
+  match ::core::primitive::bool::then_some(device.is_empty(), ()) {
+    ::core::option::Option::Some(()) => return Err(io::Error::other(missing)),
     ::core::option::Option::None => {}
   }
 
   let current = match press {
     ButtonPress::Up | ButtonPress::Down => {
-      let said = sound_server(&["get-sink-volume", sink])?;
+      let said = sound_server(&["get-sink-volume", device])?;
       let Ok(level) = rocker::level(&said);
       let Ok(value) = rocker::value(level);
       value
@@ -76,15 +96,18 @@ fn adjust(press: ButtonPress) -> io::Result<()> {
         })
         .ok_or_else(|| io::Error::other("pactl reported no volume for the default output"))?
     }
-    ButtonPress::Mute => 0,
+    ButtonPress::Mute | ButtonPress::MicMute => 0,
   };
-  let Ok(requests) = rocker::asks(press, sink, current);
+  let Ok(requests) = rocker::asks(press, device, current);
 
   for arguments in requests {
     let _reply = sound_server(&arguments)?;
   }
 
-  show_volume(sink)
+  match press {
+    ButtonPress::Up | ButtonPress::Down | ButtonPress::Mute => show_volume(device),
+    ButtonPress::MicMute => show_microphone(device),
+  }
 }
 
 const COMMAND: console_core_arguments::Command = console_core_arguments::Command {

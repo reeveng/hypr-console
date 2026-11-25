@@ -18,17 +18,23 @@
 use console_core_internal_programs::InternalProgram;
 use std::path::{Path, PathBuf};
 
-use console_core_arguments::Presence;
+use console_core_arguments::{Flag, Presence, Takes};
 use console_core_never::Never;
 use console_core_state_machine::{EffectDependencies, Machine, Queue, Service, Transition};
 use console_input_bindings::moved::Tasks;
-use console_program_contract::{Command, Effect, Event, FileWrite};
+use console_input_controller::actions::special_workspace_job;
+use console_program_contract::{Command, Effect, Event, FileWrite, Notification};
 
 use crate::rows::{Part, question};
 
 pub const ASKING: InternalProgram = InternalProgram::Asking;
 
 pub const NOWHERE: &str = "Can't identify this controller";
+pub const REGISTER_SPECIAL_WORKSPACE: Flag = Flag {
+  spelling: "--add-special-workspace",
+  takes: Takes::Value("NAME"),
+  about: "add a named special workspace to the shortcut table",
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Empty {
@@ -50,6 +56,7 @@ pub enum Setting {
   Nowhere,
   Initial { at: PathBuf, empty: Empty },
   Set { at: PathBuf },
+  NamingSpecialWorkspace { at: PathBuf },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,18 +64,24 @@ pub enum MappingEvent {
   Requested(Part),
   Restore,
   Sure,
+  AddSpecialWorkspace,
+  SpecialWorkspaceNamed(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MappingEffect {
-  Note(String),
+  Notify(String),
   Sure,
+  AskForWorkspaceName,
+  RegisterSpecialWorkspace(Command),
 }
 
 impl EffectDependencies for MappingEffect {
   fn services(&self) -> Result<&'static [Service], Never> {
     Ok(match self {
-      Self::Note(_) | Self::Sure => &[Service::Panels],
+      Self::Notify(_) => &[Service::Notifications],
+      Self::Sure | Self::AskForWorkspaceName => &[Service::Panels],
+      Self::RegisterSpecialWorkspace(_) => &[Service::Process],
     })
   }
 }
@@ -128,7 +141,7 @@ fn decide(
       Transition::new(
         state.clone(),
         vec![
-          Effect::Custom(MappingEffect::Note(asked)),
+          Effect::Custom(MappingEffect::Notify(asked)),
           Effect::Run(asking),
         ],
       )
@@ -144,10 +157,40 @@ fn decide(
       Transition::new(state.clone(), vec![Effect::Write(nothing)])
     }
 
-    (Setting::Nowhere, Event::Custom(_)) => Transition::new(
-      state.clone(),
-      vec![Effect::Custom(MappingEffect::Note(NOWHERE.to_string()))],
+    (Setting::Set { at }, Event::Custom(MappingEvent::AddSpecialWorkspace)) => Transition::new(
+      Setting::NamingSpecialWorkspace { at: at.clone() },
+      vec![Effect::Custom(MappingEffect::AskForWorkspaceName)],
     ),
+
+    (
+      Setting::NamingSpecialWorkspace { at },
+      Event::Custom(MappingEvent::SpecialWorkspaceNamed(name)),
+    ) => {
+      let Ok(workspace) = special_workspace_job(name);
+      let effect = match workspace {
+        Some(_job) => {
+          let Ok(register) =
+            Command::internal(ASKING, &[REGISTER_SPECIAL_WORKSPACE.spelling, name]);
+
+          MappingEffect::RegisterSpecialWorkspace(register)
+        }
+        None => MappingEffect::Notify(
+          "Enter a separate special workspace name. Quick Workspace has its own shortcut row."
+            .to_owned(),
+        ),
+      };
+
+      Transition::new(
+        Setting::Set { at: at.clone() },
+        vec![Effect::Custom(effect)],
+      )
+    }
+
+    (Setting::Nowhere, Event::Custom(_)) => {
+      let Ok(notice) = Notification::of(NOWHERE);
+
+      Transition::new(state.clone(), vec![Effect::Notify(notice)])
+    }
 
     (_, _) => Transition::without_effects(state.clone()),
   };
@@ -200,7 +243,9 @@ mod tests {
   fn part() -> Result<Part, Never> {
     Ok(Part {
       slug: "open-the-menu".to_string(),
-      action: console_input_controller::actions::Action::Menu,
+      action: console_input_controller::actions::MappedAction::Builtin(
+        console_input_controller::actions::Action::Menu,
+      ),
       does: "Open the menu".to_string(),
       on: console_input_bindings::bound::Input::Pad,
       plays: Vec::new(),
@@ -212,6 +257,34 @@ mod tests {
     let Ok(none) = Tasks::none();
 
     none.serialize()
+  }
+
+  #[test]
+  fn adding_a_workspace_requests_a_name_before_starting_the_save_task() {
+    let Ok(initial) = table("/somewhere", Empty::Leave);
+    let Ok(asked) = pressing(
+      &initial,
+      &[
+        MappingEvent::SpecialWorkspaceNamed("stale".to_owned()),
+        MappingEvent::AddSpecialWorkspace,
+        MappingEvent::SpecialWorkspaceNamed("special:research notes".to_owned()),
+      ],
+    );
+    let Ok(command) = Command::internal(
+      ASKING,
+      &[
+        REGISTER_SPECIAL_WORKSPACE.spelling,
+        "special:research notes",
+      ],
+    );
+
+    assert_eq!(
+      asked,
+      [
+        Effect::Custom(MappingEffect::AskForWorkspaceName),
+        Effect::Custom(MappingEffect::RegisterSpecialWorkspace(command)),
+      ]
+    );
   }
 
   #[test]
@@ -273,13 +346,11 @@ mod tests {
       &Setting::Nowhere,
       &[MappingEvent::Restore, MappingEvent::Sure],
     );
+    let Ok(notice) = Notification::of(NOWHERE);
 
     assert_eq!(
       asked,
-      vec![
-        Effect::Custom(MappingEffect::Note(NOWHERE.to_string())),
-        Effect::Custom(MappingEffect::Note(NOWHERE.to_string())),
-      ]
+      vec![Effect::Notify(notice.clone()), Effect::Notify(notice)]
     );
   }
 
@@ -293,7 +364,7 @@ mod tests {
     assert_eq!(
       said,
       vec![
-        Effect::Custom(MappingEffect::Note(
+        Effect::Custom(MappingEffect::Notify(
           "Press a button for \u{201c}Open the menu\u{201d}".to_string()
         )),
         Effect::Run(runs),

@@ -543,6 +543,12 @@ fn run(asked: Arguments, ink: &Ansi) -> Result<std::process::ExitCode, Unchecked
       on_the_device(&asked, checks, ink, &mut counted)?;
     }
     DESKTOP => {
+      let marker = std::path::Path::new("/etc").join("console-test-vm");
+      let _ = std::fs::read_to_string(marker).map_err(|_| {
+        Unchecked::Machine(std::io::Error::other(
+          "run desktop checks with just test e2e-desktop",
+        ))
+      })?;
       let Ok(mut stage) = Desktop::new();
 
       for check in checks {

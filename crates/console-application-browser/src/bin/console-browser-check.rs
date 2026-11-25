@@ -1,13 +1,13 @@
-//! A local browser fixture for testing the renderer in a graphical session.
+//! A browser fixture running against the compositor inside a test VM.
 
 #![forbid(unsafe_code)]
 
-use std::fs::{self, File};
+use std::fs;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode, ExitStatus, Stdio};
+use std::process::{Command, ExitCode, ExitStatus};
 use std::time::{Duration, Instant};
 
 use console_browser_downloads::Id;
@@ -22,6 +22,8 @@ use rustix::net::{AddressFamily, SocketAddrUnix, SocketFlags, SocketType, connec
 use rustix::process::{Pid, PidfdFlags, pidfd_open};
 
 const PASSED: &str = "CONSOLE_BROWSER_CHECK=passed";
+const VM_COMMANDS: &str =
+  "run this fixture with just test browser, browser-chromium, or browser-servo";
 const PAUSE: Duration = Duration::from_millis(20);
 const WAIT_WAKEUPS: u32 = 65_536;
 const FIRST_DOWNLOAD: &[u8] = b"the first report\n";
@@ -560,9 +562,10 @@ fn wait_for_browser(
   ))
 }
 
-enum GuestRenderer {
+enum GuestRenderer<'a> {
   Chromium,
   WebKit,
+  Servo(&'a str),
 }
 
 fn guest_display() -> io::Result<PathBuf> {
@@ -618,7 +621,9 @@ fn wait_for_display(path: &Path) -> io::Result<()> {
   Err(expired)
 }
 
-fn guest(browser: &Path, renderer: GuestRenderer) -> io::Result<()> {
+fn guest(browser: &Path, renderer: GuestRenderer<'_>) -> io::Result<()> {
+  let _ =
+    fs::read_to_string("/etc/console-test-vm").map_err(|_| io::Error::other(VM_COMMANDS))?;
   let display = guest_display()?;
   wait_for_display(&display)?;
 
@@ -635,6 +640,12 @@ fn guest(browser: &Path, renderer: GuestRenderer) -> io::Result<()> {
       pages: 3,
       seconds: 125,
     })?,
+    GuestRenderer::Servo(worker) => check(Check {
+      browser,
+      arguments: &["--servo-test", "--servo-worker", worker],
+      pages: 4,
+      seconds: 175,
+    })?,
   }
 
   println!("{PASSED}");
@@ -648,27 +659,8 @@ fn run() -> io::Result<()> {
   match words.as_slice() {
     ["--guest-webkit", browser] => guest(Path::new(browser), GuestRenderer::WebKit),
     ["--guest-chromium", browser] => guest(Path::new(browser), GuestRenderer::Chromium),
-    [browser, "--webkit"] => check(Check {
-      browser: Path::new(browser),
-      arguments: &["--webkit-test"],
-      pages: 4,
-      seconds: 120,
-    }),
-    [browser, servo] => check(Check {
-      browser: Path::new(browser),
-      arguments: &["--servo-test", "--servo-worker", servo],
-      pages: 4,
-      seconds: 50,
-    }),
-    [browser] => check(Check {
-      browser: Path::new(browser),
-      arguments: &["--smoke-test"],
-      pages: 3,
-      seconds: 50,
-    }),
-    _ => Err(io::Error::other(
-      "usage: console-browser-check BROWSER [--webkit|SERVO_WORKER]",
-    )),
+    ["--guest-servo", browser, worker] => guest(Path::new(browser), GuestRenderer::Servo(worker)),
+    _ => Err(io::Error::other(VM_COMMANDS)),
   }
 }
 

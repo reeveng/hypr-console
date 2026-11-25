@@ -1,8 +1,5 @@
-{ pkgs, runVM, browser, webkit ? true }:
+{ pkgs, runVM, browser, engine, servo ? null, webkitTests ? null }:
 
-let
-  engine = if webkit then "webkit" else "chromium";
-in
 runVM {
   name = "browser-${engine}";
   memory = 3072;
@@ -14,6 +11,9 @@ runVM {
     "${browser}/bin/console-browser-check"
     "--guest-${engine}"
     "${browser}/bin/console-application-browser"
-  ];
-  module.fonts.packages = [ pkgs.dejavu_fonts ];
+  ] ++ pkgs.lib.optional (engine == "servo") "${servo}/bin/console-browser-renderer-servo";
+  module = {
+    fonts.packages = [ pkgs.dejavu_fonts ];
+    systemd.services.console-test.serviceConfig.ExecStartPre = pkgs.lib.optional (webkitTests != null) webkitTests;
+  };
 }

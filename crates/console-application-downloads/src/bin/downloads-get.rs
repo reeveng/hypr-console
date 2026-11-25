@@ -38,7 +38,7 @@ use console_application_downloads::looking;
 use console_application_downloads::store::{self, Kind};
 use console_core_arguments::{Operands, Reason, ValidationError, read};
 use console_core_never::Never;
-use console_panel::running::{Notification, say};
+use console_notifications::saying::Content as Notification;
 use console_repository::RelativePath;
 
 const KIND: &str = "download";
@@ -169,7 +169,11 @@ fn fetch(request: Request) -> Result<(), Never> {
 }
 
 fn failed(notice: Notification<'_>) -> Result<(), Never> {
-  say(KIND, notice)
+  console_notifications::saying::report(
+    console_notifications::Application("Downloads"),
+    KIND,
+    notice,
+  )
 }
 
 fn staged(destination: Fetch<'_>) -> io::Result<PathBuf> {
@@ -404,8 +408,8 @@ fn notify_arrived(name: &str, into: &Path, said: Landed<'_>) -> Result<(), Never
     None => into.display().to_string(),
   };
   let body = format!("{said_2} {folder}");
-  let options = console_operating_system_linux::notification::Options {
-    app_name: Some("Console"),
+  let options = console_notifications::delivery::Options {
+    app_name: Some("Downloads"),
     icon: Some("folder-download"),
     ..Default::default()
   };

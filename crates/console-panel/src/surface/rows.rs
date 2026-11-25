@@ -1,5 +1,5 @@
-//! Stacked row labels wrap to the available width. Store their measured
-//! positions so drawing, focus, and scrolling share the same row boundaries.
+//! Measure wrapped labels and space between groups once for drawing, focus,
+//! scrolling and hit testing.
 
 use std::ops::Range;
 
@@ -65,7 +65,11 @@ pub(super) struct WrappedRow {
 
 impl RowLayout {
   pub(super) fn measure(rows: &[Row], card: &Card, marks: MeasuredMarks) -> Result<Self, Never> {
-    match rows.iter().any(|row| row.stacked).then_some(()) {
+    match rows
+      .iter()
+      .any(|row| row.stacked || row.space_above)
+      .then_some(())
+    {
       Some(()) => {}
       None => return Ok(Self::Uniform),
     }
@@ -76,6 +80,11 @@ impl RowLayout {
     let mut measured = Vec::with_capacity(rows.len());
 
     for row in rows {
+      match row.space_above.then_some(()) {
+        Some(()) => top = top.saturating_add(strip::GAP.saturating_mul(2)),
+        None => {}
+      }
+
       let stacked = match row.stacked.then_some(()) {
         Some(()) => {
           let Ok(wide) = label_width(row, right.saturating_sub(left), marks);
@@ -284,5 +293,35 @@ impl StackedText {
     }
 
     Ok(())
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::page::Aside;
+
+  #[test]
+  fn space_between_rows_is_outside_the_following_row() {
+    let Ok(recording) = Row::text("Recording", Aside(""));
+    let Ok(search) = Row::text("Search", Aside(""));
+    let Ok(separated) = search.with_space_above();
+    let card = Card {
+      x: 0,
+      y: 0,
+      width: 640,
+      height: 360,
+    };
+    let Ok(marks) = super::super::measure_marks();
+    let Ok(layout) = RowLayout::measure(&[recording, separated], &card, marks);
+    let Ok((first, _)) = layout.row(0);
+    let Ok((second, _)) = layout.row(1);
+
+    assert_eq!(first.top, 0);
+    assert_eq!(second.height, first.height);
+    assert_eq!(
+      second.top.saturating_sub(first.height),
+      strip::GAP.saturating_mul(2)
+    );
   }
 }

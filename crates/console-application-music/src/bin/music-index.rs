@@ -5,8 +5,8 @@ use std::path::Path;
 use std::process::ExitCode;
 
 use console_application_music::cleanup::Reconciliation;
-use console_application_music::looking::{FileRevision, Song};
-use console_application_music::{album_art, albums, library, looking, review, suggestions};
+use console_application_music::looking::{FileRevision, Song, TagState};
+use console_application_music::{album_art, albums, library, looking, review, scan, suggestions};
 use console_core_never::Never;
 use console_core_state_machine::{EffectDependencies, Machine, Queue, Service, Transition};
 use console_music_player::{loudness, tags};
@@ -84,8 +84,8 @@ impl Machine for Index {
         pending.audio.push(audio);
         let Ok(count) = console_core_number_conversion::fitted::<_, u32>(pending.songs.len());
 
-        match count.wrapping_rem(50) {
-          0 => {
+        match (pending.mode, count.wrapping_rem(50)) {
+          (Mode::Tags, 0) => {
             let all = pending
               .songs
               .iter()
@@ -94,7 +94,7 @@ impl Machine for Index {
               .collect();
             let Ok(()) = effects.offer(Effect::Checkpoint(all));
           }
-          _ => {}
+          (Mode::Tags, _) | (Mode::Audio, _) => {}
         }
 
         step(pending, effects)
@@ -119,13 +119,14 @@ fn step(mut pending: Pending, effects: &mut Queue<Effect>) -> Result<State, Neve
 }
 
 fn measured(mut song: Song, cache: &Path, mode: Mode) -> Result<Request, Never> {
-  match song.read.then_some(()) {
-    Some(()) => {}
-    None => {
+  let Ok(state) = song.tag_state();
+
+  match state {
+    TagState::Cached(_) | TagState::LegacyCache => {}
+    TagState::Unobserved | TagState::Unread(_) => {
       let Ok(metadata) = tags::of(&song.path);
       let Ok(after) = FileRevision::of(&song.path);
-      song.tags = metadata;
-      song.read = after.is_some() && after == song.revision;
+      let Ok(()) = song.record_tags(metadata, after);
     }
   }
 
@@ -167,7 +168,7 @@ fn publish(
     Mode::Audio => {
       loudness::prune_removed()?;
       let Ok(findings) = review::compare(&pending.songs, &pending.audio);
-      let Ok(()) = review::save(cache, &findings);
+      review::save(cache, &findings)?;
       let Ok(()) = suggestions::local(cache, &pending.songs, &pending.audio);
       let Ok(albums) = albums::groups(&pending.songs);
 
@@ -180,14 +181,6 @@ fn publish(
 }
 
 fn index(mode: Mode) -> std::io::Result<()> {
-  let _scan = match mode {
-    Mode::Tags => None,
-    Mode::Audio => {
-      let scan = loudness::BackgroundScan::start()?;
-
-      Some(scan)
-    }
-  };
   let Ok(configured) = console_core_places::Base::Cache.user();
   let root =
     configured.ok_or_else(|| std::io::Error::other("Music Library cache is unavailable"))?;
@@ -245,29 +238,64 @@ fn index(mode: Mode) -> std::io::Result<()> {
   done
 }
 
-fn run(words: &[String]) -> std::io::Result<ExitCode> {
-  match words {
-    [] => index(Mode::Tags).map(|()| ExitCode::SUCCESS),
-    [flag] if flag == "--analyze" => index(Mode::Audio).map(|()| ExitCode::SUCCESS),
-    [flag, wanted] if flag == "--suggest" => {
-      let query = serde_json::from_str(wanted).map_err(std::io::Error::other)?;
+fn analyze() -> std::io::Result<ExitCode> {
+  let claim = scan::claim()?;
+  let _scan = match claim {
+    scan::Claim::Started(guard) => guard,
+    scan::Claim::AlreadyRunning => return Ok(ExitCode::from(scan::BUSY_EXIT_CODE)),
+  };
+  let _levels = loudness::BackgroundScan::start()?;
+  index(Mode::Tags)?;
+  index(Mode::Audio)?;
 
-      suggestions::search(&query).map(|()| ExitCode::SUCCESS)
-    }
-    [flag, wanted] if flag == "--cover" => {
-      let album = serde_json::from_str(wanted).map_err(std::io::Error::other)?;
-      let cover = album_art::fetch(&album)?;
+  Ok(ExitCode::SUCCESS)
+}
 
-      Ok(match cover {
-        album_art::Cover::Saved => ExitCode::SUCCESS,
-        album_art::Cover::Unavailable => ExitCode::from(2),
-      })
-    }
-    _ => Err(std::io::Error::new(
+fn decode_argument<T: serde::de::DeserializeOwned>(argument: &str) -> std::io::Result<T> {
+  const MAX_ARGUMENT_BYTES: u32 = 128 * 1024;
+  let Ok(bytes) = console_core_number_conversion::fixed_index(argument.len());
+
+  match (bytes <= u64::from(MAX_ARGUMENT_BYTES)).then_some(()) {
+    Some(()) => serde_json::from_str(argument).map_err(std::io::Error::other),
+    None => Err(std::io::Error::new(
       std::io::ErrorKind::InvalidInput,
-      "expected no arguments, --analyze, --cover LOOKUP, or --suggest RECORDING",
+      "Music Library lookup argument is too long",
     )),
   }
+}
+
+fn run(words: &[String]) -> std::io::Result<ExitCode> {
+  match words {
+    [] => return index(Mode::Tags).map(|()| ExitCode::SUCCESS),
+    [flag] => match flag.as_str() {
+      "--analyze" => return analyze(),
+      _ => {}
+    },
+    [flag, wanted] => match flag.as_str() {
+      "--suggest" => {
+        let query = decode_argument(wanted)?;
+
+        return suggestions::search(&query, std::time::SystemTime::now)
+          .map(|()| ExitCode::SUCCESS);
+      }
+      "--cover" => {
+        let album = decode_argument(wanted)?;
+        let cover = album_art::fetch(&album, std::time::SystemTime::now)?;
+
+        return Ok(match cover {
+          album_art::Cover::Saved => ExitCode::SUCCESS,
+          album_art::Cover::Unavailable => ExitCode::from(2),
+        });
+      }
+      _ => {}
+    },
+    [_, _, _, ..] => {}
+  }
+
+  Err(std::io::Error::new(
+    std::io::ErrorKind::InvalidInput,
+    "expected no arguments, --analyze, --cover LOOKUP, or --suggest RECORDING",
+  ))
 }
 
 fn main() -> ExitCode {

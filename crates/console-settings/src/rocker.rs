@@ -32,6 +32,8 @@ pub enum ButtonPress {
   Down,
   #[words(word = "mute", about = "silence it, or stop silencing it")]
   Mute,
+  #[words(word = "mic-mute", about = "mute or unmute the default microphone")]
+  MicMute,
 }
 
 impl Subcommand for ButtonPress {
@@ -48,12 +50,13 @@ impl Subcommand for ButtonPress {
   }
 }
 
-pub fn asks(press: ButtonPress, sink: &str, current: i32) -> Result<Vec<Vec<String>>, Never> {
+pub fn asks(press: ButtonPress, device: &str, current: i32) -> Result<Vec<Vec<String>>, Never> {
   let words = |arguments: &[&str]| arguments.iter().map(|word| (*word).to_string()).collect();
   let step = match press {
     ButtonPress::Up => Step(1),
     ButtonPress::Down => Step(-1),
-    ButtonPress::Mute => return Ok(vec![words(&["set-sink-mute", sink, "toggle"])]),
+    ButtonPress::Mute => return Ok(vec![words(&["set-sink-mute", device, "toggle"])]),
+    ButtonPress::MicMute => return Ok(vec![words(&["set-source-mute", device, "toggle"])]),
   };
 
   let Ok(next) = apply_step(current, step);
@@ -63,7 +66,7 @@ pub fn asks(press: ButtonPress, sink: &str, current: i32) -> Result<Vec<Vec<Stri
     ::core::option::Option::Some(()) => {
       requests.push(words(&[
         "set-sink-volume",
-        sink,
+        device,
         &({
           let Ok(explicit_value) = volume_argument(VolumeStep {
             from: current,
@@ -78,7 +81,7 @@ pub fn asks(press: ButtonPress, sink: &str, current: i32) -> Result<Vec<Vec<Stri
 
   match { ::core::primitive::bool::then_some(press == ButtonPress::Up, ()) } {
     ::core::option::Option::Some(()) => {
-      requests.push(words(&["set-sink-mute", sink, "0"]));
+      requests.push(words(&["set-sink-mute", device, "0"]));
     }
     ::core::option::Option::None => {}
   }
@@ -212,6 +215,20 @@ mod tests {
         "set-sink-mute".to_string(),
         SINK.to_string(),
         "toggle".to_string()
+      ]])
+    );
+  }
+
+  #[test]
+  fn microphone_mute_toggles_only_the_capture_source() {
+    let source = "microphone";
+
+    assert_eq!(
+      asks(ButtonPress::MicMute, source, 0),
+      Ok(vec![vec![
+        "set-source-mute".to_string(),
+        source.to_string(),
+        "toggle".to_string(),
       ]])
     );
   }

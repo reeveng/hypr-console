@@ -9,7 +9,7 @@ Description=Lock Screen
 # Ready means locked. `lock-screen` tells systemd once the compositor has said
 # the session is locked, so a `systemctl start` returns only then. With no
 # pattern chosen it reports readiness at once and exits. While locking before
-# suspend, hypridle waits for the compositor's lock notification.
+# suspend, Console Idle waits for the compositor's lock notification.
 Type=notify
 NotifyAccess=main
 TimeoutStartSec=10

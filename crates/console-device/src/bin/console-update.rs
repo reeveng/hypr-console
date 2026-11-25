@@ -51,7 +51,7 @@ const CONSOLE_BUNDLE: &str = "console-x86_64.tar.gz";
 const STAGED_BUNDLE: &str = "bundle.tar.gz";
 const LIVE: &str = console_repository::DEVICE_ROOT;
 const RELEASES: &str = "/etc/.console-releases";
-const MARK: &str = ".git/console-release";
+const MARK: &str = console_repository::RELEASE_MARKER;
 const PENDING: &str = "pending";
 const PREVIOUS: &str = "previous";
 const HELD: &str = "held-tag";
@@ -288,11 +288,11 @@ fn check_device() -> Result<(), UpdateError> {
     None => return Err(UpdateError::from("run console-update as root")),
   }
 
-  let product = fs::read_to_string("/sys/class/dmi/id/product_name")?;
+  let support = update_menu::release_support()?;
 
-  match product.trim() {
-    "83E1" => Ok(()),
-    _ => Err(UpdateError::from(
+  match support {
+    update_menu::ReleaseSupport::Tagged => Ok(()),
+    update_menu::ReleaseSupport::External => Err(UpdateError::from(
       "this release is for the first-generation Legion Go (83E1)",
     )),
   }
@@ -606,7 +606,7 @@ fn notify_update(tag: &str) -> Result<NoticeDelivery, UpdateError> {
   }
 
   let body = format!("{tag} is available. Open Console Updates to choose when to install it.");
-  let options = console_operating_system_linux::notification::Options {
+  let options = console_notifications::delivery::Options {
     app_name: Some("Console Updates"),
     expire_ms: Some(0),
     ..Default::default()
@@ -865,10 +865,10 @@ impl ProgressNotice {
       expire_ms,
     }: Progress<'_>,
   ) -> Result<(), Never> {
-    let options = console_operating_system_linux::notification::Options {
+    let options = console_notifications::delivery::Options {
       app_name: Some("Console Updates"),
       expire_ms,
-      id_output: console_operating_system_linux::notification::IdOutput::Requested,
+      id_output: console_notifications::delivery::IdOutput::Requested,
       replace_id: self.id,
       ..Default::default()
     };

@@ -15,8 +15,11 @@ use console_core_number_conversion::fitted;
 use console_core_shapes::{Clip, Edge, Line, Panel, Round, Shape, Text};
 use console_core_web_engine::DownloadState;
 use console_draw_painting::{self as drawing, Frame, Run};
+use console_draw_surface::KeyPress;
 use console_input_key_symbols::Keysym;
 use console_input_text::TextField;
+use console_panel::strip::{TabFace, Tabs};
+use console_panel::{marks, strip};
 
 use crate::reader::{Mode, TextSize};
 use crate::renderer::Renderer;
@@ -31,6 +34,8 @@ enum Control {
   Settings,
   Close,
   Tab(u32),
+  PreviousTab,
+  NextTab,
   NewTab,
   CloseTab,
   Downloads,
@@ -47,12 +52,25 @@ const CONTROLS: [Control; 6] = [
 const ADDRESS: u32 = 3;
 const SETTINGS: u32 = 4;
 const CORNER_RADIUS: u32 = 5;
-pub(crate) const HEIGHT: u32 = 86;
+const TAB_TOP: i32 = 4;
+const ADDRESS_TOP: i32 = TAB_TOP + strip::HEIGHT + strip::GAP;
+const ADDRESS_HEIGHT: i32 = 34;
+const BROWSER_MARGIN: i32 = 8;
+pub(crate) const HEIGHT: u32 = (ADDRESS_TOP + ADDRESS_HEIGHT + 6).unsigned_abs();
 pub(crate) const MAX_TABS: u64 = 6;
 pub(crate) const CONTROL: u32 = 1;
 pub(crate) const SHIFT: u32 = 2;
 const ALT: u32 = 4;
-const CONTROL_SHIFT: u32 = CONTROL | SHIFT;
+pub(crate) const CONTROL_SHIFT: u32 = CONTROL | SHIFT;
+
+pub(crate) fn edit_press(key: Keysym, mods: u32) -> Result<KeyPress, Never> {
+  let modifiers = match (mods & CONTROL != 0).then_some(()) {
+    Some(()) => KeyPress::CONTROL,
+    None => 0,
+  };
+
+  KeyPress::with_modifiers(key, modifiers)
+}
 
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub enum Action {
@@ -157,12 +175,6 @@ pub(crate) struct TextPrompt<'a> {
 pub(crate) enum EntryMode {
   Address,
   Prompt,
-}
-
-enum LabelEmphasis {
-  Active,
-  Focused,
-  Plain,
 }
 
 pub struct Toolbar {
@@ -450,7 +462,15 @@ impl Toolbar {
           explicit_value
         }
       },
-      (Control::Tab(_) | Control::NewTab | Control::CloseTab | Control::Downloads, _) => {
+      (
+        Control::Tab(_)
+        | Control::PreviousTab
+        | Control::NextTab
+        | Control::NewTab
+        | Control::CloseTab
+        | Control::Downloads,
+        _,
+      ) => {
         let Ok(explicit_value) = tab_button(TabPlacement { x: 0, width: 0 });
         explicit_value
       }
@@ -477,6 +497,14 @@ impl Toolbar {
         Action::SettingsChanged
       }
       Control::Tab(id) => Action::SelectTab(id),
+      Control::PreviousTab => {
+        let Ok(action) = self.step_tab(-1);
+        action
+      }
+      Control::NextTab => {
+        let Ok(action) = self.step_tab(1);
+        action
+      }
       Control::NewTab => {
         let Ok(count) = self.tab_count();
 
@@ -624,6 +652,8 @@ impl Toolbar {
 
         Ok(Action::FocusPage)
       }
+      (Keysym::Page_Up, _, _) => self.step_tab(-1),
+      (Keysym::Page_Down, _, _) => self.step_tab(1),
       (Keysym::Left, false, _) => self.move_focus(Heading::Left, committed),
       (Keysym::Right, false, _) => self.move_focus(Heading::Right, committed),
       (Keysym::Up, false, _) => self.move_focus(Heading::Up, committed),
@@ -696,7 +726,8 @@ impl Toolbar {
         | Keysym::BackSpace
         | Keysym::Delete,
         _,
-      ) => {
+      )
+      | (CONTROL | CONTROL_SHIFT, Keysym::BackSpace, _) => {
         match (self.editing, key) {
           (Editing::Selected, Keysym::BackSpace | Keysym::Delete) => {
             self.address = TextField::default()
@@ -706,7 +737,8 @@ impl Toolbar {
           }
           (Editing::Selected, Keysym::Right) => {}
           _ => {
-            let Ok(_) = self.address.typed(key);
+            let Ok(press) = edit_press(key, mods);
+            let Ok(_) = self.address.typed_press(press);
           }
         }
 
@@ -732,7 +764,13 @@ impl Toolbar {
     let Ok(()) = self.paint_button(&mut shapes, Control::Back, self.status.back);
     let Ok(()) = self.paint_button(&mut shapes, Control::Forward, self.status.forward);
     let Ok(()) = self.paint_button(&mut shapes, Control::Reload, ButtonAvailability::Enabled);
-    let Ok(()) = self.paint_button(&mut shapes, Control::Close, ButtonAvailability::Enabled);
+    let Ok(close) = self.at(Control::Close);
+    let close_state = match (self.focus == Some(5)).then_some(()) {
+      Some(()) => strip::Control::Focused,
+      None => strip::Control::Ready,
+    };
+    let Ok(()) =
+      strip::paint_control(&mut shapes, close, marks::SHUT, close_state, &self.palette);
     let Ok(()) = self.paint_button(&mut shapes, Control::Settings, ButtonAvailability::Enabled);
     let Ok(()) = self.paint_tabs(&mut shapes, width);
     let Ok(()) = self.paint_address(&mut shapes);
@@ -793,8 +831,7 @@ impl Toolbar {
       (Some(0), Control::Back)
       | (Some(1), Control::Forward)
       | (Some(2), Control::Reload)
-      | (Some(SETTINGS), Control::Settings)
-      | (Some(5), Control::Close) => FocusMark::Focused,
+      | (Some(SETTINGS), Control::Settings) => FocusMark::Focused,
       (_, Control::Settings) => {
         match matches!(self.settings.visibility(), Ok(SettingsVisibility::Visible)).then_some(())
         {
@@ -872,6 +909,8 @@ impl Toolbar {
           | Control::Settings
           | Control::Close
           | Control::Tab(_)
+          | Control::PreviousTab
+          | Control::NextTab
           | Control::NewTab
           | Control::CloseTab
           | Control::Downloads => 1,
@@ -904,7 +943,7 @@ impl Toolbar {
           shapes.push(shape);
         }
       }
-      (Control::Reload, PageLoad::Loading) | (Control::Close, _) => {
+      (Control::Reload, PageLoad::Loading) => {
         shapes.extend([stroke((-5, -5), (5, 5)), stroke((-5, 5), (5, -5))]);
       }
       (Control::Settings, _) => {
@@ -921,7 +960,16 @@ impl Toolbar {
           stroke((7, 8), (7, 4)),
         ]);
       }
-      (Control::Address | Control::Tab(_) | Control::NewTab | Control::CloseTab, _) => {}
+      (
+        Control::Close
+        | Control::Address
+        | Control::Tab(_)
+        | Control::PreviousTab
+        | Control::NextTab
+        | Control::NewTab
+        | Control::CloseTab,
+        _,
+      ) => {}
     }
 
     Ok(())
@@ -955,22 +1003,7 @@ impl Toolbar {
       let x = center
         .saturating_sub(wide_2.wrapping_div(2))
         .clamp(0, width.saturating_sub(wide_2).max(0));
-      let y = match control {
-        Control::Downloads => button.origin.y.saturating_sub(29),
-        Control::Back
-        | Control::Forward
-        | Control::Reload
-        | Control::Address
-        | Control::Settings
-        | Control::Close
-        | Control::Tab(_)
-        | Control::NewTab
-        | Control::CloseTab => button
-          .origin
-          .y
-          .saturating_add(button.size.height)
-          .saturating_add(4),
-      };
+      let y = button.origin.y.saturating_sub(29);
       let frame = Rectangle {
         origin: Point { x, y },
         size: Size {
@@ -1001,107 +1034,261 @@ impl Toolbar {
     Ok(())
   }
 
-  fn paint_tabs(
+  fn current_tab(&self) -> Result<Option<u32>, Never> {
+    Ok(
+      (0_u32..)
+        .zip(&self.tabs)
+        .find_map(|(position, tab)| (tab.id == self.active_tab).then_some(position)),
+    )
+  }
+
+  fn step_tab(&self, step: i32) -> Result<Action, Never> {
+    let Ok(active) = self.current_tab();
+    let current = match active {
+      Some(index) => index,
+      None => return Ok(Action::Handled),
+    };
+    let Ok(many) = fitted::<_, u32>(self.tabs.len());
+    let Ok(next) = strip::along(many, strip::Stop::Tab(current), step);
+    let position = match next {
+      strip::Stop::Tab(index) => match (index != current).then_some(()) {
+        Some(()) => index,
+        None => return Ok(Action::Handled),
+      },
+      strip::Stop::Outside => return Ok(Action::Handled),
+    };
+    let Ok(index) = console_core_number_conversion::index(position);
+
+    Ok(match self.tabs.get(index) {
+      Some(tab) => Action::SelectTab(tab.id),
+      None => Action::Handled,
+    })
+  }
+
+  fn paint_tabs(&mut self, shapes: &mut Vec<Shape>, width: i32) -> Result<(), Never> {
+    let focused = self.focus.and_then(|target| {
+      let Ok(index) = console_core_number_conversion::index(target);
+      index
+        .checked_sub(CONTROLS.len())
+        .and_then(|position| self.tab_controls.get(position))
+        .copied()
+    });
+    self.tab_layout.clear();
+    self.tab_controls.clear();
+    let Ok(geometry) = tab_bar(width);
+    let TabBar {
+      right,
+      next,
+      start,
+      size,
+      available,
+    } = geometry;
+    let Ok(many) = fitted::<_, u32>(self.tabs.len());
+    let Ok(current) = self.current_tab();
+    let here = match current {
+      Some(index) => index,
+      None => 0,
+    };
+    let Ok(minimum) = fitted::<_, u32>(available.saturating_div(80).max(1));
+    let window = Tabs {
+      many,
+      here,
+      from: 0,
+      fits: minimum,
+    };
+    let Ok(visible) = strip::visible_range(window);
+    let Ok(count) = fitted::<_, i32>(visible.end.saturating_sub(visible.start).max(1));
+    let column = available.saturating_div(count);
+    let Ok(()) = self.tab_arrow(
+      shapes,
+      focused,
+      (Control::PreviousTab, marks::BEFORE, BROWSER_MARGIN),
+      size,
+    );
+    let Ok(()) = self.paint_tab_labels(
+      shapes,
+      focused,
+      visible,
+      TabPlacement {
+        x: start,
+        width: column,
+      },
+    );
+    let Ok(()) = self.paint_tab_commands(
+      shapes,
+      focused,
+      TabPlacement {
+        x: next,
+        width: size,
+      },
+      window,
+    );
+
+    let Ok(()) = self.place_downloads(right);
+    let Ok(()) = self.retain_tab_focus(focused);
+    self.paint_button(shapes, Control::Downloads, ButtonAvailability::Enabled)
+  }
+
+  fn place_downloads(&mut self, right: i32) -> Result<(), Never> {
+    let downloads = Rectangle {
+      origin: Point {
+        x: right.saturating_sub(32),
+        y: ADDRESS_TOP,
+      },
+      size: Size {
+        width: 32,
+        height: ADDRESS_HEIGHT,
+      },
+    };
+    self.tab_controls.push(Control::Downloads);
+    self.tab_layout.push(downloads);
+    Ok(())
+  }
+
+  fn paint_tab_commands(
     &mut self,
     shapes: &mut Vec<Shape>,
-    width: i32,
-  ) -> core::result::Result<(), console_core_never::Never> {
-    {
-      self.tab_layout.clear();
-      self.tab_controls.clear();
-      let Ok(count) = fitted::<_, i32>(self.tabs.len().max(1));
-      let downloads_width = 36;
-      let columns = width
-        .saturating_sub(80)
-        .saturating_sub(downloads_width)
-        .checked_div(count);
+    focused: Option<Control>,
+    place: TabPlacement,
+    tabs: Tabs,
+  ) -> Result<(), Never> {
+    let TabPlacement {
+      x: next,
+      width: size,
+    } = place;
+    let Ok(tab_count) = self.tab_count();
 
-      let tab_width = match columns {
-        Some(available) => available.clamp(1, 190),
-        None => 1,
+    for (control, label, x, allowed) in [
+      (
+        Control::NextTab,
+        marks::AFTER,
+        next,
+        tabs.here.saturating_add(1) < tabs.many,
+      ),
+      (
+        Control::NewTab,
+        marks::MORE,
+        next.saturating_add(size),
+        tab_count < MAX_TABS,
+      ),
+      (
+        Control::CloseTab,
+        marks::LESS,
+        next.saturating_add(size.saturating_mul(2)),
+        tabs.many > 1,
+      ),
+    ] {
+      let state = match (allowed, focused == Some(control)) {
+        (true, true) => strip::Control::Focused,
+        (true, false) => strip::Control::Ready,
+        (false, _) => strip::Control::Unavailable,
       };
-      let mut x = 8;
+      let Ok(()) = self.tab_control(
+        shapes,
+        control,
+        label,
+        TabPlacement { x, width: size },
+        state,
+      );
+    }
 
-      for (position, tab) in self.tabs.iter().enumerate() {
-        let Ok(frame) = tab_button(TabPlacement {
-          x,
-          width: tab_width,
-        });
-        let Ok(focus) = fitted(position.saturating_add(CONTROLS.len()));
-        let emphasis = match (self.active_tab == tab.id, self.focus == Some(focus)) {
-          (true, _) => LabelEmphasis::Active,
-          (false, true) => LabelEmphasis::Focused,
-          (false, false) => LabelEmphasis::Plain,
-        };
-        let Ok(()) = self.paint_label(shapes, frame, &tab.title, emphasis);
-        self.tab_controls.push(Control::Tab(tab.id));
-        self.tab_layout.push(frame);
-        x = x.saturating_add(tab_width);
-      }
+    Ok(())
+  }
 
-      let Ok(tab_count) = self.tab_count();
+  fn tab_arrow(
+    &mut self,
+    shapes: &mut Vec<Shape>,
+    focused: Option<Control>,
+    (control, label, x): (Control, &str, i32),
+    width: i32,
+  ) -> Result<(), Never> {
+    let Ok(current) = self.current_tab();
+    let state = match (current, focused == Some(control)) {
+      (Some(1..), true) => strip::Control::Focused,
+      (Some(1..), false) => strip::Control::Ready,
+      (Some(0) | None, _) => strip::Control::Unavailable,
+    };
+    self.tab_control(shapes, control, label, TabPlacement { x, width }, state)
+  }
 
-      for (control, label, enabled) in [
-        (Control::NewTab, "+", tab_count < MAX_TABS),
-        (Control::CloseTab, "×", !self.tabs.is_empty()),
-      ] {
-        let Ok(frame) = tab_button(TabPlacement { x, width: 32 });
-        let Ok(focus) = fitted(self.tab_layout.len().saturating_add(CONTROLS.len()));
-        let emphasis = match (enabled && self.focus == Some(focus)).then_some(()) {
-          Some(()) => LabelEmphasis::Focused,
-          None => LabelEmphasis::Plain,
-        };
-        let Ok(()) = self.paint_label(shapes, frame, label, emphasis);
+  fn tab_control(
+    &mut self,
+    shapes: &mut Vec<Shape>,
+    control: Control,
+    label: &str,
+    place: TabPlacement,
+    state: strip::Control,
+  ) -> Result<(), Never> {
+    let Ok(frame) = tab_button(place);
+    let Ok(()) = strip::paint_control(shapes, frame, label, state, &self.palette);
+
+    match state {
+      strip::Control::Ready | strip::Control::Focused => {
         self.tab_controls.push(control);
         self.tab_layout.push(frame);
-        x = x.saturating_add(32);
       }
+      strip::Control::Unavailable => {}
+    }
 
-      let right = width.saturating_sub(8);
-      let left = right.saturating_sub(downloads_width).max(x);
+    Ok(())
+  }
+
+  fn paint_tab_labels(
+    &mut self,
+    shapes: &mut Vec<Shape>,
+    focused: Option<Control>,
+    visible: std::ops::Range<u32>,
+    placement: TabPlacement,
+  ) -> Result<(), Never> {
+    for (column, position) in (0_i32..).zip(visible) {
+      let Ok(index) = console_core_number_conversion::index(position);
+      let tab = match self.tabs.get(index) {
+        Some(tab) => tab,
+        None => break,
+      };
+      let x = placement
+        .x
+        .saturating_add(column.saturating_mul(placement.width));
       let Ok(frame) = tab_button(TabPlacement {
-        x: left,
-        width: right.saturating_sub(left),
+        x,
+        width: placement.width,
       });
-      self.tab_controls.push(Control::Downloads);
+      let control = Control::Tab(tab.id);
+      let state = match (self.active_tab == tab.id, focused == Some(control)) {
+        (true, _) => TabFace::Selected,
+        (false, true) => TabFace::Focused,
+        (false, false) => TabFace::Other,
+      };
+      let Ok(()) = strip::paint_tab(shapes, frame, &tab.title, state, &self.palette);
+      self.tab_controls.push(control);
       self.tab_layout.push(frame);
-      let Ok(()) = self.paint_button(shapes, Control::Downloads, ButtonAvailability::Enabled);
-    };
+    }
+
+    Ok(())
+  }
+
+  fn retain_tab_focus(&mut self, focused: Option<Control>) -> Result<(), Never> {
+    match focused {
+      Some(control) => {
+        let Ok(first) = fitted::<_, u32>(CONTROLS.len());
+        let tabs = (first..).zip(&self.tab_controls);
+        self.focus = tabs
+          .clone()
+          .find_map(|(id, target)| (*target == control).then_some(id))
+          .or_else(|| {
+            tabs
+              .filter_map(|(id, target)| (*target == Control::Tab(self.active_tab)).then_some(id))
+              .next()
+          });
+      }
+      None => {}
+    }
 
     Ok(())
   }
 
   fn tab_count(&self) -> Result<u64, Never> {
     console_core_number_conversion::fixed_index(self.tabs.len())
-  }
-
-  fn paint_label(
-    &self,
-    shapes: &mut Vec<Shape>,
-    frame: Rectangle<i32>,
-    label: &str,
-    emphasis: LabelEmphasis,
-  ) -> core::result::Result<(), console_core_never::Never> {
-    {
-      let (mark, fill) = match emphasis {
-        LabelEmphasis::Active => (FocusMark::Focused, self.palette.ground),
-        LabelEmphasis::Focused => (FocusMark::Focused, self.palette.fill),
-        LabelEmphasis::Plain => (FocusMark::Passive, self.palette.fill),
-      };
-      let Ok(edge) = self.focus_edge(mark);
-      let Ok(background) = panel(frame, CORNER_RADIUS, fill, edge);
-      shapes.push(background);
-      let Ok(()) = label_at(
-        shapes,
-        frame,
-        label,
-        &self.font,
-        self.palette.text,
-        Alignment::Center,
-      );
-    };
-
-    Ok(())
   }
 
   fn paint_address(&self, shapes: &mut Vec<Shape>) -> Result<(), Never> {
@@ -1253,6 +1440,39 @@ fn positive(value: u32) -> Result<i32, Never> {
   fitted(value)
 }
 
+struct TabBar {
+  right: i32,
+  next: i32,
+  start: i32,
+  size: i32,
+  available: i32,
+}
+
+fn tab_bar(width: i32) -> Result<TabBar, Never> {
+  let right = width.saturating_sub(BROWSER_MARGIN);
+  let close = right.saturating_sub(strip::HEIGHT);
+  let size = 34.min(
+    width
+      .saturating_sub(BROWSER_MARGIN.saturating_mul(2))
+      .max(0)
+      .saturating_div(7),
+  );
+  let next = close
+    .saturating_sub(size.saturating_mul(3))
+    .saturating_sub(strip::GAP);
+  let start = BROWSER_MARGIN
+    .saturating_add(size)
+    .saturating_add(strip::GAP);
+  let available = next.saturating_sub(start).saturating_sub(strip::GAP).max(0);
+  Ok(TabBar {
+    right,
+    next,
+    start,
+    size,
+    available,
+  })
+}
+
 struct TabPlacement {
   x: i32,
   width: i32,
@@ -1260,37 +1480,44 @@ struct TabPlacement {
 
 fn tab_button(TabPlacement { x, width }: TabPlacement) -> Result<Rectangle<i32>, Never> {
   Ok(Rectangle {
-    origin: Point { x, y: 50 },
+    origin: Point { x, y: TAB_TOP },
     size: Size {
-      width: width.saturating_sub(4).max(0),
-      height: 29,
+      width: width.max(0),
+      height: strip::HEIGHT,
     },
   })
 }
 
 fn layout(size: Size<u32>) -> Result<[Rectangle<i32>; CONTROLS.len()], Never> {
   let Ok(width) = positive(size.width);
-  let Ok(height) = positive(size.height);
-  let top = height.min(50).saturating_sub(34).max(0).wrapping_div(2);
+
   let spacing: i32 = match width {
     ..490 => 32,
     _ => 40,
   };
   let button_width = spacing.saturating_sub(4);
-  let close_left = width.saturating_sub(button_width.saturating_add(8));
+  let right = width.saturating_sub(BROWSER_MARGIN);
   let address_left = 8i32.saturating_add(3i32.saturating_mul(spacing));
-  let settings_left = close_left.saturating_sub(button_width).saturating_sub(8);
+  let settings_left = right
+    .saturating_sub(32)
+    .saturating_sub(button_width)
+    .saturating_sub(8);
   let placed = |x, width_2| Rectangle {
-    origin: Point { x, y: top },
+    origin: Point { x, y: ADDRESS_TOP },
     size: Size {
       width: width_2,
-      height: 34,
+      height: ADDRESS_HEIGHT,
     },
   };
   let address_width = settings_left
     .saturating_sub(address_left)
     .saturating_sub(8)
     .max(0);
+
+  let Ok(close) = tab_button(TabPlacement {
+    x: right.saturating_sub(strip::HEIGHT),
+    width: strip::HEIGHT,
+  });
 
   Ok([
     placed(8, button_width),
@@ -1301,7 +1528,7 @@ fn layout(size: Size<u32>) -> Result<[Rectangle<i32>; CONTROLS.len()], Never> {
     ),
     placed(address_left, address_width),
     placed(settings_left, button_width),
-    placed(close_left, button_width),
+    close,
   ])
 }
 
@@ -1491,39 +1718,85 @@ mod tests {
       1,
     );
     let mut shapes = Vec::new();
-    let Ok(()) = toolbar.paint_tabs(&mut shapes, 360);
+    let Ok(()) = toolbar.paint_tabs(&mut shapes, 440);
+    check_tab_labels(&toolbar, &shapes, [(1, short), (2, long)])?;
 
-    let (first, short_label, second, long_label) = match shapes.as_slice() {
-      [
-        Shape::Panel(first),
-        Shape::Text(short_label),
-        Shape::Panel(second),
-        Shape::Text(long_label),
-        ..,
-      ] => (first, short_label, second, long_label),
-      _ => {
-        return Err(Box::<dyn std::error::Error>::from(
-          "expected the two tab backgrounds and titles",
-        ));
-      }
-    };
+    let Ok(close) = toolbar.at(Control::Close);
+    let Ok(address) = toolbar.at(Control::Address);
+    assert!(close.origin.y.saturating_add(close.size.height) <= address.origin.y);
 
-    assert_eq!(short_label.said, short);
-    assert_ne!(long_label.said, long);
-    assert!(!long_label.said.is_empty());
+    for mark in [marks::BEFORE, marks::AFTER] {
+      assert!(
+        shapes
+          .iter()
+          .any(|shape| matches!(shape, Shape::Text(text) if text.said == mark))
+      );
+    }
 
-    for (tab, label) in [(first, short_label), (second, long_label)] {
-      let Ok(size) = measured(&label.said, &label.font);
-      assert!(size.width <= label.width);
-      let Ok(horizontal) = positive(tab.size.width.saturating_sub(size.width));
-      let Ok(vertical) = positive(tab.size.height.saturating_sub(size.height));
+    let next = toolbar
+      .tab_controls
+      .iter()
+      .position(|control| *control == Control::NextTab)
+      .and_then(|index| toolbar.tab_layout.get(index))
+      .ok_or("missing next-tab arrow")?;
+    assert_eq!(toolbar.tap(next.origin, ""), Ok(Action::SelectTab(2)));
+    assert_eq!(
+      toolbar.key(Keysym::Page_Down, 0, ""),
+      Ok(Action::SelectTab(2))
+    );
+
+    Ok(())
+  }
+
+  fn check_tab_labels(
+    toolbar: &Toolbar,
+    shapes: &[Shape],
+    titles: [(u32, &str); 2],
+  ) -> Result<(), Box<dyn std::error::Error>> {
+    for (id, original) in titles {
+      let place = toolbar
+        .tab_controls
+        .iter()
+        .position(|control| *control == Control::Tab(id))
+        .and_then(|index| toolbar.tab_layout.get(index))
+        .ok_or("missing tab hitbox")?;
+      let right = place.origin.x.saturating_add(place.size.width);
+      let label = shapes
+        .iter()
+        .find_map(|shape| match shape {
+          Shape::Text(text) => (place.origin.x..right).contains(&text.at.x).then_some(text),
+          Shape::Panel(_)
+          | Shape::Picture(_)
+          | Shape::Cropped(_)
+          | Shape::Line(_)
+          | Shape::Clip(_) => None,
+        })
+        .ok_or("missing tab label")?;
+      assert!(!label.said.is_empty());
+      assert_eq!(label.said == original, id == 1);
+      let Ok(size) = drawing::measure_text(
+        Run {
+          said: &label.said,
+          weight: label.weight,
+          width: label.width,
+        },
+        &label.font,
+      );
+      let Ok(horizontal) = positive(size.width);
+      let Ok(vertical) = positive(size.height);
       assert_eq!(
-        ::core::primitive::i32::wrapping_sub(label.at.x, tab.at.x),
-        horizontal.wrapping_div(2)
+        label.at.x,
+        place
+          .origin
+          .x
+          .saturating_add(place.size.width.saturating_sub(horizontal).wrapping_div(2))
       );
       assert_eq!(
-        ::core::primitive::i32::wrapping_sub(label.at.y, tab.at.y),
-        vertical.wrapping_div(2)
+        label.at.y,
+        place
+          .origin
+          .y
+          .saturating_add(place.size.height.saturating_sub(vertical).wrapping_div(2))
       );
     }
 
@@ -1595,6 +1868,18 @@ mod tests {
       | Shape::Line(_)
       | Shape::Clip(_) => None,
     });
+    let tooltip = shapes.iter().find_map(|shape| match shape {
+      Shape::Panel(panel) => Some(panel),
+      Shape::Text(_)
+      | Shape::Picture(_)
+      | Shape::Cropped(_)
+      | Shape::Line(_)
+      | Shape::Clip(_) => None,
+    });
+    assert!(tooltip.is_some_and(|panel| {
+      let Ok(room) = positive(panel.size.height);
+      panel.at.y >= 0 && panel.at.y.saturating_add(room) <= button.origin.y
+    }));
     assert_eq!(label, Some("Settings"));
     let Ok(toolbar_hover) = toolbar.hover(None);
     assert_eq!(toolbar_hover, ToolbarChange::Different);
@@ -1610,7 +1895,7 @@ mod tests {
     let mut toolbar = Toolbar::with_renderers(&[Renderer::WebKit, Renderer::Chromium])?;
     assert_eq!(toolbar.key(Keysym::F6, 0, ""), Ok(Action::Handled));
     assert_eq!(toolbar.key(Keysym::Right, 0, ""), Ok(Action::Handled));
-    assert_eq!(toolbar.key(Keysym::Right, 0, ""), Ok(Action::Handled));
+    assert_eq!(toolbar.key(Keysym::Up, 0, ""), Ok(Action::Handled));
     assert_eq!(toolbar.key(Keysym::Return, 0, ""), Ok(Action::Close));
     let Ok(close) = toolbar.at(Control::Close);
     assert_eq!(toolbar.tap(close.origin, ""), Ok(Action::Close));

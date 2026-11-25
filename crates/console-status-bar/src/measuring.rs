@@ -6,12 +6,11 @@
 //! out of `showing` -- the desktop's, and the one over the way in -- and a width
 //! asked two ways is two bars that disagree about where a thumb lands.
 
-use console_core_geometry::Size;
 use console_core_never::Never;
-use console_core_number_conversion::index;
-use console_draw_painting::{CUT, Lines, Run, at_most, measure_text};
+use console_core_number_conversion::{fitted, index};
+use console_draw_painting::{CUT, Lines, Run, at_most, text};
 
-use crate::showing::{Bar, Face, Fitting, Layout, Measured, Slot, Span};
+use crate::showing::{Bar, Face, Fitting, Layout, Measured, MeasuredRun, Slot, Span};
 
 pub fn sized(layout: &Layout, fitting: Fitting) -> Result<Bar, Never> {
   let Ok(left) = every(&layout.left, fitting);
@@ -61,7 +60,13 @@ pub fn compact(slots: &mut [Measured], fitting: Fitting, width: u32) -> Result<(
       }
 
       kept = kept.saturating_add(1);
-      remaining = remaining.saturating_sub(size.width.saturating_add(fitting.between));
+
+      match span.face {
+        Face::SideClock => {}
+        Face::Icon | Face::Clock | Face::Reading | Face::Small => {
+          remaining = remaining.saturating_sub(size.width.saturating_add(fitting.between));
+        }
+      }
     }
 
     let Ok(runs) = index(kept);
@@ -79,13 +84,18 @@ enum Fit {
 
 fn keep_span(
   span: &mut Span,
-  size: &mut Size<u32>,
+  size: &mut MeasuredRun,
   fitting: Fitting,
   width: u32,
 ) -> Result<Fit, Never> {
   match (size.width <= width).then_some(()) {
     Some(()) => return Ok(Fit::Yes),
     None => {}
+  }
+
+  match span.face {
+    Face::Small => return Ok(Fit::No),
+    Face::Icon | Face::Clock | Face::SideClock | Face::Reading => {}
   }
 
   let Ok((text, fits)) = shortened(span, fitting, width);
@@ -101,7 +111,7 @@ fn keep_span(
   }
 }
 
-fn shortened(span: &Span, fitting: Fitting, width: u32) -> Result<(String, Size<u32>), Never> {
+fn shortened(span: &Span, fitting: Fitting, width: u32) -> Result<(String, MeasuredRun), Never> {
   let Ok(font) = fitting.font(span.face);
   let Ok(weight) = span.face.weight();
   let Ok(text) = at_most(
@@ -126,16 +136,22 @@ fn shortened(span: &Span, fitting: Fitting, width: u32) -> Result<(String, Size<
   }
 }
 
-fn measure(text: &str, face: Face, fitting: Fitting) -> Result<Size<u32>, Never> {
+fn measure(said: &str, face: Face, fitting: Fitting) -> Result<MeasuredRun, Never> {
   let Ok(font) = fitting.font(face);
   let Ok(weight) = face.weight();
+  let Ok(layout) = text::layout(said, &font, weight, u32::MAX);
+  let Ok(size) = layout.measured();
+  let ink = match layout.vertical_ink_bounds() {
+    Ok(bounds) => bounds,
+    Err(fault) => {
+      console_core_logging::warn!("console-bar: measuring text ink: {fault}");
+      None
+    }
+  };
+  let Ok(line_height) = fitted::<u32, i32>(size.height);
 
-  measure_text(
-    Run {
-      said: text,
-      weight,
-      width: u32::MAX,
-    },
-    &font,
-  )
+  Ok(MeasuredRun {
+    width: size.width,
+    twice_ink_center: ink.map_or(line_height, |(top, bottom)| top.saturating_add(bottom)),
+  })
 }

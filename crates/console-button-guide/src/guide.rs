@@ -45,7 +45,7 @@ use std::collections::BTreeSet;
 use console_application_files::doing::{self, FileAction};
 use console_core_never::Never;
 use console_input_bindings::bound::{Binding, Input, Played};
-use console_input_controller::actions::{Context, Table, Task};
+use console_input_controller::actions::{Context, MappedTask, Table};
 use console_input_controller::mode::Mode;
 
 pub const DOABLE: &str = "General";
@@ -96,7 +96,7 @@ fn lines(
   table: &Table,
   on: Input,
   held: &[String],
-  wanted: impl Fn(&Task) -> bool,
+  wanted: impl Fn(&MappedTask) -> bool,
 ) -> Result<Vec<Line>, Never> {
   let Ok(every) = table.every();
 
@@ -113,7 +113,7 @@ fn lines(
 }
 
 fn line(
-  job: &Task,
+  job: &MappedTask,
   bound: &[Binding],
   on: Input,
   held: &[String],
@@ -243,7 +243,7 @@ pub fn in_front(front: Mode) -> Result<Option<&'static str>, Never> {
 
 fn on_the_pad(
   table: &Table,
-  wanted: impl Fn(&Task) -> bool,
+  wanted: impl Fn(&MappedTask) -> bool,
   rest: &[(&str, &str)],
 ) -> Result<Vec<Line>, Never> {
   let Ok(mut bound) = lines(table, Input::Pad, &[], wanted);
@@ -635,9 +635,26 @@ mod tests {
       Ok(Some("full screen on or off"))
     );
     assert_eq!(
-      does(&every, (TYPED, "Print")),
-      Ok(Some("take a screenshot"))
+      does(&every, (TYPED, "Print / Selective screenshot")),
+      Ok(Some("take a screenshot of an area"))
     );
+  }
+
+  #[test]
+  fn the_keyboard_guide_lists_named_special_workspace_shortcuts() -> Result<(), Box<dyn Error>> {
+    let read = sections_read(
+      r#"
+[jobs]
+special-workspace-notes = "keyboard: super + alt + u"
+"#,
+    );
+    let guide = read?;
+
+    assert_eq!(
+      does(&guide, (TYPED, "Super + Alt + U")),
+      Ok(Some("show or hide special workspace notes"))
+    );
+    Ok(())
   }
 
   #[test]

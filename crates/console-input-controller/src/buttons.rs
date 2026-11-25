@@ -18,16 +18,16 @@
 use console_core_never::Never;
 use console_input_bindings::bound::Input;
 
-use crate::actions::{ButtonPress, Table, Task};
+use crate::actions::{ButtonPress, MappedAction, MappedTask, Table};
 use crate::effect::Effect;
 use crate::mode::{InputHandling, Mode};
 
-pub fn job_for(
-  table: &Table,
+pub fn job_for<'a>(
+  table: &'a Table,
   mode: Mode,
   held: &[&str],
   pressed: &str,
-) -> Result<Option<&'static Task>, Never> {
+) -> Result<Option<&'a MappedTask>, Never> {
   let Ok(handling) = mode.input_handling();
 
   match handling {
@@ -36,8 +36,8 @@ pub fn job_for(
   }
 }
 
-pub fn acted(job: &Task, down: ButtonPress) -> Result<Option<Effect>, Never> {
-  job.action.does(down)
+pub fn acted(action: &MappedAction, down: ButtonPress) -> Result<Option<Effect>, Never> {
+  action.does(down)
 }
 
 #[cfg(test)]
@@ -49,7 +49,10 @@ mod tests {
     let Ok(table) = Table::ours();
     let Ok(found) = job_for(&table, mode, &[], button);
 
-    Ok(found.map(|job| job.action))
+    Ok(found.and_then(|job| match job.action {
+      MappedAction::Builtin(action) => Some(action),
+      MappedAction::SpecialWorkspace(_) => None,
+    }))
   }
 
   #[test]

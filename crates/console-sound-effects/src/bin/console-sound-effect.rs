@@ -11,6 +11,7 @@ use std::process::ExitCode;
 
 use console_core_arguments::{Command, Flag, Operands, Presence, Takes, read};
 use console_sound_effects::catalogue::{EVERY, Sound};
+use console_sound_effects::preview;
 use console_sound_effects::{Degree, SoundEffects};
 
 const LIST: Flag = Flag {
@@ -34,7 +35,7 @@ const WATCH_GAIN: Flag = Flag {
 const COMMAND: Command = Command {
   name: "console-sound-effect",
   about: "play SOUND from the catalogue, unless sound effects are off on the Sound tab",
-  flags: &[LIST, PREPARE_GAIN_METER, WATCH_GAIN],
+  flags: &[LIST, PREPARE_GAIN_METER, WATCH_GAIN, preview::DRAIN],
   operands: Operands::Optional("SOUND"),
 };
 
@@ -49,6 +50,21 @@ fn main() -> ExitCode {
       return ExitCode::from(code);
     }
   };
+
+  let Ok(draining) = line.presence(preview::DRAIN);
+
+  match draining {
+    Presence::Present => {
+      return match preview::drain() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(fault) => {
+          eprintln!("console-sound-effect: {fault}");
+          ExitCode::FAILURE
+        }
+      };
+    }
+    Presence::Absent => {}
+  }
 
   let Ok(preparing) = line.presence(PREPARE_GAIN_METER);
   let Ok(watching) = line.presence(WATCH_GAIN);

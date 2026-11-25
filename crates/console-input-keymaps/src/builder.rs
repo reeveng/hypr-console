@@ -1,4 +1,5 @@
 use crate::GroupType;
+use crate::KeyRepeat;
 use crate::Keycode;
 use crate::Keysym;
 use crate::ModifierIndex;
@@ -65,6 +66,7 @@ impl Redirect {
 pub(crate) struct BuilderKey {
   pub(crate) groups: Vec<Option<BuilderGroup>>,
   pub(crate) redirect: Redirect,
+  pub(crate) repeat: KeyRepeat,
 }
 
 #[derive(Clone, Debug)]
@@ -157,6 +159,7 @@ impl BuilderKey {
         Some(lookup::KeyGroups {
           redirect,
           groups: groups.into_boxed_slice(),
+          repeat: self.repeat,
         })
       }
       ::core::option::Option::None => None,

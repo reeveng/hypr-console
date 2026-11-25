@@ -8,7 +8,7 @@ use std::sync::mpsc::{Receiver, SyncSender, TryRecvError, TrySendError, sync_cha
 use console_core_external_programs::Program;
 use console_core_internal_programs::{CONFIRM_DOES, InternalProgram};
 use console_core_never::Never;
-use console_operating_system_linux::notification::Options;
+use console_notifications::delivery::Options;
 use console_panel::card::{Build, Card, Door};
 use console_panel::handoff::{self, DrawnBy};
 use console_panel::page::{ActionOutcome, Aside, Handler, Page, Row, Rows};
@@ -45,6 +45,24 @@ const AUTHENTICATION_CANCELED: i32 = 126;
 
 pub type UpdateError = Box<dyn Error>;
 
+pub enum ReleaseSupport {
+  Tagged,
+  External,
+}
+
+pub fn release_support() -> std::io::Result<ReleaseSupport> {
+  match std::fs::read_to_string("/sys/class/dmi/id/product_name") {
+    Ok(product) => Ok(match product.trim() {
+      "83E1" => ReleaseSupport::Tagged,
+      _ => ReleaseSupport::External,
+    }),
+    Err(fault) => match (fault.kind() == std::io::ErrorKind::NotFound).then_some(()) {
+      Some(()) => Ok(ReleaseSupport::External),
+      None => Err(fault),
+    },
+  }
+}
+
 pub fn door(_arguments: &[String]) -> Result<Door, Never> {
   Door::closing(WHO)
 }
@@ -67,7 +85,21 @@ pub fn open() -> Result<(), UpdateError> {
 
   match drawn {
     DrawnBy::ByTheHost => Ok(()),
-    DrawnBy::Here => {
+    DrawnBy::Here => open_here(),
+  }
+}
+
+fn open_here() -> Result<(), UpdateError> {
+  let support = release_support()?;
+
+  match support {
+    ReleaseSupport::External => {
+      let Ok(build) = external_build();
+      let Ok(()) = surface::show(build, 0, None);
+
+      Ok(())
+    }
+    ReleaseSupport::Tagged => {
       let Ok((build, work, selected)) = prepare();
       let Ok(()) = surface::show(build, 0, None);
       let Ok(()) = work.close();
@@ -78,6 +110,38 @@ pub fn open() -> Result<(), UpdateError> {
 }
 
 pub fn card(_asked: &[String]) -> Result<Card, Never> {
+  match release_support() {
+    Ok(ReleaseSupport::Tagged) => tagged_card(),
+    Ok(ReleaseSupport::External) => {
+      let Ok(build) = external_build();
+      Card::new(build)
+    }
+    Err(fault) => {
+      console_core_logging::warn!("Console Updates: reading hardware model: {fault}");
+      let Ok(build) = external_build();
+      Card::new(build)
+    }
+  }
+}
+
+fn external_build() -> Result<Build, Never> {
+  Ok(Box::new(|| {
+    let Ok(deployment) = Row::text("Update method", Aside("Source or system package"));
+    let Ok(tagged) = Row::text("Tagged releases", Aside("Legion Go 83E1"));
+    let Ok(settings) = InternalProgram::SettingsPanel.path();
+    let Ok(open) = Handler::run(&[settings, "Configuration"]);
+    let Ok(about) = Row::new("About Console", Aside(""), open);
+    let Ok(page) = Page::new(
+      "Console Updates",
+      Rows::Fixed(vec![deployment, tagged, about]),
+    );
+    let Ok(compact) = page.compact();
+
+    vec![compact]
+  }))
+}
+
+fn tagged_card() -> Result<Card, Never> {
   let Ok((build, work, selected)) = prepare();
   let Ok(card) = Card::new(build);
 
@@ -197,7 +261,13 @@ fn rows(view: &View, actions: &Actions) -> Result<Vec<Row>, Never> {
       ..
     } => {
       let detail = fault.clone();
-      let Ok(action) = Handler::and_stay(move |showing| showing.note(&detail));
+      let Ok(action) = Handler::and_stay(move |_| {
+        let Ok(()) = console_notifications::notify(
+          console_notifications::Application("Console Updates"),
+          "Could not check for updates",
+          Some(&detail),
+        );
+      });
       let Ok(reason) = Row::new("Could not check for updates", Aside("Details"), action);
 
       drawn.push(reason);
@@ -220,9 +290,15 @@ fn rows(view: &View, actions: &Actions) -> Result<Vec<Row>, Never> {
   )
 )]
 fn check_action(checking: SyncSender<u64>, seen: u64) -> Result<Handler, Never> {
-  Handler::and_stay(move |showing| match checking.try_send(seen) {
+  Handler::and_stay(move |_| match checking.try_send(seen) {
     Ok(()) | Err(TrySendError::Full(_)) => {}
-    Err(TrySendError::Disconnected(_)) => showing.note("Could not start the update check"),
+    Err(TrySendError::Disconnected(_)) => {
+      let Ok(()) = console_notifications::notify(
+        console_notifications::Application("Console Updates"),
+        "Could not start the update check",
+        None,
+      );
+    }
   })
 }
 

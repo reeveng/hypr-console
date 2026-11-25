@@ -18,7 +18,7 @@ use std::collections::BTreeMap;
 use console_compositor::DispatchResult;
 use console_core_never::Never;
 use console_input_bindings::bound::{Binding, Input, Played};
-use console_input_controller::actions::{Action, ButtonPress, Table, ours};
+use console_input_controller::actions::{Action, ButtonPress, MappedAction, Table};
 use console_input_controller::effect::Effect;
 use console_input_gamepad::devices::Has;
 use console_input_gamepad::front::Front;
@@ -45,7 +45,7 @@ pub const REMOVE: &str = "Remove";
 
 pub const WAITING_ON_THE_PAD: &str = "Hold a button to combine, or wait to cancel";
 
-pub const WAITING_ON_A_KEYBOARD: &str = "Hold Super, Ctrl, Shift or Alt, or wait to cancel";
+pub const WAITING_ON_A_KEYBOARD: &str = "Press a key or key combination, or wait to cancel";
 
 pub fn tabs() -> Result<Vec<&'static str>, Never> {
   let mut tabs = Vec::new();
@@ -68,7 +68,7 @@ pub struct Plays {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Part {
   pub slug: String,
-  pub action: Action,
+  pub action: MappedAction,
   pub does: String,
   pub on: Input,
   pub plays: Vec<Plays>,
@@ -159,10 +159,10 @@ pub fn parts(table: &Table, front: &Front, on: Input) -> Result<Vec<Part>, Never
 
   let mut parts: Vec<Part> = every
     .map(|(job, bound)| {
-      let Ok(defaults) = ours(job);
+      let Ok(defaults) = job.defaults();
       let mine: Vec<&Binding> = bound.iter().filter(|one| one.on == on).collect();
       let Ok(says) = job.action.says();
-      let Ok(does) = capitalised(says);
+      let Ok(does) = capitalised(&says);
       let moved = mine
         .iter()
         .map(|one| (*one).clone())
@@ -175,7 +175,7 @@ pub fn parts(table: &Table, front: &Front, on: Input) -> Result<Vec<Part>, Never
 
       Part {
         slug: job.slug.to_string(),
-        action: job.action,
+        action: job.action.clone(),
         does,
         on,
         plays: mine
@@ -302,7 +302,7 @@ pub fn rows(
 
 pub fn row(part: &Part) -> Result<Row, Never> {
   let Ok(aside) = part.aside();
-  let Ok(doing) = row_effect(part.action);
+  let Ok(doing) = row_effect(&part.action);
 
   match doing {
     Some(Effect::Run(arguments)) => Row::new(&part.does, Aside(&aside), Handler::Run(arguments)),
@@ -327,16 +327,17 @@ pub fn row(part: &Part) -> Result<Row, Never> {
   }
 }
 
-fn row_effect(action: Action) -> Result<Option<Effect>, Never> {
-  let tapped = match ::core::primitive::bool::then_some(action == Action::PutAway, ()) {
-    ::core::option::Option::Some(()) => Action::CloseWindow,
-    ::core::option::Option::None => action,
-  };
-  tapped.does(ButtonPress::Down)
+fn row_effect(action: &MappedAction) -> Result<Option<Effect>, Never> {
+  match action {
+    MappedAction::Builtin(Action::PutAway) => Action::CloseWindow.does(ButtonPress::Down),
+    MappedAction::Builtin(_) | MappedAction::SpecialWorkspace(_) => {
+      action.does(ButtonPress::Down)
+    }
+  }
 }
 
 pub fn runs(action: Action) -> Result<Option<Vec<String>>, Never> {
-  let Ok(doing) = row_effect(action);
+  let Ok(doing) = row_effect(&MappedAction::Builtin(action));
 
   Ok(match doing {
     Some(Effect::Run(arguments)) => Some(arguments),
@@ -674,7 +675,7 @@ mod tests {
     let Ok(table) = Table::ours();
     let Ok(parts) = on_the_pad(&table, &Front::default());
     let Ok(files) = super::runs(Action::Files);
-    let Ok(put_away) = row_effect(Action::PutAway);
+    let Ok(put_away) = row_effect(&MappedAction::Builtin(Action::PutAway));
     let paddle = find_part(&parts, "put-away")?;
     let Ok(paddle_row) = super::row(paddle);
     let files_part = find_part(&parts, "files")?;
@@ -780,7 +781,7 @@ mod tests {
 
   #[test]
   fn the_card_says_what_can_be_held() {
-    assert!(WAITING_ON_A_KEYBOARD.contains("Super") && WAITING_ON_A_KEYBOARD.contains("Ctrl"));
+    assert!(WAITING_ON_A_KEYBOARD.contains("key combination"));
     assert!(WAITING_ON_THE_PAD.contains("Hold"));
   }
 

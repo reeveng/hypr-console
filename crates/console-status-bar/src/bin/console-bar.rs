@@ -14,8 +14,8 @@
 //!
 //! **One process, not one per module with its own watcher.** Seven programs sat
 //! on seven subscriptions to the same four sources and asked the compositor
-//! seven times over what was on the screen. This asks once per pass and answers
-//! every icon out of the one reply. That is most of the reason to do it at all:
+//! seven times over what was on the screen. This shares one set of compositor
+//! observations across the bar. That is most of the reason to do it at all:
 //! a handheld pays for each of those wake-ups, and the bar is up for as long as
 //! the session is.
 //!
@@ -34,11 +34,9 @@
 //!
 //! **Waking.** Every source is a channel of *ask again*, and a thread per
 //! source writes to its own nonblocking pipe alongside the compositor's
-//! socket. The descriptor identifies the source, so a workspace switch does
-//! not re-run `wpctl`. When something has just
-//! happened the next wait is short rather than long, which is how a burst --
-//! and a layer opening is always several lines -- is absorbed in one extra pass
-//! instead of one pass each.
+//! socket. A compositor worker posts focus as soon as it is known and reads
+//! the workspace list and layers separately from painting. Its state machine
+//! coalesces invalidations that arrive while it is working.
 //!
 //! The compositor supplies the bar's length along the chosen edge. The font
 //! size sets its depth, which the surface reserves for itself. Changing the
@@ -85,7 +83,7 @@ use std::sync::mpsc::sync_channel;
 use std::time::{Duration, Instant};
 
 use console_application_music::player::Sound;
-use console_compositor::{Carrying, Layer, Workspace, WorkspaceTarget};
+use console_compositor::Layer;
 use console_core_color::palette::{self, PaletteError, ThemeSettings, WearingError};
 use console_core_geometry::{Point, Size};
 use console_core_internal_programs::InternalProgram;
@@ -116,6 +114,8 @@ use rustix::fs::inotify::{self, CreateFlags, WatchFlags};
 use rustix::io::Errno;
 use rustix::process::{Pid, PidfdFlags, pidfd_open};
 
+#[path = "console-bar/surfaces.rs"]
+mod surfaces;
 #[path = "console-bar/waking.rs"]
 mod waking;
 
@@ -377,10 +377,13 @@ fn drawing() -> Result<(), Cannot> {
   let hearing =
     inotify::init(CreateFlags::CLOEXEC | CreateFlags::NONBLOCK).map_err(Cannot::Deaf)?;
   let Ok(folders) = heard_in();
+  let Ok(()) = watch_folders(&hearing, &folders);
   let content_files = ContentFiles::open()?;
   let mut content = Content::default();
   let Ok(()) = content_files.read(&mut content);
   let waking = sources().map_err(Cannot::Pipe)?;
+  let surfaces = surfaces::Worker::start().map_err(Cannot::Pipe)?;
+  let visible_panels = surfaces::LayerWorker::start().map_err(Cannot::Pipe)?;
 
   let whole = screen()?;
   let Ok(fitting) = Fitting::of_em();
@@ -399,8 +402,7 @@ fn drawing() -> Result<(), Cannot> {
   let mut dwindling = Watching::default();
   let Ok(readings) = first_readings(&mut dwindling);
   let Ok(when) = clock::current();
-  let Ok(layers) = listed(Vec::new());
-  let Ok(held) = first_held(&readings, &layers);
+  let Ok(held) = first_held(&readings);
   let turning = Turning {
     surface,
     theme,
@@ -411,9 +413,11 @@ fn drawing() -> Result<(), Cannot> {
     was: when,
     settling: Settling::No,
     last: None,
-    requested: Vec::new(),
     started: Vec::new(),
-    layers,
+    layers: Vec::new(),
+    settings_tab: None,
+    surfaces,
+    visible_panels,
     selection: Selection::Idle,
     focus_layer: LayerMode::Passive,
     placement,
@@ -471,9 +475,11 @@ struct Turning {
   was: clock::Standing,
   settling: Settling,
   last: Option<Rendered>,
-  requested: Vec<Requested>,
   started: Vec<Started>,
   layers: Vec<Layer>,
+  settings_tab: Option<String>,
+  surfaces: surfaces::Worker,
+  visible_panels: surfaces::LayerWorker,
   selection: Selection<BarAction>,
   focus_layer: LayerMode,
   placement: Placement,
@@ -499,7 +505,6 @@ fn turned(
     Ok(painted) => painted,
     Err(fault) => return Ok(Step::Halt(Err(fault))),
   };
-  let Ok(()) = begun(&mut turning.requested, &mut turning.started);
   let Ok(closed) = turning.surface.closed();
 
   match closed {
@@ -512,10 +517,28 @@ fn turned(
     Err(fault) => return Ok(Step::Halt(Err(fault))),
   }
 
-  let Ok(()) = user_input(&mut turning, &drawn, &actions, around.focus_requests);
-  let Ok(_preferences_events) = heard_again(around.hearing);
+  let Ok(requested) = user_input(&mut turning, &drawn, &actions, around.focus_requests);
+  let feedback = requested.iter().any(|request| match request {
+    Requested::BuiltIn(action) => {
+      let Ok(panel) = Panel::of(*action);
+
+      panel.is_some() || matches!(action, BarAction::Workspace(_))
+    }
+    Requested::Applet(_) => false,
+  });
+  let Ok(()) = begun(requested, &mut turning);
+
+  match feedback.then_some(()) {
+    Some(()) => match draw_turn(&mut turning, around) {
+      Ok(_immediate_feedback) => {}
+      Err(fault) => return Ok(Step::Halt(Err(fault))),
+    },
+    None => {}
+  }
+
+  let Ok(file_events) = heard_again(around.hearing);
   let Ok(()) = reload_content(&mut turning, around.content_files);
-  let Ok(()) = refresh_turn(&mut turning);
+  let Ok(()) = refresh_turn(&mut turning, file_events);
 
   Ok(Step::Again(turning))
 }
@@ -603,12 +626,7 @@ fn render_turn(
           }
         }
       };
-      let width = room.width.saturating_sub(fitting.thin).saturating_sub(
-        fitting
-          .margin
-          .saturating_add(fitting.between)
-          .saturating_mul(2),
-      );
+      let Ok(width) = fitting.sidebar_content_width(room.width);
 
       for group in [&mut bar.left, &mut bar.middle, &mut bar.right, &mut applets] {
         let Ok(()) = measuring::compact(group, fitting, width);
@@ -667,7 +685,11 @@ fn wait_for_turn(
   let Ok(()) = watch_folders(around.hearing, around.folders);
   let Ok(ending) = endings(&turning.started);
   let mut also = vec![around.hearing.as_fd(), around.content_files.hearing.as_fd()];
+  let Ok(surface_wake) = turning.surfaces.wake();
+  let Ok(panels_wake) = turning.visible_panels.wake();
 
+  also.extend(surface_wake);
+  also.push(panels_wake);
   also.extend(turning.waking.iter().map(AsFd::as_fd));
   also.extend(ending.iter().map(AsFd::as_fd));
   also.extend(around.focus_requests.map(AsFd::as_fd));
@@ -683,7 +705,7 @@ fn user_input(
   drawn: &Rendered,
   actions: &[BarAction],
   listening: Option<&UnixDatagram>,
-) -> Result<(), Never> {
+) -> Result<Vec<Requested>, Never> {
   let focus_request = match listening {
     Some(socket) => match focus::heard(socket) {
       Ok(request) => request,
@@ -703,6 +725,7 @@ fn user_input(
     Some(focus::Request::Take) | None => {}
   }
 
+  let mut requested = Vec::new();
   let Ok(keys) = turning.surface.keyboard_events();
 
   for KeyboardEvent::Down { key } in keys {
@@ -714,7 +737,7 @@ fn user_input(
           action,
           &mut turning.held,
           &turning.content.applets,
-          &mut turning.requested,
+          &mut requested,
         );
         turning.selection = Selection::Idle;
       }
@@ -729,7 +752,7 @@ fn user_input(
       action,
       &mut turning.held,
       &turning.content.applets,
-      &mut turning.requested,
+      &mut requested,
     );
   }
 
@@ -748,7 +771,7 @@ fn user_input(
     Some(focus::Request::Release) | None => {}
   }
 
-  Ok(())
+  Ok(requested)
 }
 
 fn reload_content(turning: &mut Turning, files: &ContentFiles) -> Result<(), Never> {
@@ -797,7 +820,7 @@ fn reload_content(turning: &mut Turning, files: &ContentFiles) -> Result<(), Nev
   Ok(())
 }
 
-fn refresh_turn(turning: &mut Turning) -> Result<(), Never> {
+fn refresh_turn(turning: &mut Turning, file_events: FileEvents) -> Result<(), Never> {
   let Ok((running, ended)) = reaped(std::mem::take(&mut turning.started));
   turning.started = running;
   let Ok(woke) = waking::take_woken(&mut turning.waking);
@@ -805,17 +828,26 @@ fn refresh_turn(turning: &mut Turning) -> Result<(), Never> {
     Some(()) => Settling::No,
     None => Settling::Yes,
   };
-  let Ok(looked) = again(&woke, &mut turning.readings, &mut turning.dwindling);
-  let Ok(()) = ticked(&mut turning.readings, &mut turning.dwindling);
-  let Ok(()) = refreshed(&woke, looked, &mut turning.held);
 
-  match (woke.contains(&Woke::Surfaces) || looked == Looked::Again || !ended.is_empty())
-    .then_some(())
-  {
+  let surfaces_changed = woke.contains(&Woke::Surfaces);
+
+  match surfaces_changed.then_some(()) {
     Some(()) => {
-      let Ok(asked) = listed(std::mem::take(&mut turning.layers));
+      let Ok(()) = turning.surfaces.refresh();
+    }
+    None => {}
+  }
 
-      turning.layers = asked;
+  match ended.is_empty().then_some(()) {
+    Some(()) => {}
+    None => {
+      let Ok(()) = turning.visible_panels.invalidate();
+    }
+  }
+
+  match (surfaces_changed || !ended.is_empty()).then_some(()) {
+    Some(()) => {
+      let Ok(()) = turning.visible_panels.refresh();
     }
     None => {}
   }
@@ -824,8 +856,10 @@ fn refresh_turn(turning: &mut Turning) -> Result<(), Never> {
     let Ok(_starts_nothing) = turning.held.told(PanelEvent::Ended(panel));
   }
 
-  let Ok(up) = on_screen(&turning.layers);
-  let Ok(_starts_nothing) = turning.held.told(PanelEvent::Shown(up));
+  let Ok(()) = refresh_surfaces(turning, file_events);
+  let Ok(()) = again(&woke, &mut turning.readings, &mut turning.dwindling);
+  let Ok(()) = ticked(&mut turning.readings, &mut turning.dwindling);
+  let Ok(()) = refreshed(&woke, &mut turning.held);
   let Ok(now) = clock::current();
 
   match (now == turning.was).then_some(()) {
@@ -843,6 +877,38 @@ fn refresh_turn(turning: &mut Turning) -> Result<(), Never> {
     .iter()
     .map(|one| (one.item, one.reading.clone()))
     .collect();
+
+  Ok(())
+}
+
+fn refresh_surfaces(turning: &mut Turning, file_events: FileEvents) -> Result<(), Never> {
+  let Ok(surfaces::Observations { front, workspaces }) = turning.surfaces.observed();
+  let Ok(()) = turning.held.observed_workspaces(workspaces, front);
+  let Ok(layers) = turning.visible_panels.observed();
+
+  match (&layers, file_events) {
+    (Some(_), _) | (None, FileEvents::Received) => {}
+    (None, FileEvents::Idle) => return Ok(()),
+  }
+
+  let tab = match console_onscreen::tab() {
+    Ok(tab) => tab,
+    Err(fault) => {
+      console_core_logging::warn!("console-bar: could not read the settings tab: {fault}");
+
+      turning.settings_tab.clone()
+    }
+  };
+
+  match (layers, (tab != turning.settings_tab).then_some(())) {
+    (Some(observed), _) => turning.layers = observed,
+    (None, Some(())) => {}
+    (None, None) => return Ok(()),
+  }
+
+  turning.settings_tab = tab;
+  let Ok(up) = panels::on_screen(&turning.layers, turning.settings_tab.as_deref());
+  let Ok(_no_commands) = turning.held.told(PanelEvent::Shown(up));
 
   Ok(())
 }
@@ -906,13 +972,11 @@ fn first_readings(dwindling: &mut Watching) -> Result<Vec<Tracked>, Never> {
   Ok(readings)
 }
 
-fn first_held(readings: &[Tracked], layers: &[Layer]) -> Result<BarState, Never> {
+fn first_held(readings: &[Tracked]) -> Result<BarState, Never> {
   let Ok(bell) = rung();
   let Ok(music) = playing();
   let Ok(said) = clock::now();
-  let Ok((workspaces, front)) = walked();
-  let Ok(up) = on_screen(layers);
-  let mut held = BarState {
+  Ok(BarState {
     readings: readings
       .iter()
       .map(|one| (one.item, one.reading.clone()))
@@ -920,16 +984,13 @@ fn first_held(readings: &[Tracked], layers: &[Layer]) -> Result<BarState, Never>
     bell,
     music,
     clock: said,
-    workspaces,
-    front,
+    workspaces: Vec::new(),
+    front: None,
     panels: Panels::default(),
-  };
-  let Ok(_starts_nothing) = held.told(PanelEvent::Shown(up));
-
-  Ok(held)
+  })
 }
 
-fn refreshed(woke: &BTreeSet<Woke>, looked: Looked, held: &mut BarState) -> Result<(), Never> {
+fn refreshed(woke: &BTreeSet<Woke>, held: &mut BarState) -> Result<(), Never> {
   match ::core::primitive::bool::then_some(woke.contains(&Woke::Notifications), ()) {
     ::core::option::Option::Some(()) => {
       let Ok(bell) = rung();
@@ -948,19 +1009,6 @@ fn refreshed(woke: &BTreeSet<Woke>, looked: Looked, held: &mut BarState) -> Resu
     ::core::option::Option::None => {}
   }
 
-  match ::core::primitive::bool::then_some(
-    woke.contains(&Woke::Surfaces) || looked == Looked::Again,
-    (),
-  ) {
-    ::core::option::Option::Some(()) => {
-      let Ok((workspaces, front)) = walked();
-
-      held.workspaces = workspaces;
-      held.front = front;
-    }
-    ::core::option::Option::None => {}
-  }
-
   Ok(())
 }
 
@@ -968,12 +1016,6 @@ fn refreshed(woke: &BTreeSet<Woke>, looked: Looked, held: &mut BarState) -> Resu
 enum Settling {
   Yes,
   No,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Looked {
-  Again,
-  Not,
 }
 
 fn due(item: StatusItem, dwindling: &Watching) -> Result<Option<Instant>, Never> {
@@ -1126,9 +1168,7 @@ fn again(
   woke: &BTreeSet<Woke>,
   readings: &mut [Tracked],
   dwindling: &mut Watching,
-) -> Result<Looked, Never> {
-  let mut any = Looked::Not;
-
+) -> Result<(), Never> {
   for one in readings.iter_mut() {
     let Ok(mine) = wakes(one.item);
 
@@ -1139,13 +1179,12 @@ fn again(
 
         one.reading = reading;
         one.due = due;
-        any = Looked::Again;
       }
       ::core::option::Option::None => {}
     }
   }
 
-  Ok(any)
+  Ok(())
 }
 
 fn ticked(readings: &mut [Tracked], dwindling: &mut Watching) -> Result<(), Never> {
@@ -1205,43 +1244,6 @@ fn playing() -> Result<Reading, Never> {
   };
 
   state::music(paused, playing)
-}
-
-fn listed(before: Vec<Layer>) -> Result<Vec<Layer>, Never> {
-  match console_compositor::ask(console_compositor::Layers) {
-    Ok(layers) => Ok(layers),
-    Err(why) => {
-      eprintln!("console-bar: {why}");
-
-      Ok(before)
-    }
-  }
-}
-
-fn on_screen(layers: &[Layer]) -> Result<Vec<Panel>, Never> {
-  let tab = match console_onscreen::tab() {
-    Ok(tab) => tab,
-    Err(_nothing_has_said_which_tab_is_in_front) => None,
-  };
-
-  panels::on_screen(layers, tab.as_deref())
-}
-
-fn walked() -> Result<(Vec<Workspace>, Option<i64>), Never> {
-  let there = match console_compositor::ask(console_compositor::Workspaces) {
-    Ok(there) => there,
-    Err(why) => {
-      eprintln!("console-bar: {why}");
-
-      Vec::new()
-    }
-  };
-  let front = match console_compositor::ask(console_compositor::ActiveWorkspace) {
-    Ok(front) => front.map(|workspace| workspace.id),
-    Err(_the_compositor_would_not_say_which_one_is_in_front) => None,
-  };
-
-  Ok((there, front))
 }
 
 fn painted(surface: &mut Surface, drawn: &Rendered) -> Result<(), Never> {
@@ -1339,11 +1341,17 @@ fn queue(
   Ok(())
 }
 
-fn begun(requested: &mut Vec<Requested>, started: &mut Vec<Started>) -> Result<(), Never> {
-  for request in requested.drain(..) {
-    let (panel, begun) = match request {
+fn begun(requested: Vec<Requested>, turning: &mut Turning) -> Result<(), Never> {
+  for request in requested {
+    let (requested_panel, begun) = match request {
+      Requested::BuiltIn(BarAction::Workspace(id)) => {
+        let Ok(()) = turning.surfaces.switch(id);
+
+        continue;
+      }
       Requested::BuiltIn(action) => {
         let Ok(panel) = Panel::of(action);
+        let Ok(()) = supersede_panel_request(turning, panel);
         let Ok(begun) = doing(action);
 
         (panel, begun)
@@ -1362,15 +1370,36 @@ fn begun(requested: &mut Vec<Requested>, started: &mut Vec<Started>) -> Result<(
       }
     };
 
-    match begun {
-      Some(program) => {
-        started.push(Started { panel, program });
+    match (requested_panel, begun) {
+      (panel, Some(program)) => {
+        turning.started.push(Started { panel, program });
       }
-      ::core::option::Option::None => {}
+      (Some(panel), None) => {
+        let Ok(_no_commands) = turning.held.told(PanelEvent::Ended(panel));
+        let Ok(()) = turning.visible_panels.refresh();
+      }
+      (None, None) => {}
     }
   }
 
   Ok(())
+}
+
+fn supersede_panel_request(turning: &mut Turning, panel: Option<Panel>) -> Result<(), Never> {
+  match panel {
+    Some(pressed) => {
+      for previous in turning
+        .started
+        .iter_mut()
+        .filter(|old| old.panel == Some(pressed))
+      {
+        previous.panel = None;
+      }
+
+      turning.visible_panels.invalidate()
+    }
+    None => Ok(()),
+  }
 }
 
 fn reaped(started: Vec<Started>) -> Result<(Vec<Started>, Vec<Panel>), Never> {
@@ -1439,8 +1468,7 @@ fn doing(action: BarAction) -> Result<Option<Detached>, Never> {
 
       command
     }
-    BarAction::Workspace(id) => return switched(id),
-    BarAction::Menu(_) | BarAction::Applet(_) => return Ok(None),
+    BarAction::Workspace(_) | BarAction::Menu(_) | BarAction::Applet(_) => return Ok(None),
   };
 
   start(starting)
@@ -1459,16 +1487,6 @@ fn start(mut starting: std::process::Command) -> Result<Option<Detached>, Never>
       None
     }
   })
-}
-
-fn switched(id: i64) -> Result<Option<Detached>, Never> {
-  let Ok(_done) = console_compositor::Action::MoveWorkspace {
-    target: WorkspaceTarget::Number(id),
-    carrying: Carrying::None,
-  }
-  .dispatch();
-
-  Ok(None)
 }
 
 fn screen() -> Result<Size<u32>, Cannot> {

@@ -86,12 +86,15 @@ mod answer;
 #[cfg(feature = "color-transform")]
 pub mod color_transform;
 pub mod events;
+#[cfg(feature = "lock-notify")]
+pub mod lock_notify;
 pub mod lua;
 mod operation;
 pub mod quick_workspace;
 pub mod session;
 pub mod setup;
 pub mod socket;
+pub mod theme_borders;
 #[cfg(feature = "toplevel-mapping")]
 pub mod thumbnails;
 #[cfg(feature = "toplevel-mapping")]
@@ -203,6 +206,23 @@ pub struct Workspace {
   pub id: i64,
   pub named: String,
   pub windows: Option<i64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkspaceKind {
+  Regular,
+  Special,
+}
+
+impl WorkspaceKind {
+  pub fn of(name: &str) -> Result<Self, Never> {
+    Ok(
+      match bool::then_some(name == "special" || name.starts_with("special:"), ()) {
+        Some(()) => Self::Special,
+        None => Self::Regular,
+      },
+    )
+  }
 }
 
 pub trait Question: Copy {
@@ -943,6 +963,7 @@ pub enum Carrying {
 pub enum WorkspaceTarget {
   Relative(i32),
   Number(i64),
+  Position(i64),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -953,6 +974,72 @@ pub enum Direction {
   Down,
 }
 
+impl Direction {
+  fn name(self) -> Result<&'static str, Never> {
+    Ok(match self {
+      Self::Left => "left",
+      Self::Right => "right",
+      Self::Up => "up",
+      Self::Down => "down",
+    })
+  }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TileColumn {
+  Left,
+  Right,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TileEdge {
+  Above,
+  Below,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TileChange {
+  Swap(Direction),
+  Resize(Direction),
+  Place { column: TileColumn, edge: TileEdge },
+  MoveToRoot,
+  ToggleSplit,
+}
+
+impl TileChange {
+  fn dispatcher(self) -> Result<String, Never> {
+    Ok(match self {
+      Self::Swap(direction) => {
+        let Ok(name) = direction.name();
+        format!("hl.dsp.window.swap({{ direction = '{name}' }})")
+      }
+      Self::Resize(direction) => {
+        let (x, y) = match direction {
+          Direction::Left => (-32_i32, 0_i32),
+          Direction::Right => (32, 0),
+          Direction::Up => (0, -32),
+          Direction::Down => (0, 32),
+        };
+        format!("hl.dsp.window.resize({{ x = {x}, y = {y}, relative = true }})")
+      }
+      Self::Place { column, edge } => {
+        let side = match column {
+          TileColumn::Left => "left",
+          TileColumn::Right => "right",
+        };
+        let split = match edge {
+          TileEdge::Above => "u",
+          TileEdge::Below => "d",
+        };
+        let script = include_str!("lua/tile_position.lua");
+        format!("({script})('{side}', '{split}')")
+      }
+      Self::MoveToRoot => "hl.dsp.layout('movetoroot')".to_owned(),
+      Self::ToggleSplit => "hl.dsp.layout('togglesplit')".to_owned(),
+    })
+  }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
   MoveWorkspace {
@@ -960,6 +1047,7 @@ pub enum Action {
     carrying: Carrying,
   },
   Focus(Direction),
+  Tile(TileChange),
   CloseWindow,
   ToggleFullscreen,
 }
@@ -968,7 +1056,23 @@ impl Action {
   pub fn dispatch(self) -> Result<DispatchResult, Never> {
     let Ok(lua) = self.dispatcher();
 
-    request(Request::Dispatch, &lua)
+    match self {
+      Action::MoveWorkspace {
+        target: WorkspaceTarget::Position(_),
+        ..
+      }
+      | Action::Tile(TileChange::Place { .. }) => request(Request::Script, &format!("({lua})()")),
+      Action::MoveWorkspace { .. }
+      | Action::Focus(_)
+      | Action::Tile(
+        TileChange::Swap(_)
+        | TileChange::Resize(_)
+        | TileChange::MoveToRoot
+        | TileChange::ToggleSplit,
+      )
+      | Action::CloseWindow
+      | Action::ToggleFullscreen => request(Request::Dispatch, &lua),
+    }
   }
 
   pub fn dispatcher(self) -> Result<String, Never> {
@@ -977,23 +1081,22 @@ impl Action {
         let target_2 = match target {
           WorkspaceTarget::Relative(step) => format!("{step:+}"),
           WorkspaceTarget::Number(number) => number.to_string(),
+          WorkspaceTarget::Position(position) => {
+            return lua::workspace_position(position, carrying);
+          }
         };
 
         onto(&target_2, carrying)
       }
       Action::Focus(direction) => {
-        let direction_2 = match direction {
-          Direction::Left => "left",
-          Direction::Right => "right",
-          Direction::Up => "up",
-          Direction::Down => "down",
-        };
+        let Ok(direction_2) = direction.name();
 
         Ok(format!(
           "hl.dsp.focus({{direction = \"{direction}\"}})",
           direction = direction_2
         ))
       }
+      Action::Tile(change) => change.dispatcher(),
       Action::CloseWindow => Ok(CLOSE_WINDOW.to_string()),
       Action::ToggleFullscreen => Ok("hl.dsp.window.fullscreen()".to_string()),
     }
@@ -1014,6 +1117,10 @@ pub fn request(request: Request, lua: &str) -> Result<DispatchResult, Never> {
   let Ok(line) = request.line(lua);
 
   dispatch(&line)
+}
+
+pub fn reload_configuration() -> Result<DispatchResult, Never> {
+  dispatch("/reload")
 }
 
 impl Request {

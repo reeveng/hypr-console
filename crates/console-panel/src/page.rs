@@ -87,8 +87,6 @@ pub trait Showing {
 
   fn turn_to(&self, tab: u32);
 
-  fn note(&self, said: &str);
-
   fn run(&self, task: Task);
 
   fn interrupt(&self, command: &Command);
@@ -110,8 +108,6 @@ impl Showing for Nowhere {
   fn sure(&self, _question: &str, _about: Subject<'_>, _does: &[&str], _then: Confirmation) {}
 
   fn ask_aloud(&self, _question: &str, _initial: Initial<'_>, _then: Answer) {}
-
-  fn note(&self, _said: &str) {}
 
   fn run(&self, _task: Task) {}
 
@@ -279,6 +275,7 @@ pub struct Row {
   pub seek: Option<Seek>,
   pub middle: bool,
   pub stacked: bool,
+  pub space_above: bool,
   pub buttons: Option<Across>,
   pub cells: Vec<Cell>,
   pub chief: bool,
@@ -580,6 +577,12 @@ impl Row {
     Ok(self)
   }
 
+  pub fn with_space_above(mut self) -> Result<Self, Never> {
+    self.space_above = true;
+
+    Ok(self)
+  }
+
   pub fn offering(
     mut self,
     more: impl Fn(&dyn Showing) -> ActionOutcome + Send + Sync + 'static,
@@ -729,6 +732,18 @@ impl Row {
     )
   }
 
+  pub(crate) fn interaction(&self) -> Result<Action, Never> {
+    let Ok(acts) = self.acts();
+    let interactive = !self.naming
+      && !self.nothing
+      && (acts == Action::Yes || self.more.is_some() || self.key.is_some() || self.typing);
+
+    Ok(match interactive.then_some(()) {
+      Some(()) => Action::Yes,
+      None => Action::None,
+    })
+  }
+
   pub fn heading(&self) -> Result<Heading, Never> {
     let Ok(acts) = self.acts();
 
@@ -759,6 +774,7 @@ impl Row {
       seek,
       middle,
       stacked,
+      space_above,
       buttons: across,
       cells,
       chief,
@@ -786,6 +802,7 @@ impl Row {
       && seek.is_some() == other.seek.is_some()
       && middle == &other.middle
       && stacked == &other.stacked
+      && space_above == &other.space_above
       && mine == theirs
       && cells == &other.cells
       && chief == &other.chief
@@ -999,34 +1016,80 @@ pub fn ends_of(row: &Row) -> Result<(&str, &str), Never> {
 }
 
 pub fn walked(rows: &[Row], at: i32, step: Step) -> Result<i32, Never> {
-  let Ok(last) = fitted::<_, i32>(rows.len().saturating_sub(1));
-  let Ok(steps) = fitted::<_, u32>(rows.len());
-  let mut going = at;
+  let remaining = step.0.unsigned_abs();
+  let offset = match step.0.cmp(&0) {
+    std::cmp::Ordering::Greater => {
+      let next_row = at.saturating_add(1);
 
-  for _step in 0..=steps {
-    going = going.saturating_add(step.0);
+      match next_row {
+        i32::MIN..=-1 => return Ok(at),
+        _ => {}
+      }
 
-    match (0..=last).contains(&going).then_some(()) {
-      Some(()) => {}
-      None => return Ok(at),
+      let Ok(next) = index(next_row);
+      let Ok(distance) = selectable_distance(rows.get(next..).into_iter().flatten(), remaining);
+
+      distance
     }
+    std::cmp::Ordering::Less => {
+      let Ok(before) = index(at);
+      let Ok(distance) =
+        selectable_distance(rows.get(..before).into_iter().flatten().rev(), remaining);
 
-    let Ok(position) = index(going);
+      distance.saturating_neg()
+    }
+    std::cmp::Ordering::Equal => 0,
+  };
 
-    match rows.get(position) {
-      Some(row) => {
-        let Ok(heading) = row.heading();
+  Ok(at.saturating_add(offset))
+}
 
-        match heading {
-          Heading::No => return Ok(going),
-          Heading::Yes => {}
+fn selectable_distance<'a>(
+  rows: impl Iterator<Item = &'a Row>,
+  mut remaining: u32,
+) -> Result<i32, Never> {
+  let mut distance = 0;
+
+  for (index, row) in rows.enumerate() {
+    let Ok(interaction) = row.interaction();
+
+    match interaction {
+      Action::Yes => {
+        let Ok(offset) = fitted::<_, i32>(index.saturating_add(1));
+        distance = offset;
+        remaining = remaining.saturating_sub(1);
+
+        match remaining {
+          0 => break,
+          _ => {}
         }
       }
-      None => return Ok(going),
+      Action::None => {}
     }
   }
 
-  Ok(at)
+  Ok(distance)
+}
+
+#[cfg(test)]
+mod counted_motion {
+  use super::*;
+
+  #[test]
+  fn a_count_skips_passive_rows_and_stops_on_the_last_selectable_row() {
+    let Ok(choose) = Handler::and_stay(|_| {});
+    let Ok(first) = Row::new("First", Aside("1"), choose.clone());
+    let Ok(heading) = Row::naming("Heading", Aside(""));
+    let Ok(detail) = Row::text("Read-only value", Aside("4"));
+    let Ok(second) = Row::new("Second", Aside("2"), choose.clone());
+    let Ok(third) = Row::new("Third", Aside("3"), choose);
+    let rows = [first, heading, detail, second, third];
+
+    assert_eq!(walked(&rows, -1, Step(3)), Ok(4));
+    assert_eq!(walked(&rows, 4, Step(-2)), Ok(0));
+    assert_eq!(walked(&rows, 0, Step(i32::MAX)), Ok(4));
+    assert_eq!(walked(&rows, 0, Step(-3)), Ok(0));
+  }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1037,21 +1100,61 @@ pub enum Same {
 
 #[derive(Clone)]
 pub enum Rows {
-  Computed(Retained<dyn Fn() -> Vec<Row> + Send + Sync>),
+  Computed(Retained<dyn Fn() -> LoadedRows + Send + Sync>),
   Fixed(Vec<Row>),
+}
+
+type AfterRead = Box<dyn FnOnce(&dyn Showing) + Send>;
+
+pub struct LoadedRows {
+  pub(crate) rows: Vec<Row>,
+  pub(crate) after: Option<AfterRead>,
+}
+
+impl LoadedRows {
+  pub fn new(rows: Vec<Row>) -> Result<Self, Never> {
+    Ok(Self { rows, after: None })
+  }
+
+  #[doc = "Run the effect on the drawing thread when the active page accepts these rows."]
+  pub fn then(
+    mut self,
+    after: impl FnOnce(&dyn Showing) + Send + 'static,
+  ) -> Result<Self, Never> {
+    self.after = Some(Box::new(after));
+
+    Ok(self)
+  }
 }
 
 impl Rows {
   pub fn computed(of: impl Fn() -> Vec<Row> + Send + Sync + 'static) -> Result<Self, Never> {
+    Self::with_completion(move || {
+      let Ok(loaded) = LoadedRows::new(of());
+
+      loaded
+    })
+  }
+
+  pub fn with_completion(
+    of: impl Fn() -> LoadedRows + Send + Sync + 'static,
+  ) -> Result<Self, Never> {
     let Ok(read) = retained(of);
+
     Ok(Rows::Computed(read))
   }
 
   pub fn read(&self) -> Result<Vec<Row>, Never> {
-    Ok(match self {
-      Rows::Computed(of) => of(),
-      Rows::Fixed(rows) => rows.clone(),
-    })
+    let Ok(loaded) = self.fetch();
+
+    Ok(loaded.rows)
+  }
+
+  pub(crate) fn fetch(&self) -> Result<LoadedRows, Never> {
+    match self {
+      Rows::Computed(of) => Ok(of()),
+      Rows::Fixed(rows) => LoadedRows::new(rows.clone()),
+    }
   }
 }
 
@@ -1113,6 +1216,20 @@ pub(crate) enum Extent {
   Compact,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum OpeningRead {
+  Immediate,
+  AfterFirstFrame,
+}
+
+#[derive(Clone, Copy)]
+pub enum Neighbor {
+  Before,
+  After,
+}
+
+type Adjacent = Retained<dyn Fn(Neighbor) -> Result<Option<Page>, Never> + Send + Sync>;
+
 #[derive(Clone)]
 pub struct Page {
   pub title: String,
@@ -1127,8 +1244,10 @@ pub struct Page {
   pub set: Set,
   pub selecting: Vec<Selecting>,
   pub(crate) positions: Option<PagePositions>,
+  pub(crate) adjacent: Option<Adjacent>,
   pub(crate) extent: Extent,
   pub(crate) opening: Option<&'static str>,
+  pub(crate) opening_read: OpeningRead,
 }
 
 pub const SELECT: &str = "Select";
@@ -1206,14 +1325,23 @@ impl Page {
       set: Set::FromTheTop,
       selecting: Vec::new(),
       positions: None,
+      adjacent: None,
       extent: Extent::Standard,
       opening: None,
+      opening_read: OpeningRead::Immediate,
     })
   }
 
   #[doc = "Identify a single-page opening whose initial shapes and selection are identical until the theme or geometry changes."]
   pub fn fixed_opening(mut self, identity: &'static str) -> Result<Self, Never> {
     self.opening = Some(identity);
+
+    Ok(self)
+  }
+
+  #[doc = "Commit the opening view before scheduling this page's computed rows."]
+  pub fn reading_after_first_frame(mut self) -> Result<Self, Never> {
+    self.opening_read = OpeningRead::AfterFirstFrame;
 
     Ok(self)
   }
@@ -1287,6 +1415,17 @@ impl Page {
   ) -> Result<Self, Never> {
     let Ok(action) = retained(act);
     self.back = Some(action);
+
+    Ok(self)
+  }
+
+  #[doc = "Supply another page when the selected tab reaches an end of the strip."]
+  pub fn with_neighbors(
+    mut self,
+    adjacent: impl Fn(Neighbor) -> Result<Option<Page>, Never> + Send + Sync + 'static,
+  ) -> Result<Self, Never> {
+    let Ok(neighbor) = retained(adjacent);
+    self.adjacent = Some(neighbor);
 
     Ok(self)
   }

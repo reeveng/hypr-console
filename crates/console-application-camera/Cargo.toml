@@ -25,6 +25,7 @@ camera = [
   "dep:console-draw-surface",
   "dep:console-operating-system-linux",
   "dep:console-pictures",
+  "dep:console-panel",
   "dep:console-program-lifetime",
   "dep:rustix",
 ]
@@ -47,6 +48,7 @@ console-core-state-machine = { workspace = true, optional = true }
 console-draw-painting = { workspace = true, optional = true }
 console-draw-surface = { workspace = true, optional = true }
 console-operating-system-linux = { workspace = true, optional = true }
+console-panel = { workspace = true, optional = true }
 console-pictures = { workspace = true, optional = true }
 console-program-lifetime = { workspace = true, optional = true }
 rustix = { workspace = true, optional = true }

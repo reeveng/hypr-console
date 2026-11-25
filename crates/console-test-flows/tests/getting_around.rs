@@ -29,7 +29,7 @@ use console_button_guide::guide::{
 };
 use console_core_never::Never;
 use console_input_bindings::bound::{Input, Played};
-use console_input_controller::actions::{Action, Availability, Context, Table, Task, job};
+use console_input_controller::actions::{Action, Availability, Context, MappedTask, Table, job};
 use console_input_controller::effect::{CompositorAction, Payload, WorkspaceTarget};
 use console_input_controller::mode::Mode;
 use console_input_event_devices::{EventType, KeyCode};
@@ -106,7 +106,7 @@ fn names(lines: &[Line], (button, does): (&str, &str)) -> Result<Yes, Never> {
   }
 }
 
-fn bare(table: &Table, mode: Mode) -> Result<Vec<(&'static Task, String)>, Never> {
+fn bare(table: &Table, mode: Mode) -> Result<Vec<(&MappedTask, String)>, Never> {
   let Ok(every) = table.every();
 
   Ok(
@@ -125,7 +125,7 @@ fn bare(table: &Table, mode: Mode) -> Result<Vec<(&'static Task, String)>, Never
             played == Played::ByAPress && one.on == Input::Pad && one.held.is_empty()
           })
           .map(move |one| (job, one.pressed.clone()))
-          .collect::<Vec<(&'static Task, String)>>()
+          .collect::<Vec<(&MappedTask, String)>>()
       })
       .collect(),
   )
@@ -414,7 +414,7 @@ fn everything_the_guide_says_about_a_place_is_true_when_you_stand_in_it() -> Res
       );
 
       let Ok(says) = job.action.says();
-      let Ok(named_2) = names(named, (&button, says));
+      let Ok(named_2) = names(named, (&button, &says));
 
       assert_eq!(
         named_2,

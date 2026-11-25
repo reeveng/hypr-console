@@ -9,8 +9,9 @@ near a common level. Silence and the noise floor stay quiet.
 
 The volume rocker and the output slider in Settings play the same fixed-pitch
 bell at the resulting device volume when Sound Effects is enabled. The preview
-is pinned to the output that changed. A running preview suppresses overlapping
-previews during rapid adjustments. Muted and zero-volume outputs stay silent.
+is pinned to the output that changed. During rapid adjustments, the current bell
+finishes before a new one plays for the most recent change. Muted and zero-volume
+outputs stay silent.
 Sound Settings shows the current device and jack where available. The Output
 picker switches between connected devices and shows the chosen device's volume.
 
@@ -309,7 +310,7 @@ regression test repeats the same noise at loud, normal and very quiet input
 levels, with silent gaps and in immediate succession. It checks that settled
 levels stay within 3 dB of the normal example, that the sample peak stays below
 the bell-derived ceiling, and that the stereo balance and noise floor are
-preserved. Run it from a Linux host with PipeWire and WirePlumber installed.
+preserved. The test starts PipeWire and WirePlumber in a disposable NixOS guest.
 The app volume test checks that lowering an app still lowers its audio. A
 separate fixture verifies that indexed playback uses one multiplier through
 the loud and quiet passages. The short-burst test records a full-scale impulse
@@ -321,7 +322,7 @@ file-indexing test compares equal-amplitude tones that measure 4.1 LU apart,
 then checks cache reuse and invalidation.
 
 ```sh
-cargo test -p console-sound-effects --test balanced_output -- --ignored --nocapture
+just test e2e-media
 ```
 
 A separate virtual-output check covered native and PulseAudio playback, default

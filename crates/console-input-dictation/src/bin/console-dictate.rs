@@ -776,11 +776,11 @@ const UNTIL_IT_CHANGES: Until = Until(0);
 const BRIEFLY: Until = Until(2_000);
 
 fn notify(what: &str, until: Until) -> Result<(), Never> {
-  let options = console_operating_system_linux::notification::Options {
-    app_name: Some("Console"),
+  let options = console_notifications::delivery::Options {
+    app_name: Some("Dictation"),
     icon: Some("audio-input-microphone"),
     expire_ms: Some(until.0),
-    urgency: console_operating_system_linux::notification::Urgency::Low,
+    urgency: console_notifications::delivery::Urgency::Low,
     synchronous_key: Some("console-dictate"),
     ..Default::default()
   };
@@ -814,10 +814,11 @@ fn report(kind: &str, fault: Failure<'_>) -> Result<(), Never> {
 
   eprintln!("console-dictate: {summary}: {body}");
 
-  let Ok(mut saying) = InternalProgram::ConsoleSay.command();
-  saying.args([kind, summary, body]).stdin(Stdio::null());
-
-  background(&mut saying, "showing a microphone error")
+  console_notifications::saying::report(
+    console_notifications::Application("Dictation"),
+    kind,
+    console_notifications::saying::Content { summary, body },
+  )
 }
 
 #[cfg(test)]

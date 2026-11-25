@@ -55,8 +55,8 @@ format:
 # tree at once and the A and the B differed by both of them.
 #
 # This is not where a nested desktop is held. `console-desktop` puts its own
-# compositor in a scope of its own, because the panel tier is a `cargo test` and
-# is run as often without `just` as with it -- and a scope made inside a scope is
+# compositor in a scope of its own, including when the test VM runs the panel
+# tier -- and a scope made inside a scope is
 # its sibling rather than its child, so stopping this one would not have reached
 # it either way. What this one is for is everything else a run starts.
 #
@@ -106,8 +106,7 @@ map:
     @cargo x map
 
 # validate the saved architecture map and its facts
-map-check:
-    cargo test --locked -p console-architecture --test the_map --test the_rules -- --include-ignored
+map-check: (test "architecture")
 
 # write the palette into every file that spends it
 theme:
@@ -117,7 +116,7 @@ theme:
 sky:
     cargo run --quiet --release --bin wallpaper-render
 
-# Run unit and integration tests, or select an end-to-end suite.
+# Run the default VM suites or select a suite.
 [positional-arguments]
 test suite="quick" *arguments:
     @cargo x test "$@"
@@ -133,7 +132,7 @@ test suite="quick" *arguments:
 
 # the words this tree writes furthest out of English's proportion
 words:
-    cargo test --quiet -p console-vocabulary --test the_words -- --nocapture
+    @result=$(just test vocabulary) && cat "$result/console.log"
 
 # The number literals that would take rustc's fallback, by crate.
 #
@@ -402,29 +401,10 @@ compute-worker:
     cc -std=c17 -O2 -Wall -Wextra -Werror crates/console-operating-system-linux/compute/vulkan.c -o "$build/vulkan" -lvulkan
 
 # compare batched checksums and their tree reduction on CPU and Vulkan
-kernel-gpu-checksums: compute-worker
-    #!/usr/bin/env bash
-    set -euo pipefail
-    build="${CARGO_TARGET_DIR:-target}/kernel-compute"
-    for shader in checksums wrapping-sum; do
-        cargo run --locked --quiet --release -p console-kernel --features hosted-compute --example gpu-checksums -- --emit-shader "$shader" > "$build/$shader.comp"
-        glslangValidator --target-env vulkan1.0 -V "$build/$shader.comp" -o "$build/$shader.spv"
-        spirv-val --target-env vulkan1.0 "$build/$shader.spv"
-    done
-    cargo run --locked --release -p console-kernel --features hosted-compute --example gpu-checksums -- "$build/vulkan" "$build/checksums.spv"
+kernel-gpu-checksums: (test "kernel-gpu-checksums")
 
 # compare the CPU image-mask reply with separable and fused Vulkan replies
-system-gpu-compute: compute-worker
-    #!/usr/bin/env bash
-    set -euo pipefail
-    build="${CARGO_TARGET_DIR:-target}/kernel-compute"
-    for shader in mask blur threshold; do
-        cargo run --locked --quiet --release -p console-operating-system-linux --example gpu-image-mask -- --emit-shader "$shader" > "$build/$shader.comp"
-        glslangValidator --target-env vulkan1.0 -V "$build/$shader.comp" -o "$build/$shader.spv"
-        spirv-val --target-env vulkan1.0 "$build/$shader.spv"
-    done
-    cargo run --locked --release -p console-operating-system-linux --example gpu-image-mask -- --require "$build/vulkan" "$build/blur.spv" "$build/threshold.spv"
-    cargo run --locked --release -p console-operating-system-linux --example gpu-image-mask -- --require "$build/vulkan" "$build/mask.spv"
+system-gpu-compute: (test "system-gpu-compute")
 
 # Measure CPU and Vulkan wall times and show the route selected from recent history.
 [positional-arguments]
@@ -477,11 +457,11 @@ desktop-checks: (test "e2e-desktop")
 # Run the panel scenarios inside a VM, optionally by test-name substring.
 panel-checks name="": (test "e2e-panels" name)
 
-# Measure the browser toolbar, drawing, launcher search, Files and Calculator.
+# Measure the status bar, browser toolbar, drawing, launcher search, Files and Calculator.
 [positional-arguments]
 bench-ui *arguments:
-    cargo bench --locked -p console-application-browser -p console-draw-painting -p console-applications -p console-application-files -p console-application-calculator \
-        --bench browser_ui --bench picture_painting --bench launcher_search --bench folder_listing --bench calculator_keypad -- "$@"
+    cargo bench --locked -p console-status-bar -p console-application-browser -p console-draw-painting -p console-applications -p console-application-files -p console-application-calculator \
+        --bench status_bar --bench browser_ui --bench picture_painting --bench launcher_search --bench folder_listing --bench calculator_keypad -- "$@"
 
 # what those would do to the device
 device-checks:
@@ -508,10 +488,8 @@ browser-servo-build:
 browser-servo *arguments: browser-servo-build
     cargo run --quiet --locked -p console-application-browser -- --servo-worker "${CONSOLE_SERVO_TARGET_DIR:-crates/console-browser-renderer-servo/target}/debug/console-browser-renderer-servo" "$@"
 
-# Run the experimental Servo fixture in the current graphical session.
-browser-servo-check-local: browser-servo-build
-    cargo build --quiet --locked -p console-application-browser -p console-browser-renderer-chromium --features console-application-browser/checks
-    "${CARGO_TARGET_DIR:-target}/debug/console-browser-check" "${CARGO_TARGET_DIR:-target}/debug/console-application-browser" "${CONSOLE_SERVO_TARGET_DIR:-crates/console-browser-renderer-servo/target}/debug/console-browser-renderer-servo"
+# Run the experimental Servo fixture inside a VM.
+browser-servo-check: (test "browser-servo")
 
 # Run the packaged Chromium and WPE renderers in the Console window.
 browser-webkit *arguments:

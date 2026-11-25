@@ -82,6 +82,8 @@
 //! to. The `button-contract.md` note in Orbit carries the rest of that argument
 //! and what it now rests on instead.
 
+use std::borrow::Cow;
+
 use console_input_event_devices::{KeyCode, RelativeAxisCode};
 
 use console_core_internal_programs::{
@@ -94,6 +96,7 @@ use console_onscreen::PadInput;
 
 use crate::effect::{CompositorAction, Direction, Effect, Output, Payload, WorkspaceTarget};
 use crate::mode::Mode;
+use console_compositor::{TileChange, TileColumn, TileEdge};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
@@ -109,6 +112,10 @@ pub enum Action {
   Louder,
   Quieter,
   Mute,
+  MicMute,
+  PowerProfile,
+  Media(Media),
+  Touchpad,
   Wake,
   GameMode,
   Browser,
@@ -128,6 +135,7 @@ pub enum Action {
   CloseWindow,
   Fullscreen,
   Focus(Direction),
+  Tile(TileChange),
   Workspace(i32),
   Place(i64),
   Payload(i32),
@@ -145,6 +153,13 @@ pub enum Action {
   Choose,
   More,
   Tab(i32),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Media {
+  PlayPause,
+  Next,
+  Previous,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -240,8 +255,10 @@ const L2_R2: &[&str] = &["l2", "r2"];
 const SUPER: &[&str] = &["super"];
 const SUPER_CONTROL: &[&str] = &["super", "ctrl"];
 const SUPER_SHIFT: &[&str] = &["super", "shift"];
+const SUPER_ALT: &[&str] = &["super", "alt"];
+const SUPER_ALT_SHIFT: &[&str] = &["super", "alt", "shift"];
 
-pub const JOBS: [Task; 83] = [
+pub const JOBS: [Task; 103] = [
   Task {
     slug: "menu",
     action: Action::Menu,
@@ -305,17 +322,18 @@ pub const JOBS: [Task; 83] = [
     slug: "screenshot",
     action: Action::Screenshot,
     context: Context::Anywhere,
-    bound: &[
-      (PAD, L2, "right-paddle-bottom"),
-      (KEYS, SUPER, "s"),
-      (KEYS, ALONE, "print"),
-    ],
+    bound: &[(PAD, L2, "right-paddle-bottom"), (KEYS, SUPER, "s")],
   },
   Task {
     slug: "screenshot-area",
     action: Action::ScreenshotArea,
     context: Context::Anywhere,
-    bound: &[(PAD, L2, "right-paddle-top"), (KEYS, SUPER_SHIFT, "s")],
+    bound: &[
+      (PAD, L2, "right-paddle-top"),
+      (KEYS, SUPER_SHIFT, "s"),
+      (KEYS, ALONE, "print"),
+      (KEYS, ALONE, "selective-screenshot"),
+    ],
   },
   Task {
     slug: "scroll-down",
@@ -352,6 +370,42 @@ pub const JOBS: [Task; 83] = [
     action: Action::Mute,
     context: Context::Anywhere,
     bound: &[(KEYS, ALONE, "mute")],
+  },
+  Task {
+    slug: "mic-mute",
+    action: Action::MicMute,
+    context: Context::Anywhere,
+    bound: &[(KEYS, ALONE, "mic-mute")],
+  },
+  Task {
+    slug: "power-profile",
+    action: Action::PowerProfile,
+    context: Context::Anywhere,
+    bound: &[(KEYS, ALONE, "performance"), (KEYS, SUPER, "f8")],
+  },
+  Task {
+    slug: "play-pause",
+    action: Action::Media(Media::PlayPause),
+    context: Context::Anywhere,
+    bound: &[(KEYS, ALONE, "play-pause")],
+  },
+  Task {
+    slug: "next-track",
+    action: Action::Media(Media::Next),
+    context: Context::Anywhere,
+    bound: &[(KEYS, ALONE, "next-track")],
+  },
+  Task {
+    slug: "previous-track",
+    action: Action::Media(Media::Previous),
+    context: Context::Anywhere,
+    bound: &[(KEYS, ALONE, "previous-track")],
+  },
+  Task {
+    slug: "toggle-touchpad",
+    action: Action::Touchpad,
+    context: Context::Anywhere,
+    bound: &[(KEYS, ALONE, "touchpad-toggle")],
   },
   Task {
     slug: "wake",
@@ -429,7 +483,7 @@ pub const JOBS: [Task; 83] = [
     slug: "settings-screen",
     action: Action::SettingsAt("Display"),
     context: Context::Anywhere,
-    bound: &[(KEYS, SUPER_CONTROL, "d")],
+    bound: &[(KEYS, SUPER_CONTROL, "d"), (KEYS, ALONE, "display-switch")],
   },
   Task {
     slug: "settings-power",
@@ -526,6 +580,102 @@ pub const JOBS: [Task; 83] = [
     action: Action::Focus(Direction::Down),
     context: Context::OnTheDesktop,
     bound: &[(KEYS, SUPER, "down"), (KEYS, SUPER, "j")],
+  },
+  Task {
+    slug: "swap-window-left",
+    action: Action::Tile(TileChange::Swap(Direction::Left)),
+    context: Context::OnTheDesktop,
+    bound: &[(KEYS, SUPER_ALT, "h")],
+  },
+  Task {
+    slug: "resize-window-left",
+    action: Action::Tile(TileChange::Resize(Direction::Left)),
+    context: Context::OnTheDesktop,
+    bound: &[(KEYS, SUPER_CONTROL, "h")],
+  },
+  Task {
+    slug: "swap-window-down",
+    action: Action::Tile(TileChange::Swap(Direction::Down)),
+    context: Context::OnTheDesktop,
+    bound: &[(KEYS, SUPER_ALT, "j")],
+  },
+  Task {
+    slug: "resize-window-down",
+    action: Action::Tile(TileChange::Resize(Direction::Down)),
+    context: Context::OnTheDesktop,
+    bound: &[(KEYS, SUPER_CONTROL, "j")],
+  },
+  Task {
+    slug: "swap-window-up",
+    action: Action::Tile(TileChange::Swap(Direction::Up)),
+    context: Context::OnTheDesktop,
+    bound: &[(KEYS, SUPER_ALT, "k")],
+  },
+  Task {
+    slug: "resize-window-up",
+    action: Action::Tile(TileChange::Resize(Direction::Up)),
+    context: Context::OnTheDesktop,
+    bound: &[(KEYS, SUPER_CONTROL, "k")],
+  },
+  Task {
+    slug: "swap-window-right",
+    action: Action::Tile(TileChange::Swap(Direction::Right)),
+    context: Context::OnTheDesktop,
+    bound: &[(KEYS, SUPER_ALT, "l")],
+  },
+  Task {
+    slug: "resize-window-right",
+    action: Action::Tile(TileChange::Resize(Direction::Right)),
+    context: Context::OnTheDesktop,
+    bound: &[(KEYS, SUPER_CONTROL, "l")],
+  },
+  Task {
+    slug: "tile-above-left",
+    action: Action::Tile(TileChange::Place {
+      column: TileColumn::Left,
+      edge: TileEdge::Above,
+    }),
+    context: Context::OnTheDesktop,
+    bound: &[(KEYS, SUPER_ALT_SHIFT, "u")],
+  },
+  Task {
+    slug: "tile-above-right",
+    action: Action::Tile(TileChange::Place {
+      column: TileColumn::Right,
+      edge: TileEdge::Above,
+    }),
+    context: Context::OnTheDesktop,
+    bound: &[(KEYS, SUPER_ALT_SHIFT, "i")],
+  },
+  Task {
+    slug: "tile-below-left",
+    action: Action::Tile(TileChange::Place {
+      column: TileColumn::Left,
+      edge: TileEdge::Below,
+    }),
+    context: Context::OnTheDesktop,
+    bound: &[(KEYS, SUPER_ALT_SHIFT, "j")],
+  },
+  Task {
+    slug: "tile-below-right",
+    action: Action::Tile(TileChange::Place {
+      column: TileColumn::Right,
+      edge: TileEdge::Below,
+    }),
+    context: Context::OnTheDesktop,
+    bound: &[(KEYS, SUPER_ALT_SHIFT, "k")],
+  },
+  Task {
+    slug: "move-window-to-root",
+    action: Action::Tile(TileChange::MoveToRoot),
+    context: Context::OnTheDesktop,
+    bound: &[(KEYS, SUPER_ALT_SHIFT, "space")],
+  },
+  Task {
+    slug: "toggle-tile-split",
+    action: Action::Tile(TileChange::ToggleSplit),
+    context: Context::OnTheDesktop,
+    bound: &[(KEYS, SUPER_ALT, "space")],
   },
   Task {
     slug: "workspace-next",
@@ -792,6 +942,12 @@ impl Action {
       Action::Louder => "volume up",
       Action::Quieter => "volume down",
       Action::Mute => "mute and unmute",
+      Action::MicMute => "mute and unmute the microphone",
+      Action::PowerProfile => "cycle power modes",
+      Action::Media(Media::PlayPause) => "play or pause media",
+      Action::Media(Media::Next) => "play the next track",
+      Action::Media(Media::Previous) => "play the previous track",
+      Action::Touchpad => "enable or disable the touchpad",
       Action::Wake => "wake the screen",
       Action::GameMode => "switch to Steam Game Mode",
       Action::Browser => "open the browser",
@@ -816,6 +972,32 @@ impl Action {
       Action::Focus(Direction::Right) => "switch to the window on the right",
       Action::Focus(Direction::Up) => "switch to the window above",
       Action::Focus(Direction::Down) => "switch to the window below",
+      Action::Tile(TileChange::Swap(Direction::Left)) => "swap with the window on the left",
+      Action::Tile(TileChange::Swap(Direction::Right)) => "swap with the window on the right",
+      Action::Tile(TileChange::Swap(Direction::Up)) => "swap with the window above",
+      Action::Tile(TileChange::Swap(Direction::Down)) => "swap with the window below",
+      Action::Tile(TileChange::Resize(Direction::Left)) => "make the window narrower",
+      Action::Tile(TileChange::Resize(Direction::Right)) => "make the window wider",
+      Action::Tile(TileChange::Resize(Direction::Up)) => "make the window shorter",
+      Action::Tile(TileChange::Resize(Direction::Down)) => "make the window taller",
+      Action::Tile(TileChange::Place {
+        column: TileColumn::Left,
+        edge: TileEdge::Above,
+      }) => "move the window to the top of the left stack",
+      Action::Tile(TileChange::Place {
+        column: TileColumn::Left,
+        edge: TileEdge::Below,
+      }) => "move the window to the bottom of the left stack",
+      Action::Tile(TileChange::Place {
+        column: TileColumn::Right,
+        edge: TileEdge::Above,
+      }) => "move the window to the top of the right stack",
+      Action::Tile(TileChange::Place {
+        column: TileColumn::Right,
+        edge: TileEdge::Below,
+      }) => "move the window to the bottom of the right stack",
+      Action::Tile(TileChange::MoveToRoot) => "move the window out of its stack",
+      Action::Tile(TileChange::ToggleSplit) => "switch between side-by-side and stacked tiles",
       Action::Workspace(-1) => "previous desktop",
       Action::Workspace(_) => "next desktop",
       Action::Place(1) => "go to desktop 1",
@@ -873,6 +1055,7 @@ impl Action {
         | Action::Louder
         | Action::Quieter
         | Action::ScrollDown
+        | Action::Tile(TileChange::Resize(_))
         | Action::Tell(PadInput::Up | PadInput::Down | PadInput::Left | PadInput::Right)
     );
 
@@ -890,6 +1073,9 @@ impl Action {
         | Action::Louder
         | Action::Quieter
         | Action::Mute
+        | Action::MicMute
+        | Action::Media(_)
+        | Action::Touchpad
         | Action::Wake
     );
 
@@ -926,6 +1112,10 @@ impl Action {
       | Action::Louder
       | Action::Quieter
       | Action::Mute
+      | Action::MicMute
+      | Action::PowerProfile
+      | Action::Media(_)
+      | Action::Touchpad
       | Action::Wake
       | Action::GameMode
       | Action::Browser
@@ -945,6 +1135,7 @@ impl Action {
       | Action::CloseWindow
       | Action::Fullscreen
       | Action::Focus(_)
+      | Action::Tile(_)
       | Action::Workspace(_)
       | Action::Place(_)
       | Action::Payload(_)
@@ -985,6 +1176,12 @@ impl Action {
       Action::Louder => run_by_path(InternalProgram::Volume, &["up"]),
       Action::Quieter => run_by_path(InternalProgram::Volume, &["down"]),
       Action::Mute => run_by_path(InternalProgram::Volume, &["mute"]),
+      Action::MicMute => run_by_path(InternalProgram::Volume, &["mic-mute"]),
+      Action::PowerProfile => run_by_path(InternalProgram::Hotkey, &["power-profile"]),
+      Action::Media(Media::PlayPause) => run_by_path(InternalProgram::Hotkey, &["play-pause"]),
+      Action::Media(Media::Next) => run_by_path(InternalProgram::Hotkey, &["next-track"]),
+      Action::Media(Media::Previous) => run_by_path(InternalProgram::Hotkey, &["previous-track"]),
+      Action::Touchpad => run_by_path(InternalProgram::Hotkey, &["toggle-touchpad"]),
       Action::Wake => run_by_path(InternalProgram::Brightness, &["undim"]),
       Action::GameMode => run_by_name(InternalProgram::SessionGame, &[]),
       Action::Browser => run_by_path(InternalProgram::Browser, &[]),
@@ -1018,6 +1215,7 @@ impl Action {
       Action::CloseWindow => Ok(Some(Effect::Dispatch(CompositorAction::CloseWindow))),
       Action::Fullscreen => Ok(Some(Effect::Dispatch(CompositorAction::ToggleFullscreen))),
       Action::Focus(way) => Ok(Some(Effect::Dispatch(CompositorAction::Focus(way)))),
+      Action::Tile(change) => Ok(Some(Effect::Dispatch(CompositorAction::Tile(change)))),
       Action::Workspace(step) => moved(step, Payload::None),
       Action::Place(number) => at(number, Payload::None),
       Action::Payload(step) => moved(step, Payload::Window),
@@ -1081,7 +1279,7 @@ fn moved(step: i32, carrying: Payload) -> Result<Option<Effect>, Never> {
 }
 
 fn at(number: i64, carrying: Payload) -> Result<Option<Effect>, Never> {
-  let Ok(gone) = Effect::workspace(WorkspaceTarget::Number(number), carrying);
+  let Ok(gone) = Effect::workspace(WorkspaceTarget::Position(number), carrying);
 
   Ok(Some(gone))
 }
@@ -1114,8 +1312,89 @@ pub fn sends() -> Result<Vec<KeyCode>, Never> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MappedAction {
+  Builtin(Action),
+  SpecialWorkspace(String),
+}
+
+impl MappedAction {
+  pub fn says(&self) -> Result<Cow<'static, str>, Never> {
+    Ok(match self {
+      Self::Builtin(action) => {
+        let Ok(says) = action.says();
+        Cow::Borrowed(says)
+      }
+      Self::SpecialWorkspace(name) => {
+        Cow::Owned(format!("show or hide special workspace {name}"))
+      }
+    })
+  }
+
+  pub fn locked(&self) -> Result<LockBehavior, Never> {
+    match self {
+      Self::Builtin(action) => action.locked(),
+      Self::SpecialWorkspace(_) => Ok(LockBehavior::Unlocked),
+    }
+  }
+
+  pub fn repeats(&self) -> Result<RepeatMode, Never> {
+    match self {
+      Self::Builtin(action) => action.repeats(),
+      Self::SpecialWorkspace(_) => Ok(RepeatMode::Once),
+    }
+  }
+
+  pub fn does(&self, press: ButtonPress) -> Result<Option<Effect>, Never> {
+    match (self, press) {
+      (Self::Builtin(action), _) => action.does(press),
+      (Self::SpecialWorkspace(_), ButtonPress::Up) => Ok(None),
+      (Self::SpecialWorkspace(name), ButtonPress::Down) => run_by_path(
+        InternalProgram::Compositor,
+        &[console_compositor::quick_workspace::TOGGLE_NAMED, name],
+      ),
+    }
+  }
+}
+
+const SPECIAL_WORKSPACE_PREFIX: &str = "special-workspace-";
+
+fn special_name(name: &str) -> Result<Option<&str>, Never> {
+  Ok(bool::then_some(
+    !name.is_empty()
+      && name != console_compositor::quick_workspace::NAME
+      && !name.chars().any(char::is_control),
+    name,
+  ))
+}
+
+pub fn special_workspace_job(name: &str) -> Result<Option<String>, Never> {
+  let trimmed = name.trim();
+  let workspace = match trimmed.strip_prefix("special:") {
+    Some(workspace) => workspace,
+    None => trimmed,
+  };
+  let Ok(valid) = special_name(workspace);
+
+  Ok(valid.map(|named| format!("{SPECIAL_WORKSPACE_PREFIX}{named}")))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MappedTask {
+  pub slug: Cow<'static, str>,
+  pub action: MappedAction,
+  pub context: Context,
+  defaults: &'static [Bound],
+}
+
+impl MappedTask {
+  pub fn defaults(&self) -> Result<Vec<Binding>, Never> {
+    bindings_of(self.defaults)
+  }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Table {
-  bound: Vec<(&'static str, Vec<Binding>)>,
+  bound: Vec<(MappedTask, Vec<Binding>)>,
 }
 
 impl Default for Table {
@@ -1136,23 +1415,47 @@ impl Table {
   pub fn of(said: &Tasks) -> Result<Self, Never> {
     let Ok(jobs) = every();
 
+    let builtin = jobs.map(|job| {
+      let Ok(given) = said.bound(job.slug);
+
+      let bound = match given {
+        Some(moved) => moved.to_vec(),
+        None => {
+          let Ok(ours) = ours(job);
+
+          ours
+        }
+      };
+
+      (
+        MappedTask {
+          slug: Cow::Borrowed(job.slug),
+          action: MappedAction::Builtin(job.action),
+          context: job.context,
+          defaults: job.bound,
+        },
+        bound,
+      )
+    });
+    let special = said.moved.iter().filter_map(|(slug, bindings)| {
+      let suffix = slug.strip_prefix(SPECIAL_WORKSPACE_PREFIX);
+      let name = suffix?;
+      let Ok(valid) = special_name(name);
+      let workspace = valid?;
+
+      Some((
+        MappedTask {
+          slug: Cow::Owned(slug.clone()),
+          action: MappedAction::SpecialWorkspace(workspace.to_owned()),
+          context: Context::Anywhere,
+          defaults: &[],
+        },
+        bindings.clone(),
+      ))
+    });
+
     Ok(Table {
-      bound: jobs
-        .map(|job| {
-          let Ok(given) = said.bound(job.slug);
-
-          let bound = match given {
-            Some(moved) => moved.to_vec(),
-            None => {
-              let Ok(ours) = ours(job);
-
-              ours
-            }
-          };
-
-          (job.slug, bound)
-        })
-        .collect(),
+      bound: builtin.chain(special).collect(),
     })
   }
 
@@ -1161,17 +1464,18 @@ impl Table {
       self
         .bound
         .iter()
-        .find(|(named, _)| *named == slug)
+        .find(|(job, _)| job.slug == slug)
         .map_or(&[], |(_, bound)| bound.as_slice()),
     )
   }
 
-  pub fn every(&self) -> Result<impl Iterator<Item = (&'static Task, &[Binding])>, Never> {
-    Ok(self.bound.iter().filter_map(|(slug, bound)| {
-      let Ok(job) = job(slug);
-
-      job.map(|job_2| (job_2, bound.as_slice()))
-    }))
+  pub fn every(&self) -> Result<impl Iterator<Item = (&MappedTask, &[Binding])>, Never> {
+    Ok(
+      self
+        .bound
+        .iter()
+        .map(|(job, bound)| (job, bound.as_slice())),
+    )
   }
 
   pub fn what(
@@ -1180,8 +1484,8 @@ impl Table {
     held: &[&str],
     pressed: &str,
     mode: Mode,
-  ) -> Result<Option<&'static Task>, Never> {
-    let mut found: Option<(&'static Task, u32)> = None;
+  ) -> Result<Option<&MappedTask>, Never> {
+    let mut found: Option<(&MappedTask, u32)> = None;
     let Ok(every) = self.every();
 
     for (job, bound) in every {
@@ -1221,9 +1525,12 @@ impl Table {
 }
 
 pub fn ours(job: &Task) -> Result<Vec<Binding>, Never> {
+  bindings_of(job.bound)
+}
+
+fn bindings_of(bound: &[Bound]) -> Result<Vec<Binding>, Never> {
   Ok(
-    job
-      .bound
+    bound
       .iter()
       .map(|(on, held, pressed)| {
         let Ok(binding) = Binding::chord(*on, held, pressed);
@@ -1274,13 +1581,19 @@ mod tests {
   ) -> Result<Option<Action>, Never> {
     let Ok(found) = table.what(Input::Pad, held, pressed, mode);
 
-    Ok(found.map(|job| job.action))
+    Ok(found.and_then(|job| match job.action {
+      MappedAction::Builtin(action) => Some(action),
+      MappedAction::SpecialWorkspace(_) => None,
+    }))
   }
 
   fn typed(table: &Table, pressed: &str, held: &[&str]) -> Result<Option<Action>, Never> {
     let Ok(found) = table.what(Input::Keyboard, held, pressed, Mode::Desktop);
 
-    Ok(found.map(|job| job.action))
+    Ok(found.and_then(|job| match job.action {
+      MappedAction::Builtin(action) => Some(action),
+      MappedAction::SpecialWorkspace(_) => None,
+    }))
   }
 
   fn stated(written: &str) -> Result<Table, Failure> {
@@ -1569,12 +1882,12 @@ mod tests {
       "a pad has no digits"
     );
 
-    let Ok(third) = Effect::workspace(WorkspaceTarget::Number(3), Payload::None);
+    let Ok(third) = Effect::workspace(WorkspaceTarget::Position(3), Payload::None);
 
     assert_eq!(Action::Place(3).does(ButtonPress::Down), Ok(Some(third)));
     assert_eq!(Action::Place(10).says(), Ok("go to desktop 10"));
 
-    let Ok(carried) = Effect::workspace(WorkspaceTarget::Number(3), Payload::Window);
+    let Ok(carried) = Effect::workspace(WorkspaceTarget::Position(3), Payload::Window);
 
     assert_eq!(
       typed(&table, "3", &["super", "shift"]),
@@ -1645,7 +1958,10 @@ mod tests {
       typed(&table, "a", &["super", "ctrl"]),
       Ok(Some(Action::SettingsAt("Sound")))
     );
-    assert_eq!(typed(&table, "print", &[]), Ok(Some(Action::Screenshot)));
+    assert_eq!(
+      typed(&table, "print", &[]),
+      Ok(Some(Action::ScreenshotArea))
+    );
     assert_eq!(
       typed(&table, "s", SUPER_SHIFT),
       Ok(Some(Action::ScreenshotArea))

@@ -95,7 +95,13 @@ fn carry(effect: &Effect<DownloadsEffect>, showing: &dyn Showing) -> Result<(), 
       showing.replace(row_2)
     }
     Effect::Custom(DownloadsEffect::Refresh) => showing.refresh(),
-    Effect::Custom(DownloadsEffect::Note(said)) => showing.note(said),
+    Effect::Custom(DownloadsEffect::Notify(said)) => {
+      let Ok(()) = console_notifications::notify(
+        console_notifications::Application("Downloads"),
+        said,
+        None,
+      );
+    }
     Effect::Custom(DownloadsEffect::ForgetTyping) => showing.forget_typing(),
 
     Effect::Custom(
@@ -387,7 +393,7 @@ fn looking_for(
         effect_2 @ (Effect::Custom(
           DownloadsEffect::Replace(_)
           | DownloadsEffect::Refresh
-          | DownloadsEffect::Note(_)
+          | DownloadsEffect::Notify(_)
           | DownloadsEffect::ForgetTyping
           | DownloadsEffect::Retain(_),
         )

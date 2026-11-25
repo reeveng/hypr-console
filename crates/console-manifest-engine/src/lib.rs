@@ -7,9 +7,10 @@
 //! `machines` already does for an apply. A format is read in one place, so the
 //! reading is a library here and the program is built on it like any caller.
 //!
-//! Only the reading is in it. Installing, building and asking a machine
-//! anything stay in the program, where a test cannot start them by accident.
+//! The library also reads the generation records written during installation.
+//! Installing and building stay in the program.
 
+pub mod generations;
 pub mod machines;
 pub mod manifest;
 pub mod modes;

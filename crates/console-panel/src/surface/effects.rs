@@ -7,7 +7,7 @@ use console_core_never::Never;
 use console_core_number_conversion::fitted;
 use console_input_text::TextField;
 
-use super::{CardModel, Opened, Prompt, Secret, Sure, noted, nth, zoomed_to};
+use super::{CardModel, Opened, Prompt, Reveal, Secret, Sure, nth, stood_on, zoomed_to};
 use crate::marks;
 use crate::page::{Answer, Confirmation, Initial, Row, Showing, Subject};
 use crate::tasks::{self, Task};
@@ -47,7 +47,6 @@ struct Front {
   opened: Cell<Option<Opened>>,
   toggled: Cell<Toggled>,
   zoomed: Cell<Option<f64>>,
-  note: Cell<Option<String>>,
   asking: Cell<Option<Prompt>>,
   sure: Cell<Option<Sure>>,
   framed: Option<crate::zoom::Framed>,
@@ -71,7 +70,6 @@ impl Front {
       opened: Cell::new(None),
       toggled: Cell::new(Toggled::No),
       zoomed: Cell::new(None),
-      note: Cell::new(None),
       asking: Cell::new(None),
       sure: Cell::new(None),
       framed: None,
@@ -121,7 +119,6 @@ impl Front {
       opened,
       toggled,
       zoomed,
-      note,
       asking,
       sure,
       framed: _,
@@ -132,7 +129,10 @@ impl Front {
     } = self;
 
     match at.into_inner() {
-      Some(at_2) => state.at = Some(at_2),
+      Some(at_2) => {
+        state.at = Some(at_2);
+        state.reveal = Reveal::Focus;
+      }
       None => {}
     }
 
@@ -140,11 +140,7 @@ impl Front {
       Some(tab_2) => {
         let Ok(last) = fitted(state.pages.len().saturating_sub(1));
 
-        state.here = tab_2.min(last);
-        state.selected = Vec::new();
-        state.opened = Opened::No;
-        state.at = None;
-        state.scroll = 0;
+        let Ok(()) = stood_on(state, tab_2.min(last));
       }
       None => {}
     }
@@ -175,11 +171,6 @@ impl Front {
       Toggled::No => {}
     }
 
-    match note.into_inner() {
-      Some(said) => state.note = Some(said),
-      None => {}
-    }
-
     match asking.into_inner() {
       Some(asking_2) => {
         state.prompt_identity = state.prompt_identity.wrapping_add(1);
@@ -203,13 +194,11 @@ impl Front {
     }
 
     for task in started.into_inner() {
-      let Ok(notes) = tasks::start_from(&state.tasks, task, pressed.as_ref());
-      let Ok(()) = noted(state, notes);
+      let Ok(()) = tasks::start_from(&state.tasks, task, pressed.as_ref());
     }
 
     for command in interrupted.into_inner() {
-      let Ok(notes) = tasks::interrupt_from(&state.tasks, &command);
-      let Ok(()) = noted(state, notes);
+      let Ok(()) = tasks::interrupt_from(&state.tasks, &command);
     }
 
     Ok(())
@@ -275,10 +264,6 @@ impl Showing for Front {
     let mut interrupted = self.interrupted.take();
     interrupted.push(command.clone());
     self.interrupted.set(interrupted);
-  }
-
-  fn note(&self, said: &str) {
-    self.note.replace(Some(said.to_string()));
   }
 
   fn open_out(&self) {

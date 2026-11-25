@@ -1,16 +1,11 @@
 //! A card, in numbers: how wide, how far down, and how far along a reading is.
 //!
-//! The measurements are mako's own, because they were argued for once already
-//! and nothing about the screen has changed: the compositor draws a 768 by 480
-//! picture onto a 1920 by 1200 panel, so 320 wide is a little under half the
-//! room and 44 down clears the bar with six to spare. What is different is
-//! where they live. They were in a configuration file a daemon read at
-//! startup, beside colors a second stylesheet wrote; they are here, in the
-//! crate that draws the card, and the stylesheet is written out of them.
+//! The card sits in the top-right corner of the area the compositor leaves
+//! after reserving space for the bar. Its top and right margins are relative
+//! to that area.
 //!
-//! Three at once and no more. A fourth card would be a column of cards down
-//! the right of a screen someone is playing a game on, and what the fourth
-//! one says is already in the panel and in the bell.
+//! Three stacks fit at rest. Hovering opens a stack in place and shows up to
+//! three of its cards. The wheel can bring older cards in the stack into view.
 //!
 //! The fill is the one piece of arithmetic here that is not a constant. A
 //! reading -- the volume, the brightness, what is left in the battery -- is
@@ -37,8 +32,6 @@ pub use console_onscreen::NOTIFICATION as WHO;
 pub use console_core_color::palette::{PaletteError, SPENDS, Wearing};
 
 pub const WIDE: i32 = EM * 160 / 9;
-
-pub const DOWN: i32 = 44;
 
 pub const IN: i32 = EM * 4 / 9;
 
@@ -116,6 +109,110 @@ pub struct CardContent<'a> {
   pub urgency: Urgency,
   pub value: Option<i64>,
   pub actions: &'a [Action],
+  pub behind: u32,
+}
+
+#[derive(Clone, Copy)]
+pub struct Banner<'a> {
+  pub active: &'a crate::serving::ActiveNotification,
+  pub behind: u32,
+}
+
+struct Group<'a> {
+  application: Option<&'a str>,
+  active: Vec<&'a crate::serving::ActiveNotification>,
+}
+
+pub fn application(active: &crate::serving::ActiveNotification) -> Result<Option<&str>, Never> {
+  let name = active.notification.application.trim();
+
+  Ok(match (active.history, name) {
+    (crate::delivery::History::Keep, "") | (crate::delivery::History::Transient, _) => None,
+    (crate::delivery::History::Keep, application) => Some(application),
+  })
+}
+
+pub fn banners<'a>(
+  active: &[&'a crate::serving::ActiveNotification],
+  expanded: Option<&str>,
+  offset: u32,
+) -> Result<Vec<Banner<'a>>, Never> {
+  use std::collections::BTreeMap;
+
+  let mut positions = BTreeMap::<&str, u32>::new();
+  let mut groups: Vec<Group<'_>> = Vec::new();
+
+  for notice in active {
+    let Ok(name) = application(notice);
+    let found = name.and_then(|app| positions.get(app));
+    let group = match found {
+      Some(at) => {
+        let Ok(position) = index(*at);
+
+        groups.get_mut(position)
+      }
+      None => None,
+    };
+
+    match group {
+      Some(existing) => existing.active.push(notice),
+      None => {
+        match name {
+          Some(app) => {
+            let Ok(position) = fitted::<_, u32>(groups.len());
+            let _old = positions.insert(app, position);
+          }
+          None => {}
+        }
+
+        groups.push(Group {
+          application: name,
+          active: vec![notice],
+        });
+      }
+    }
+  }
+
+  let Ok(maximum) = index(MOST);
+  let mut banners = Vec::new();
+  let mut room = MOST;
+
+  for group in groups.iter().take(maximum) {
+    let Ok(placed) = fitted::<_, u32>(banners.len());
+
+    match (placed >= room).then_some(()) {
+      Some(()) => break,
+      None => {}
+    }
+
+    let Ok(count) = fitted::<_, u32>(group.active.len());
+
+    match (expanded.is_some() && group.application == expanded).then_some(()) {
+      Some(()) => {
+        room = room.max(placed.saturating_add(count.min(MOST)));
+        let Ok(first) = index(offset.min(count.saturating_sub(MOST)));
+        banners.extend(
+          group
+            .active
+            .iter()
+            .skip(first)
+            .take(maximum)
+            .map(|notice| Banner {
+              active: notice,
+              behind: 0,
+            }),
+        );
+      }
+      None => {
+        banners.extend(group.active.first().map(|notice| Banner {
+          active: notice,
+          behind: count.saturating_sub(1),
+        }));
+      }
+    }
+  }
+
+  Ok(banners)
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -418,11 +515,37 @@ pub fn cards(said: &[(CardContent<'_>, Measured)], wearing: &Wearing) -> Result<
   let mut touching = Vec::new();
   let mut down: u32 = 0;
 
-  let Ok(most) = index(MOST);
-
-  for (saying, measured) in said.iter().take(most) {
+  for (saying, measured) in said {
     let Ok(at) = fitted::<u32, i32>(down);
     let Ok(card) = card(saying, measured, wearing, Point { x: 0, y: at });
+    let mut height = card.height;
+    let layers = saying.behind.min(2);
+    let Ok(worn) = worn(wearing, saying.urgency);
+
+    for layer in (1..=layers).rev() {
+      let inset = layer.saturating_mul(6);
+      let rise = layer.saturating_mul(4);
+      let Ok(x) = fitted::<u32, i32>(inset);
+      let Ok(y) = fitted::<u32, i32>(rise);
+      let Ok(round) = fitted::<i32, u32>(ROUND);
+      height = height.max(card.height.saturating_add(rise));
+      shapes.push(Shape::Panel(Panel {
+        at: Point {
+          x,
+          y: at.saturating_add(y),
+        },
+        size: Size {
+          width: wide.saturating_sub(inset.saturating_mul(2)),
+          height: card.height,
+        },
+        round: Round(round),
+        fill: wearing.panel,
+        edge: Border::Of {
+          wide: 1,
+          color: worn.edge,
+        },
+      }));
+    }
 
     touching.extend(card.buttons);
     touching.push(HitRegion {
@@ -435,7 +558,7 @@ pub fn cards(said: &[(CardContent<'_>, Measured)], wearing: &Wearing) -> Result<
         at: Point { x: 0, y: at },
         size: Size {
           width: wide,
-          height: card.height,
+          height,
         },
         round: Round(0),
         fill: wearing.panel,
@@ -446,7 +569,7 @@ pub fn cards(said: &[(CardContent<'_>, Measured)], wearing: &Wearing) -> Result<
 
     let Ok(gap) = gap();
 
-    down = down.saturating_add(card.height).saturating_add(gap);
+    down = down.saturating_add(height).saturating_add(gap);
   }
 
   let Ok(gap) = gap();
@@ -544,6 +667,7 @@ mod tests {
     urgency: Urgency::Normal,
     value: None,
     actions: &[],
+    behind: 0,
   };
 
   #[test]
@@ -699,16 +823,16 @@ mod tests {
   }
 
   #[test]
-  fn no_more_than_three_cards_are_ever_drawn() -> Result<(), PaletteError> {
+  fn every_visible_card_is_drawn_and_can_be_clicked() -> Result<(), PaletteError> {
     let wearing = wearing()?;
-    let said: Vec<(CardContent<'_>, Measured)> = (0..6).map(|_| (SAYING, MEASURED)).collect();
+    let said: Vec<_> = (0..4).map(|_| (SAYING, MEASURED)).collect();
     let Ok(stack) = cards(&said, &wearing);
 
     let Ok(shapes) = fitted::<_, u32>(stack.shapes.len());
     let Ok(touching) = fitted::<_, u32>(stack.touching.len());
 
-    assert_eq!(shapes, MOST.saturating_mul(2));
-    assert_eq!(touching, MOST);
+    assert_eq!(shapes, 8);
+    assert_eq!(touching, 4);
 
     Ok(())
   }
@@ -832,5 +956,64 @@ mod the_stack {
     );
 
     Ok(())
+  }
+
+  #[test]
+  fn one_application_stacks_and_expands_its_newest_notices() {
+    use crate::delivery::History;
+    use crate::saying::Expiry;
+    use crate::serving::{Holding, Request};
+
+    let mut holding = Holding::default();
+
+    for (application, summary, history) in [
+      ("Files", "First", History::Keep),
+      ("Browser", "Separate", History::Keep),
+      ("Files", "Second", History::Keep),
+      ("Files", "Third", History::Keep),
+      ("Files", "Fourth", History::Keep),
+      ("Files", "Temporary", History::Transient),
+      ("Music", "Now Playing", History::Keep),
+    ] {
+      let Ok(_armed) = holding.raised(&Request {
+        application: application.to_owned(),
+        summary: summary.to_owned(),
+        body: String::new(),
+        urgency: Urgency::Normal,
+        expiry: Expiry::Stays,
+        history,
+        replacing: 0,
+        value: None,
+        actions: Vec::new(),
+      });
+    }
+
+    let Ok(visible) = holding.visible();
+    let Ok(collapsed) = banners(&visible, None, 0);
+    let cards: Vec<_> = collapsed
+      .iter()
+      .map(|banner| (banner.active.notification.summary.as_str(), banner.behind))
+      .collect();
+    assert_eq!(cards, [("Now Playing", 0), ("Temporary", 0), ("Fourth", 3)]);
+
+    let Ok(expanded) = banners(&visible, Some("Files"), 0);
+    let summaries: Vec<_> = expanded
+      .iter()
+      .map(|banner| banner.active.notification.summary.as_str())
+      .collect();
+    assert_eq!(
+      summaries,
+      ["Now Playing", "Temporary", "Fourth", "Third", "Second"]
+    );
+
+    let Ok(scrolled) = banners(&visible, Some("Files"), 1);
+    let older: Vec<_> = scrolled
+      .iter()
+      .map(|banner| banner.active.notification.summary.as_str())
+      .collect();
+    assert_eq!(
+      older,
+      ["Now Playing", "Temporary", "Third", "Second", "First"]
+    );
   }
 }

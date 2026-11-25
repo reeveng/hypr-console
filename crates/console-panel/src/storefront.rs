@@ -3,10 +3,8 @@
 mod dialog;
 mod listing;
 
-pub use dialog::{DetailActions, Dialog, DialogBody, Topic, dialog};
-pub use listing::{
-  Catalogue, Entry, EntryLayout, Feature, Introduction, Search, Sidebar, catalogue,
-};
+pub use dialog::{DetailActions, Dialog, DialogBody, dialog};
+pub use listing::{Catalogue, Entry, Introduction, Search, catalogue};
 
 use console_core_color::palette::Wearing;
 use console_core_geometry::{Point, Size};
@@ -30,8 +28,14 @@ pub struct Message<'a> {
   pub detail: Option<&'a str>,
 }
 
+pub enum NoticeTone {
+  Neutral,
+  Error,
+}
+
 pub struct Notice<'a, A> {
   pub message: Message<'a>,
+  pub tone: NoticeTone,
   pub details: Option<Link<'a, A>>,
   pub reply: Option<Link<'a, A>>,
 }
@@ -40,6 +44,7 @@ pub struct Frame<A> {
   pub canvas: canvas::Frame<A>,
   pub caret: Option<Part>,
   pub scroll_area: Area,
+  pub entries: Vec<(A, Area)>,
 }
 
 impl<A> Default for Frame<A> {
@@ -48,6 +53,7 @@ impl<A> Default for Frame<A> {
       canvas: canvas::Frame::default(),
       caret: None,
       scroll_area: Area::default(),
+      entries: Vec::new(),
     }
   }
 }

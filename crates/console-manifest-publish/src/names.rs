@@ -1,33 +1,12 @@
-//! What a copy is not allowed to say, and how it is found out.
-//!
-//! This used to hold the answers: a person's name, their machine's name on the
-//! network, and their controller's serial, written down so the copy could have
-//! them taken out on the way past. That worked, and it meant the one file whose
-//! job was to keep those three things out of a published repository was the one
-//! file in the repository that had all three of them in it.
-//!
-//! Nothing in the tree says any of them now. The manifest writes `@user@` and
-//! the machine fills it in, the device's address is read from `CONSOLE_HOST`,
-//! and the capture records no serial. So there is nothing left to take out, and
-//! what is left to do is make sure it stays that way.
-//!
-//! This asks rather than remembers. The names to watch for are gathered when a
-//! copy is built: whoever is building it, whatever the device calls itself, and
-//! whoever the device belongs to. A copy that says one of them is a copy that is
-//! refused, and none of them is written down here or anywhere else.
-//!
-//! It asks for every one of them in any case and in any file. A name is the
-//! same name written with a capital, and the builder's own account name and
-//! the author git signs commits with differ in exactly that. A file that is not
-//! text is still bytes, and a picture or an archive made in somebody's home can
-//! carry that home in it, so nothing is skipped for failing to be UTF-8. A
-//! question that could not be answered -- a local program that would not run, a
-//! device that said only half of what it was asked -- is said as a name that
-//! was not checked for, rather than being left out quietly and read as a clean
-//! copy.
+//! Scan the export for known personal identifiers collected on the build
+//! machine or supplied in a private file. Match raw bytes in both paths and
+//! contents so a binary file with an embedded home path can be checked too.
 
-use console_core_external_programs::Program;
 use console_core_never::Never;
+
+mod identity;
+
+pub use identity::forbidden_names;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Watched {
@@ -49,174 +28,6 @@ fn push(names: &mut Vec<Watched>, found: Watched) -> Result<(), Never> {
   Ok(())
 }
 
-fn asked_here(
-  names: &mut Vec<Watched>,
-  missing: &mut Vec<String>,
-  question: Question,
-) -> Result<(), Never> {
-  let Question {
-    program,
-    rest,
-    what,
-  } = question;
-  let Ok(answer) = run_output(program, rest);
-
-  match answer {
-    Some(answer_2) => push(
-      names,
-      Watched {
-        name: answer_2,
-        what,
-      },
-    ),
-    None => {
-      missing.push(format!(
-        "this machine would not say {what}, so it was not checked for."
-      ));
-
-      Ok(())
-    }
-  }
-}
-
-#[derive(Debug, Clone, Copy)]
-struct Question<'a> {
-  program: Program,
-  rest: &'a [&'a str],
-  what: &'static str,
-}
-
-const ON_THE_DEVICE: [&str; 2] = ["the device", "whoever the device belongs to"];
-
-pub fn forbidden_names() -> Result<(Vec<Watched>, Vec<String>), Never> {
-  let mut names = Vec::new();
-  let mut missing = Vec::new();
-
-  let Ok(()) = asked_here(
-    &mut names,
-    &mut missing,
-    Question {
-      program: Program::Id,
-      rest: &["-un"],
-      what: "whoever is building this",
-    },
-  );
-  let Ok(()) = asked_here(
-    &mut names,
-    &mut missing,
-    Question {
-      program: Program::Hostname,
-      rest: &[],
-      what: "what this machine calls itself",
-    },
-  );
-
-  let told = console_device_name::device();
-
-  let at = match told {
-    Err(fault) => {
-      missing.push(format!(
-        "{fault}, so the device's own name and the name of whoever it \
-                 belongs to were not checked for."
-      ));
-
-      return Ok((names, missing));
-    }
-    Ok(at) => at,
-  };
-
-  match ::core::primitive::bool::then_some(at.trim().is_empty(), ()) {
-    ::core::option::Option::Some(()) => {
-      missing.push(
-        "CONSOLE_HOST is not set, so the device's own name and the name of \
-                 whoever it belongs to were not checked for."
-          .to_string(),
-      );
-
-      return Ok((names, missing));
-    }
-    ::core::option::Option::None => {}
-  }
-
-  let named = match at.rsplit('@').next() {
-    Some(named) => named,
-    None => at.as_str(),
-  };
-
-  let Ok(()) = push(
-    &mut names,
-    Watched {
-      name: named.to_string(),
-      what: "the device",
-    },
-  );
-
-  let remote = |command: &str| {
-    let Ok(answer) = run_output(
-      Program::Ssh,
-      &[
-        "-o",
-        "BatchMode=yes",
-        "-o",
-        "ConnectTimeout=5",
-        "--",
-        &at,
-        command,
-      ],
-    );
-
-    answer
-  };
-  let Ok(hostname) = Program::Hostname.name();
-  let hostname_2 = remote(hostname);
-  let Ok(homes) = console_device_name::homes_command();
-  let listed = remote(&homes);
-  let Ok(home) = match listed.as_deref() {
-    Some(directories) => console_device_name::sole_home(directories),
-    None => Ok(None),
-  };
-  let owner = match home {
-    Some(name) => Some(name.to_owned()),
-    None => {
-      let Ok(fallback) = console_device_name::fallback_command();
-
-      match remote(&fallback) {
-        Some(output) => {
-          let Ok(name) = console_device_name::account(&output);
-
-          name.map(str::to_owned)
-        }
-        None => None,
-      }
-    }
-  };
-
-  let hostname_3 = hostname_2
-    .as_deref()
-    .map(str::trim)
-    .filter(|name| !name.is_empty());
-  let answered = [hostname_3, owner.as_deref()];
-
-  for (which, what) in ON_THE_DEVICE.iter().enumerate() {
-    match answered.get(which).copied().flatten() {
-      Some(said) => {
-        let Ok(()) = push(
-          &mut names,
-          Watched {
-            name: said.to_owned(),
-            what,
-          },
-        );
-      }
-      None => missing.push(format!(
-        "{at} did not say {what}, so it was not checked for."
-      )),
-    }
-  }
-
-  Ok((names, missing))
-}
-
 pub fn leaks<'a>(text: &[u8], names: &'a [Watched]) -> Result<Option<&'a Watched>, Never> {
   Ok(names.iter().find(|watched| {
     let Ok(says) = says(text, Name(watched.name.as_bytes()));
@@ -233,18 +44,22 @@ fn says(text: &[u8], name: Name<'_>) -> Result<Spelling, Never> {
 
   let said = match name_2.len() {
     0 => false,
-    long => text.windows(long.max(1)).enumerate().any(|(at, window)| {
-      let before = at
-        .checked_sub(1)
-        .and_then(|before| text.get(before).copied());
-      let after = text.get(at.saturating_add(long)).copied();
-      let alone = ![before, after]
-        .into_iter()
-        .flatten()
-        .any(|byte| byte.is_ascii_alphanumeric() || byte == b'_');
+    long => text
+      .windows(long.max(1))
+      .enumerate()
+      .filter(|(_, window)| window.eq_ignore_ascii_case(name_2))
+      .any(|(at, _)| {
+        let before = at
+          .checked_sub(1)
+          .and_then(|before| text.get(before).copied());
+        let after = text.get(at.saturating_add(long)).copied();
+        let alone = ![before, after]
+          .into_iter()
+          .flatten()
+          .any(|byte| byte.is_ascii_alphanumeric() || byte == b'_');
 
-      alone && window.eq_ignore_ascii_case(name_2)
-    }),
+        alone
+      }),
   };
 
   Ok(match ::core::primitive::bool::then_some(said, ()) {
@@ -257,26 +72,6 @@ fn says(text: &[u8], name: Name<'_>) -> Result<Spelling, Never> {
 enum Spelling {
   TheName,
   JustLetters,
-}
-
-fn run_output(program: Program, rest: &[&str]) -> Result<Option<String>, Never> {
-  let Ok(mut asking) = program.command();
-
-  let done = match asking.args(rest).output() {
-    Ok(done) => done,
-    Err(_would_not_run) => return Ok(None),
-  };
-
-  let text = match String::from_utf8(done.stdout) {
-    Ok(text) => text,
-    Err(_unreadable_name) => return Ok(None),
-  };
-  let answer = text.trim();
-
-  Ok(match (done.status.success(), answer.is_empty()) {
-    (true, false) => Some(answer.to_owned()),
-    (true, true) | (false, true) | (false, false) => None,
-  })
 }
 
 #[cfg(test)]
@@ -391,31 +186,5 @@ mod tests {
       names.iter().map(|w| w.name.as_str()).collect::<Vec<_>>(),
       vec!["ada"]
     );
-  }
-
-  #[test]
-  fn a_question_that_could_not_be_answered_is_said_rather_than_skipped() {
-    let mut names = Vec::new();
-    let mut missing = Vec::new();
-
-    let Ok(()) = asked_here(
-      &mut names,
-      &mut missing,
-      Question {
-        program: Program::Id,
-        rest: &["-un", "nobody-by-this-name-at-all"],
-        what: "whoever is building this",
-      },
-    );
-
-    assert!(names.is_empty(), "{names:?}");
-    assert_eq!(missing.len(), 1, "{missing:?}");
-  }
-
-  #[test]
-  fn this_machine_can_be_asked_who_it_is() {
-    let Ok((names, _)) = forbidden_names();
-
-    assert!(!names.is_empty(), "nothing could be asked of this machine");
   }
 }

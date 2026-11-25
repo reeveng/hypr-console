@@ -15,6 +15,7 @@ pub mod looking;
 pub mod management;
 pub mod player;
 pub mod review;
+pub mod scan;
 pub mod suggestions;
 pub mod update;
 

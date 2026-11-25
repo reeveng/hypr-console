@@ -51,26 +51,47 @@ pub enum Suite {
   Unit,
   #[words(word = "integration")]
   Integration,
+  #[words(word = "architecture")]
+  Architecture,
+  #[words(word = "vocabulary")]
+  Vocabulary,
+  #[words(word = "rasterizer")]
+  Rasterizer,
+  #[words(word = "night-light")]
+  NightLight,
+  #[words(word = "kernel-gpu-checksums")]
+  KernelGpuChecksums,
+  #[words(word = "system-gpu-compute")]
+  SystemGpuCompute,
   #[words(word = "e2e-desktop")]
   Desktop,
   #[words(word = "e2e-panels")]
   Panels,
   #[words(word = "e2e-live")]
   Live,
+  #[words(word = "e2e-wayland")]
+  Wayland,
+  #[words(word = "e2e-media")]
+  Media,
   #[words(word = "browser-chromium")]
   Chromium,
   #[words(word = "browser")]
   Browser,
+  #[words(word = "browser-servo")]
+  Servo,
 }
 
 pub const QUICK: [Suite; 2] = [Suite::Unit, Suite::Integration];
 
-pub const E2E: [Suite; 5] = [
+pub const E2E: [Suite; 8] = [
   Suite::Desktop,
   Suite::Panels,
   Suite::Live,
+  Suite::Wayland,
+  Suite::Media,
   Suite::Chromium,
   Suite::Browser,
+  Suite::Servo,
 ];
 
 impl Subcommand for Task {

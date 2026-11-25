@@ -45,27 +45,47 @@ use console_core_never::Never;
 use console_core_number_conversion::index;
 use console_core_state_machine::{Machine, Transition};
 use console_input_bindings::bound::{Binding, EVERY, Input};
+use console_input_controller::actions::{MappedAction, Table};
 use console_input_controller::mode::{Focused, Mode, WakeState};
 use console_panel::card::{Card, Door};
-use console_panel::page::{ActionOutcome, Aside, Handler, Page, Row, Rows, Showing, Subject};
-use console_program_contract::{Effect, Event, FileWrite};
+use console_panel::page::{
+  ActionOutcome, Answer, Aside, Handler, Initial, Page, Row, Rows, Showing, Subject,
+};
+use console_program_contract::{Effect, Event, ExitStatus, FileWrite, Notification};
 
 const DOOR: &str = "buttons";
 
 fn press(setting: &Setting, heard: MappingEvent, showing: &dyn Showing) -> Result<(), Never> {
-  let Ok(Transition { state: _, effects }) =
+  let Ok(Transition { state, effects }) =
     Setup::transition(setting.clone(), Event::Custom(heard));
 
   for effect in &effects {
-    let Ok(()) = carry(effect, showing);
+    let Ok(()) = carry(effect, &state, showing);
   }
 
   Ok(())
 }
 
-fn carry(effect: &Effect<MappingEffect>, showing: &dyn Showing) -> Result<(), Never> {
+fn carry(
+  effect: &Effect<MappingEffect>,
+  setting: &Setting,
+  showing: &dyn Showing,
+) -> Result<(), Never> {
   match effect {
-    Effect::Custom(MappingEffect::Note(said)) => showing.note(said),
+    Effect::Custom(MappingEffect::Notify(said)) => {
+      let Ok(()) = console_notifications::notify(
+        console_notifications::Application("Controller Mapping"),
+        said,
+        None,
+      );
+    }
+    Effect::Notify(notice) => {
+      let Ok(()) = console_notifications::notify(
+        console_notifications::Application("Controller Mapping"),
+        &notice.summary,
+        notice.body.as_deref(),
+      );
+    }
 
     Effect::Custom(MappingEffect::Sure) => {
       let Ok(putting) = putting_back();
@@ -80,15 +100,57 @@ fn carry(effect: &Effect<MappingEffect>, showing: &dyn Showing) -> Result<(), Ne
       );
     }
 
+    Effect::Custom(MappingEffect::AskForWorkspaceName) => {
+      let waiting = setting.clone();
+      #[cfg_attr(
+        dylint_lib = "explicit081_no_shared_ownership",
+        expect(
+          explicit081_no_shared_ownership,
+          reason = "the panel retains its text-prompt callback"
+        )
+      )]
+      let answer: Answer = std::sync::Arc::new(move |page, name| {
+        let Ok(()) = press(
+          &waiting,
+          MappingEvent::SpecialWorkspaceNamed(name.to_owned()),
+          page,
+        );
+      });
+
+      showing.ask_aloud("Special workspace name", Initial(""), answer);
+    }
+
+    Effect::Custom(MappingEffect::RegisterSpecialWorkspace(command)) => {
+      let Ok(task) = console_panel::tasks::Task::of(command.clone());
+      let Ok(attributed) = task.from_application(console_notifications::Application("Buttons"));
+      let Ok(register) = attributed.then(|answer| {
+        Ok(match answer.status {
+          ExitStatus::Success | ExitStatus::Interrupt => None,
+          ExitStatus::Failure(_) => Some(Notification {
+            summary: "Could not add the special workspace shortcut".to_owned(),
+            body: Some(answer.error_output.trim().to_owned()),
+          }),
+        })
+      });
+
+      showing.run(register);
+    }
+
     Effect::Run(runs) => {
       let Ok(task) = console_panel::tasks::Task::of(runs.clone());
 
       showing.run(task);
     }
 
-    Effect::Write(writing) => match wrote(writing) {
+    Effect::Write(writing) => match table::write_contents(&writing.path, &writing.contents) {
       Ok(()) => {}
-      Err(fault) => showing.note(&fault.to_string()),
+      Err(fault) => {
+        let Ok(()) = console_notifications::notify(
+          console_notifications::Application("Controller Mapping"),
+          "Could not save controller mappings",
+          Some(&fault.to_string()),
+        );
+      }
     },
 
     Effect::Stream(_)
@@ -98,23 +160,11 @@ fn carry(effect: &Effect<MappingEffect>, showing: &dyn Showing) -> Result<(), Ne
     | Effect::Spawn(_)
     | Effect::Subscribe(_)
     | Effect::Unsubscribe(_)
-    | Effect::Notify(_)
     | Effect::Print(_)
     | Effect::Stop(_) => {}
   }
 
   Ok(())
-}
-
-fn wrote(writing: &FileWrite) -> Result<(), Unmapped> {
-  match writing.path.parent() {
-    Some(holding) => std::fs::create_dir_all(holding)
-      .map_err(|fault| Unmapped::Holding(holding.to_path_buf(), fault))?,
-    None => {}
-  }
-
-  console_core_atomic_writes::whole(&writing.path, writing.contents.as_bytes())
-    .map_err(Unmapped::Writing)
 }
 
 fn wrote_initial(writing: &FileWrite) -> Result<(), Unmapped> {
@@ -184,14 +234,23 @@ fn changing(part: &Part) -> Result<Row, Never> {
 }
 
 fn removed(part: &Part, binding: &Binding, showing: &dyn Showing) -> Result<(), Never> {
-  let Ok(mut jobs) = table::read();
-  let Ok(table) = table::table();
-  let Ok(every) = every(&table);
-  let Ok(()) = jobs.remove(&every, &part.slug, binding);
+  let changed = table::change(|jobs| {
+    let Ok(current) = Table::of(jobs);
+    let Ok(every) = every(&current);
+    let Ok(()) = jobs.remove(&every, &part.slug, binding);
 
-  match table::write(&jobs) {
+    Ok(table::Change::Save(()))
+  });
+
+  match changed {
     Ok(()) => showing.refresh(),
-    Err(fault) => showing.note(&fault.to_string()),
+    Err(fault) => {
+      let Ok(()) = console_notifications::notify(
+        console_notifications::Application("Controller Mapping"),
+        "Could not remove the controller binding",
+        Some(&fault.to_string()),
+      );
+    }
   }
 
   Ok(())
@@ -204,13 +263,27 @@ fn puts_it_all_back() -> Result<Handler, Never> {
   })
 }
 
+fn add_special_workspace() -> Result<Row, Never> {
+  let Ok(handler) = Handler::and_stay(|showing| {
+    let Ok(setting) = putting_back();
+    let Ok(()) = press(&setting, MappingEvent::AddSpecialWorkspace, showing);
+  });
+
+  Row::new("Add Special Workspace", Aside(""), handler)
+}
+
 fn one_input(on: Input) -> Result<Vec<Row>, Never> {
   let Ok(table) = table::table();
   let Ok(front) = table::front();
-  let Ok(parts) = parts(&table, &front, on);
+  let Ok(mut parts) = parts(&table, &front, on);
   let Ok(back) = puts_it_all_back();
 
-  rows(
+  parts.sort_by_key(|part| match part.action {
+    MappedAction::SpecialWorkspace(_) => 0,
+    MappedAction::Builtin(_) => 1,
+  });
+
+  let Ok(mut listed) = rows(
     &parts,
     |part| {
       let Ok(row) = changing(part);
@@ -218,7 +291,11 @@ fn one_input(on: Input) -> Result<Vec<Row>, Never> {
       row
     },
     back,
-  )
+  );
+  let Ok(add) = add_special_workspace();
+
+  listed.insert(0, add);
+  Ok(listed)
 }
 
 fn pages() -> Result<Vec<Page>, Never> {

@@ -9,6 +9,7 @@ use std::process::Command;
 use console_applications::launch;
 use console_core_never::Never;
 use console_core_number_conversion::fixed_index;
+use console_panel::icons::{EVERY, Icon};
 use serde::{Deserialize, Deserializer, de};
 
 use crate::preferences::{Preferences, Visibility};
@@ -39,6 +40,8 @@ pub fn live_folder() -> Result<Option<PathBuf>, Never> {
 struct Manifest {
   name: Text,
   text: Option<Text>,
+  #[serde(rename = "settings-icon")]
+  settings_icon: Option<Text>,
   application: Option<DesktopEntry>,
   #[serde(default, rename = "requires-application")]
   requires_application: ApplicationRequirement,
@@ -125,6 +128,7 @@ impl AsRef<Path> for LiveName {
 pub struct Applet {
   pub id: String,
   pub name: String,
+  pub settings_icon: Icon,
   live_name: LiveName,
   text: String,
   application: Application,
@@ -184,6 +188,16 @@ fn manifest(at: &Path, id: &str) -> io::Result<Option<Applet>> {
   };
   let manifest: Manifest = serde_json::from_str(&text)?;
   let name = manifest.name.0;
+  let named_icon = manifest.settings_icon.and_then(|Text(named)| {
+    EVERY
+      .iter()
+      .copied()
+      .find(|icon| icon.name() == Ok(named.as_str()))
+  });
+  let settings_icon = match named_icon {
+    Some(icon) => icon,
+    None => Icon::Applet,
+  };
   let fallback = match manifest.text {
     Some(text_2) => text_2.0,
     None => {
@@ -218,6 +232,7 @@ fn manifest(at: &Path, id: &str) -> io::Result<Option<Applet>> {
   Ok(Some(Applet {
     id: id.to_owned(),
     name,
+    settings_icon,
     live_name: LiveName(format!("{id}.txt")),
     text: fallback,
     application,
@@ -527,7 +542,7 @@ mod tests {
     assert_eq!(
       dot.spans,
       [Span {
-        text: "•".to_owned(),
+        text: "●".to_owned(),
         face: Face::Reading
       }]
     );

@@ -1,6 +1,7 @@
 {
   "name": "OBS stream status",
-  "text": "•",
+  "text": "●",
+  "settings-icon": "camera-video-symbolic",
   "application": "com.obsproject.Studio.desktop",
   "requires-application": true,
   "states": {

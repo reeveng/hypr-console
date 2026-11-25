@@ -10,14 +10,14 @@
 | Steam Game Mode switching | `console-session-cachyos` implements `console-session::SwitchBackend`. It builds the installed session buttons and the Steam compatibility switcher. The handheld profile in `machines.conf` supplies the Gamescope configuration and systemd units. |
 | Next login session | `console-session-plasma` implements `console-session::LoginBackend`. The login window links it to read the PlasmaLogin autologin selection written during the Steam handoff. |
 | `pacman` | `console-package-manager-pacman` through `console-package-manager::system`. The package list and handheld policy live in the deployment manifests. |
-| `nix` | `console-package-manager-nix` through `console-package-manager::user`. The Software Store supplies the path to its per-user profile. |
+| `nix` | `console-package-manager-nix` through `console-package-manager::user`. The Console Store supplies the path to its per-user profile. |
 | `mise` | `console-package-manager-mise` through `console-package-manager::tools`. `just dev-tools` uses the checkout's `mise.toml` and `mise.lock`. |
 | Selecting the next boot entry | `console-boot-entries` owns `bootctl set-oneshot`. The boot-complete and recovery units use `bootctl set-timeout-oneshot` separately to manage boot-menu visibility. |
 | `notify-send` | `console-operating-system-linux::notification`. The notifications integration check exercises the external client separately. |
 | D-Bus | `console-bus` owns the native transport and the remaining `busctl` commands. The notifications integration check uses `gdbus` as an external peer. |
 | InputPlumber | `console-input-gamepad::front` owns profile queries and changes, device queries, and button chord commands. The Legion Go device override and game profile are installed by `machines.conf`. |
 
-The ownership tests in `crates/console-architecture/tests/dependencies` read the current source and configuration. They check named Rust program variants, common literal executable arguments, and direct Cargo Wayland dependencies. They also check commands in systemd units and drop-ins, desktop entries, Hypridle and Lua hooks, and Nix bootstrap configuration. Run `cargo test -p console-architecture --test the_rules dependencies` to check them without rebuilding the architecture map.
+The ownership tests in `crates/console-architecture/tests/dependencies` read the current source and configuration. They check named Rust program variants, common literal executable arguments, and direct Cargo Wayland dependencies. They also check commands in systemd units and drop-ins, desktop entries, Hypridle and Lua hooks, and Nix bootstrap configuration. Run `just map-check` to check the saved map and its rules in a NixOS guest.
 
 ## Checking availability
 

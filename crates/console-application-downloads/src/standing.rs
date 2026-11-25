@@ -134,7 +134,7 @@ pub enum DownloadsEvent {
 pub enum DownloadsEffect {
   Replace(u32),
   Refresh,
-  Note(String),
+  Notify(String),
   ForgetTyping,
   Search { tab: u32, kind: Kind, query: Search },
   Cancel { tab: u32, id: SearchId },
@@ -144,7 +144,8 @@ pub enum DownloadsEffect {
 impl EffectDependencies for DownloadsEffect {
   fn services(&self) -> Result<&'static [Service], Never> {
     Ok(match self {
-      Self::Replace(_) | Self::Refresh | Self::Note(_) | Self::ForgetTyping => &[Service::Panels],
+      Self::Notify(_) => &[Service::Notifications],
+      Self::Replace(_) | Self::Refresh | Self::ForgetTyping => &[Service::Panels],
       Self::Search { .. } | Self::Cancel { .. } => &[Service::Process],
       Self::Retain(_) => &[],
     })
@@ -397,20 +398,20 @@ fn fetching(
 
   Ok(match (kind, have) {
     (Kind::Book, Have::It) => vec![
-      Effect::Custom(DownloadsEffect::Note(format!(
+      Effect::Custom(DownloadsEffect::Notify(format!(
         "Downloading {} again to {into}",
         found.title
       ))),
       Effect::Run(getting),
     ],
     (Kind::Sound | Kind::Film, Have::It) => {
-      vec![Effect::Custom(DownloadsEffect::Note(format!(
+      vec![Effect::Custom(DownloadsEffect::Notify(format!(
         "{} is already in {into}",
         found.title
       )))]
     }
     (Kind::Sound | Kind::Film | Kind::Book, Have::Not) => vec![
-      Effect::Custom(DownloadsEffect::Note(format!(
+      Effect::Custom(DownloadsEffect::Notify(format!(
         "Downloading {} to {into}",
         found.title
       ))),
@@ -569,7 +570,7 @@ mod tests {
 
     assert_eq!(
       after.effects(),
-      Ok(vec![Effect::Custom(DownloadsEffect::Note(
+      Ok(vec![Effect::Custom(DownloadsEffect::Notify(
         "A Song is already in Music".to_string()
       ))])
     );
@@ -590,7 +591,7 @@ mod tests {
     assert_eq!(
       after.effects(),
       Ok(vec![
-        Effect::Custom(DownloadsEffect::Note(
+        Effect::Custom(DownloadsEffect::Notify(
           "Downloading A Song again to Books".to_string()
         )),
         Effect::Run(get),
@@ -613,7 +614,7 @@ mod tests {
     assert_eq!(
       after.effects(),
       Ok(vec![
-        Effect::Custom(DownloadsEffect::Note(
+        Effect::Custom(DownloadsEffect::Notify(
           "Downloading A Song to Music".to_string()
         )),
         Effect::Run(get),

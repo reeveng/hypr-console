@@ -46,18 +46,27 @@ pub struct FontCatalog(FontSystem);
 
 impl FontCatalog {
   pub fn discover(prepare: impl FnOnce()) -> Result<Self, Never> {
-    let former = TEXT.take();
-    prepare();
-    let prepared = TEXT.replace(former);
+    let Ok((catalog, ())) = Self::discover_with(prepare);
 
-    Ok(match prepared {
+    Ok(catalog)
+  }
+
+  pub fn discover_with<Prepared>(
+    prepare: impl FnOnce() -> Prepared,
+  ) -> Result<(Self, Prepared), Never> {
+    let former = TEXT.take();
+    let value = prepare();
+    let prepared = TEXT.replace(former);
+    let catalog = match prepared {
       Some(system) => Self(system.fonts),
       None => {
         let Ok(fonts) = FontSystem::new();
 
         Self(fonts)
       }
-    })
+    };
+
+    Ok((catalog, value))
   }
 
   pub fn for_draw_thread(&self) -> Result<Self, Never> {

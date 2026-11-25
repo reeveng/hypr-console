@@ -8,6 +8,7 @@ use console_core_never::Never;
 
 pub const NAME: &str = "console-keyboard";
 pub const RELOAD_LAYOUTS: &str = "reload-layouts";
+pub const TOGGLE: &str = "toggle";
 
 pub fn filename(display: &str) -> Result<String, Never> {
   Ok(match display {
@@ -44,10 +45,18 @@ pub fn socket() -> Result<Option<PathBuf>, Never> {
 }
 
 pub fn reload() -> io::Result<()> {
+  send(RELOAD_LAYOUTS)
+}
+
+pub fn toggle() -> io::Result<()> {
+  send(TOGGLE)
+}
+
+fn send(word: &str) -> io::Result<()> {
   let Ok(at) = socket();
   let at_2 = at.ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no keyboard socket"))?;
   let sender = UnixDatagram::unbound()?;
   sender.set_nonblocking(true)?;
 
-  sender.send_to(RELOAD_LAYOUTS.as_bytes(), at_2).map(|_| ())
+  sender.send_to(word.as_bytes(), at_2).map(|_| ())
 }

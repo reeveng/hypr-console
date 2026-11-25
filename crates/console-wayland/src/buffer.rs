@@ -32,6 +32,19 @@ impl PreparedFrame {
   pub fn size(&self) -> Result<Size<u32>, Never> {
     Ok(self.size)
   }
+
+  pub fn paint(
+    size: Size<u32>,
+    paint: impl FnOnce(&mut [u8]) -> Result<(), Never>,
+  ) -> io::Result<Self> {
+    let dimensions = Dimensions::new(size)?;
+    let memory = Shared::of(dimensions.bytes)?;
+    let mut pixels = memory.allocate_pixels()?;
+    let Ok(()) = paint(&mut pixels);
+    memory.write_pixels(&pixels)?;
+
+    Ok(Self { size, memory })
+  }
 }
 
 struct Dimensions {
@@ -92,6 +105,25 @@ impl ShmBuffer {
     let memory = prepared.memory.duplicate()?;
 
     Self::from_memory(shm, hand, dimensions, wl_shm::Format::Argb8888, memory)
+  }
+
+  pub fn import_prepared<State>(
+    shm: &wl_shm::WlShm,
+    hand: &QueueHandle<State>,
+    prepared: PreparedFrame,
+  ) -> io::Result<Self>
+  where
+    State: Dispatch<wl_shm_pool::WlShmPool, ()> + Dispatch<wl_buffer::WlBuffer, ()> + 'static,
+  {
+    let dimensions = Dimensions::new(prepared.size)?;
+
+    Self::from_memory(
+      shm,
+      hand,
+      dimensions,
+      wl_shm::Format::Argb8888,
+      prepared.memory,
+    )
   }
 
   fn from_memory<State>(

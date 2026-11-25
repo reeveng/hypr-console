@@ -35,6 +35,7 @@ console-cpu-boost.workspace = true
 console-onscreen.workspace = true
 console-panel.workspace = true
 console-events.workspace = true
+console-input-alphabets.workspace = true
 console-input-bindings.workspace = true
 console-input-language.workspace = true
 console-input-gamepad.workspace = true

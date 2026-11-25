@@ -66,11 +66,16 @@ use console_input_keyboard::layout::{
 };
 use console_input_keyboard::paint;
 use console_input_keyboard::remote::{self, Command};
-use console_input_keyboard::surface::{Closed, PointerEvent, Screen, Showing, SurfaceError};
+use console_input_keyboard::surface::{
+  Closed, Drawn, Keep, PointerEvent, Screen, Showing, SurfaceError,
+};
 use console_input_keyboard::typing::{self, After, Typist};
 use console_response_times::{Wait, Waiting};
 use console_screen::Shape;
 use std::time::Instant;
+
+#[path = "keyboard/preparing.rs"]
+mod preparing;
 
 const NOWHERE: (i32, i32) = (0, 0);
 
@@ -95,17 +100,15 @@ const ON_THE_SCREEN: console_core_arguments::Command = console_core_arguments::C
   operands: Operands::None,
 };
 
-fn standing() -> Result<Shape, Never> {
-  let asked = match console_screen::here() {
+fn display() -> Result<Option<console_screen::Screen>, Never> {
+  Ok(match console_screen::here() {
     Ok(asked) => asked,
     Err(fault) => {
       eprintln!("console-keyboard: which way up the screen stands: {fault}");
 
       None
     }
-  };
-
-  shape_of(asked)
+  })
 }
 
 fn shape_of(screen: Option<console_screen::Screen>) -> Result<Shape, Never> {
@@ -217,6 +220,8 @@ struct State<'a> {
   repeat: KeyRepeat<Input, Repeat>,
   pressed: Option<u32>,
   shown: Option<KeyboardState>,
+  kept: Option<KeyboardState>,
+  preparing: preparing::Opening,
   showing: Option<Waiting>,
   reading: Option<Reading>,
   complained: Logged,
@@ -247,9 +252,16 @@ impl State<'_> {
 
   fn once_around(&mut self) -> Result<(), Unopened> {
     let Ok(showing_now) = self.screen.visibility();
-    let Ok(()) = sync_reading(showing_now, &mut self.reading, &mut self.complained);
 
     self.drawing(showing_now)?;
+    let Ok(configured) = self.screen.size();
+
+    match (showing_now, configured) {
+      (Showing::Yes, Some(_)) | (Showing::No, _) => {
+        let Ok(()) = sync_reading(showing_now, &mut self.reading, &mut self.complained);
+      }
+      (Showing::Yes, None) => {}
+    }
 
     let events = self.waiting_on()?;
     let now = Instant::now();
@@ -259,6 +271,8 @@ impl State<'_> {
     let Ok(()) = self.wants(now);
     let Ok(()) = self.pointer_events(now);
     let Ok(()) = self.repeats(now);
+
+    self.screen.send_keys()?;
 
     match (self.typist.last_alphabet == self.worn).then_some(()) {
       Some(()) => {}
@@ -282,13 +296,21 @@ impl State<'_> {
     self.selected = None;
     self.pressed = None;
     self.shown = None;
+    self.kept = None;
+    self.preparing = preparing::Opening::None;
+    let Ok(()) = self.screen.forget_kept();
 
     Ok(())
   }
 
   fn drawing(&mut self, showing_now: Showing) -> Result<(), SurfaceError> {
-    let Ok(size) = self.screen.size();
+    let Ok(configured) = self.screen.size();
+    let size = match (showing_now, configured) {
+      (Showing::Yes, Some(available)) => available,
+      (Showing::No, _) | (Showing::Yes, None) => return Ok(()),
+    };
     let Ok(scale) = self.screen.scale();
+    let Ok(language) = self.typist.next_language();
     let frame = KeyboardState {
       showing: self.typist.showing,
       held: self.typist.held,
@@ -296,69 +318,100 @@ impl State<'_> {
       selected: self.selected,
       size,
       scale,
+      language,
     };
 
-    match ::core::primitive::bool::then_some(
-      showing_now == Showing::Yes && self.shown != Some(frame),
-      (),
-    ) {
-      ::core::option::Option::Some(()) => {
-        let Ok(layout) = self.typist.layout();
-        let modifiers = self.typist.held;
-        let pressed = self.pressed;
-        let selected = self.selected;
-        let configuration = self.configuration;
-        let Ok(next) = self.typist.next_language();
-        let language = next.map(|which| {
-          let Ok(of) = of(which);
-          let Ok(written) = of.alphabet.written();
+    let Ok(plan) = frame.plan(self.shown, self.kept);
+    let (drawn, reused) = match plan {
+      DrawPlan::Current => return Ok(()),
+      DrawPlan::Recall => self.recall(frame)?,
+      DrawPlan::Paint(keep) => self.paint_or_prepare(frame, keep)?,
+    };
 
-          written
-        });
+    match drawn {
+      Drawn::Yes => self.shown = Some(frame),
+      Drawn::NotYet => return Ok(()),
+    }
 
-        self.screen.draw(|pixels, wide, tall, scale_2| {
-          let Ok(along) = fitted(wide.saturating_mul(4));
-          let Ok(down) = fitted(tall);
-
-          let mut onto = match Surface::new(pixels, Stride(along), down, BufferScale(scale_2)) {
-            Ok(Some(onto)) => onto,
-            Ok(None) | Err(_) => return,
-          };
-
-          let room = Size {
-            width: f64::from(wide) / f64::from(scale_2),
-            height: f64::from(tall) / f64::from(scale_2),
-          };
-          let Ok(keys) = layout_keys(layout, room);
-          let Ok(()) = paint::keyboard(
-            &mut onto,
-            &paint::Look {
-              configuration,
-              layout,
-              keys: &keys,
-              pressed,
-              held: modifiers,
-              selected,
-              language,
-              room,
-            },
-          );
-        })?;
-
-        self.shown = Some(frame);
-
-        match self.showing.take() {
-          Some(mut waiting) => {
-            let Ok(()) = waiting.mark("drawn");
-            let Ok(()) = waiting.finish();
+    match self.showing.take() {
+      Some(mut waiting) => {
+        match reused {
+          Reused::Yes => {
+            let Ok(()) = waiting.counted("prepared_frame", 1);
           }
-          None => {}
+          Reused::No => {}
         }
+
+        let Ok(()) = waiting.mark("drawn");
+        let Ok(()) = waiting.finish();
       }
-      ::core::option::Option::None => {}
+      None => {}
     }
 
     Ok(())
+  }
+
+  fn recall(&mut self, frame: KeyboardState) -> Result<(Drawn, Reused), SurfaceError> {
+    let reused = self.screen.draw_kept()?;
+
+    match reused {
+      Drawn::Yes => Ok((Drawn::Yes, Reused::Yes)),
+      Drawn::NotYet => {
+        let drawn = self.paint_frame(frame, Keep::Resting)?;
+
+        Ok((drawn, Reused::No))
+      }
+    }
+  }
+
+  fn paint_or_prepare(
+    &mut self,
+    frame: KeyboardState,
+    keep: Keep,
+  ) -> Result<(Drawn, Reused), SurfaceError> {
+    let Ok(warmed) = self.preparing.take(frame);
+
+    match warmed {
+      Some(prepared) => {
+        let drawn = self.screen.draw_prepared(prepared.pixels)?;
+        let Ok(()) = prepared.fonts.use_on_draw_thread();
+
+        match drawn {
+          Drawn::Yes => {
+            self.kept = Some(frame);
+
+            return Ok((Drawn::Yes, Reused::Yes));
+          }
+          Drawn::NotYet => {}
+        }
+      }
+      None => {}
+    }
+
+    let drawn = self.paint_frame(frame, keep)?;
+
+    Ok((drawn, Reused::No))
+  }
+
+  fn paint_frame(&mut self, frame: KeyboardState, keep: Keep) -> Result<Drawn, SurfaceError> {
+    let configuration = self.configuration;
+    let drawn = self.screen.draw(keep, |pixels, wide, tall| {
+      let Ok(()) = frame.paint(
+        configuration,
+        pixels,
+        Size {
+          width: wide,
+          height: tall,
+        },
+      );
+    })?;
+
+    match (&drawn, keep) {
+      (Drawn::Yes, Keep::Resting) => self.kept = Some(frame),
+      (Drawn::NotYet, _) | (Drawn::Yes, Keep::Transient) => {}
+    }
+
+    Ok(drawn)
   }
 
   fn waiting_on(&mut self) -> Result<u32, SurfaceError> {
@@ -598,17 +651,16 @@ impl State<'_> {
     let Ok(pointer_events) = self.screen.pointer_events();
 
     for event in pointer_events {
-      let Ok(layout) = self.typist.layout();
-      let Ok(keys) = layout_keys(
-        layout,
-        Size {
-          width: f64::from(wide),
-          height: f64::from(tall),
-        },
-      );
-
       match event {
         PointerEvent::Down { x, y } => {
+          let Ok(layout) = self.typist.layout();
+          let Ok(keys) = layout_keys(
+            layout,
+            Size {
+              width: f64::from(wide),
+              height: f64::from(tall),
+            },
+          );
           let hit = match under(&keys, Point { x, y }) {
             Ok(Some(hit)) => hit,
             Ok(None) | Err(_) => continue,
@@ -799,7 +851,8 @@ fn run(configuration: &Configuration, mut waiting: Waiting) -> Result<(), Unopen
 
   let Ok(()) = waiting.mark("keymaps");
 
-  let Ok(shape) = standing();
+  let Ok(output) = display();
+  let Ok(shape) = shape_of(output);
   let Ok((asked, height)) = orientation(configuration, shape);
   let Ok(opening) = left_on(shape);
   let Ok(walk) = layout_walk(&asked);
@@ -811,6 +864,14 @@ fn run(configuration: &Configuration, mut waiting: Waiting) -> Result<(), Unopen
 
   let told = bind_socket()?;
   let mut screen = Screen::connect()?;
+  let Ok(predicted) = preparing::geometry(output, height);
+
+  match predicted {
+    Some((_, scale)) => {
+      let Ok(()) = screen.expect_scale(scale);
+    }
+    None => {}
+  }
 
   let Ok(()) = waiting.mark("compositor");
 
@@ -834,6 +895,24 @@ fn run(configuration: &Configuration, mut waiting: Waiting) -> Result<(), Unopen
     Instant::now(),
   );
   let worn = typist.last_alphabet;
+  let Ok(language) = typist.next_language();
+  let preparing = match predicted {
+    Some((size, scale)) => {
+      let view = KeyboardState {
+        showing: typist.showing,
+        held: typist.held,
+        pressed: None,
+        selected: None,
+        size,
+        scale,
+        language,
+      };
+      let Ok(preparing) = preparing::Opening::start(configuration, view);
+
+      preparing
+    }
+    None => preparing::Opening::None,
+  };
 
   let Ok(()) = waiting.mark("typist");
   let Ok(()) = waiting.mark("pad");
@@ -848,6 +927,8 @@ fn run(configuration: &Configuration, mut waiting: Waiting) -> Result<(), Unopen
     repeat: KeyRepeat::default(),
     pressed: None,
     shown: None,
+    kept: None,
+    preparing,
     showing: None,
     reading: None,
     complained: Logged::No,
@@ -954,8 +1035,72 @@ struct KeyboardState {
   held: u8,
   pressed: Option<u32>,
   selected: Option<u32>,
-  size: Option<(u32, u32)>,
+  size: (u32, u32),
   scale: i32,
+  language: Option<LayoutKind>,
+}
+
+enum Reused {
+  Yes,
+  No,
+}
+
+enum DrawPlan {
+  Current,
+  Recall,
+  Paint(Keep),
+}
+
+impl KeyboardState {
+  fn plan(self, shown: Option<Self>, kept: Option<Self>) -> Result<DrawPlan, Never> {
+    Ok(
+      match (shown == Some(self), kept == Some(self), self.pressed) {
+        (true, _, _) => DrawPlan::Current,
+        (false, true, _) => DrawPlan::Recall,
+        (false, false, None) => DrawPlan::Paint(Keep::Resting),
+        (false, false, Some(_)) => DrawPlan::Paint(Keep::Transient),
+      },
+    )
+  }
+
+  fn paint(
+    self,
+    configuration: &Configuration,
+    pixels: &mut [u8],
+    device: Size<u32>,
+  ) -> Result<(), Never> {
+    let Ok(layout) = of(self.showing);
+    let language = self.language.map(|which| {
+      let Ok(of) = of(which);
+      let Ok(written) = of.alphabet.written();
+
+      written
+    });
+    let Ok(along) = fitted(device.width.saturating_mul(4));
+    let Ok(down) = fitted(device.height);
+    let mut onto = match Surface::new(pixels, Stride(along), down, BufferScale(self.scale)) {
+      Ok(Some(onto)) => onto,
+      Ok(None) | Err(_) => return Ok(()),
+    };
+    let room = Size {
+      width: f64::from(self.size.0),
+      height: f64::from(self.size.1),
+    };
+    let Ok(keys) = layout_keys(layout, room);
+    paint::keyboard(
+      &mut onto,
+      &paint::Look {
+        configuration,
+        layout,
+        keys: &keys,
+        pressed: self.pressed,
+        held: self.held,
+        selected: self.selected,
+        language,
+        room,
+      },
+    )
+  }
 }
 
 fn left_on(shape: Shape) -> Result<Option<LayoutKind>, Never> {

@@ -25,6 +25,8 @@ path = "src/bin/show.rs"
 [features]
 default = ["port"]
 port = [
+    "dep:console-concurrency",
+    "dep:console-core-parallel-execution",
     "dep:console-wayland",
     "dep:console-input-gamepad",
     "dep:console-input-focus",
@@ -41,6 +43,8 @@ port = [
 [dependencies]
 console-wayland = { path = "../console-wayland", features = ["virtual-keyboard"], optional = true }
 console-core-arguments.workspace = true
+console-concurrency = { workspace = true, optional = true }
+console-core-parallel-execution = { workspace = true, optional = true }
 console-core-number-conversion.workspace = true
 console-core-color.workspace = true
 console-core-words.workspace = true

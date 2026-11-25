@@ -35,7 +35,7 @@ use console_core_state_machine::{EffectDependencies, Machine, Queue, Service, Tr
 use console_operating_system_linux::program_runtime::{Clock, Interpreter};
 use console_program_contract::{Effect, Event, Exit};
 
-use console_input_alphabets::keyboard_socket::{self, RELOAD_LAYOUTS};
+use console_input_alphabets::keyboard_socket::{self, RELOAD_LAYOUTS, TOGGLE};
 
 pub use keyboard_socket::socket;
 
@@ -65,7 +65,7 @@ pub const EVERY: [Command; 4] = [
 impl Command {
   pub fn word(self) -> Result<&'static str, Never> {
     Ok(match self {
-      Command::Toggle => "toggle",
+      Command::Toggle => TOGGLE,
       Command::Show => "show",
       Command::Hide => "hide",
       Command::ReloadLayouts => RELOAD_LAYOUTS,

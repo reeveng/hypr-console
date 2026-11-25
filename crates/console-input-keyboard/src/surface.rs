@@ -57,10 +57,9 @@
 //! asked slightly too late, and the loop goes round again.
 
 use console_core_geometry::Size;
-use console_core_iteration::Step;
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
-use console_wayland::buffer::ShmBuffer;
+use console_wayland::buffer::{PreparedFrame, ShmBuffer};
 use std::os::fd::{AsFd, BorrowedFd};
 
 use rustix::event::{Nsecs, PollFd, PollFlags, Secs, Timespec, poll};
@@ -113,7 +112,7 @@ pub struct Board {
   shell: zwlr_layer_shell_v1::ZwlrLayerShellV1,
   pub seat: wl_seat::WlSeat,
   up: Option<Up>,
-  frame: Option<Frame>,
+  frames: Frames,
   pub size: Option<(u32, u32)>,
   pub scale: i32,
   pub closed: bool,
@@ -142,8 +141,31 @@ struct Up {
 
 struct Frame {
   storage: ShmBuffer,
-  width: u32,
-  height: u32,
+  size: Size<u32>,
+  use_: Attached,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Attached {
+  Held,
+  Released,
+}
+
+#[derive(Default)]
+struct Frames {
+  kept: Option<Frame>,
+  spare: Option<Frame>,
+}
+
+#[derive(Clone, Copy)]
+pub enum Keep {
+  Resting,
+  Transient,
+}
+
+pub enum Drawn {
+  Yes,
+  NotYet,
 }
 
 enum Flushed {
@@ -208,7 +230,7 @@ impl Screen {
       shell,
       seat,
       up: None,
-      frame: None,
+      frames: Frames::default(),
       size: None,
       scale: 1,
       closed: false,
@@ -255,26 +277,13 @@ impl Screen {
     self.board.size = None;
     self.board.up = Some(Up { surface, layer });
 
-    let shown = console_core_iteration::iterate(self, |this| {
-      Ok(
-        match ::core::primitive::bool::then_some(
-          this.board.size.is_none() && !this.board.closed,
-          (),
-        ) {
-          ::core::option::Option::Some(()) => match this.queue.blocking_dispatch(&mut this.board)
-          {
-            Ok(_dispatched) => Step::Again(this),
-            Err(fault) => Step::Halt(Err(SurfaceError::Closed(fault))),
-          },
-          ::core::option::Option::None => Step::Halt(Ok(())),
-        },
-      )
-    });
+    self.flush().map(|_pending_output_is_retried_in_wait| ())
+  }
 
-    match shown {
-      Ok(shown_2) => shown_2,
-      Err(_endless) => Ok(()),
-    }
+  pub fn expect_scale(&mut self, scale: i32) -> Result<(), Never> {
+    self.board.scale = scale.max(1);
+
+    Ok(())
   }
 
   pub fn hide(&mut self) -> Result<(), Never> {
@@ -285,8 +294,9 @@ impl Screen {
 
     up.layer.destroy();
     up.surface.destroy();
-    self.board.frame = None;
     self.board.size = None;
+    self.board.pointer_events.clear();
+    self.board.pointer_down = false;
 
     Ok(())
   }
@@ -335,66 +345,96 @@ impl Screen {
 
   pub fn draw(
     &mut self,
-    paint: impl FnOnce(&mut [u8], u32, u32, i32),
-  ) -> Result<(), SurfaceError> {
-    let (wide, tall) = match self.board.size {
-      Some((wide, tall)) => (wide, tall),
-      None => return Ok(()),
+    keep: Keep,
+    paint: impl FnOnce(&mut [u8], u32, u32),
+  ) -> Result<Drawn, SurfaceError> {
+    let Ok(target) = self.board.target();
+    let (up, size, scale) = match target {
+      Some(configured) => configured,
+      None => return Ok(Drawn::NotYet),
     };
-
-    let up = match self.board.up.as_ref() {
-      Some(up) => up,
-      None => return Ok(()),
-    };
-
     let hand = self.queue.handle();
-    let scale = self.board.scale;
-    let Ok(many) = fitted::<i32, u32>(scale);
-
-    let across = wide.saturating_mul(many);
-    let down = tall.saturating_mul(many);
-
-    let stale = self
-      .board
-      .frame
-      .as_ref()
-      .is_none_or(|frame| frame.width != across || frame.height != down);
-
-    match ::core::primitive::bool::then_some(stale, ()) {
-      ::core::option::Option::Some(()) => {
-        let frame = Frame::new(
-          &self.board.shm,
-          &hand,
-          Size {
-            width: across,
-            height: down,
-          },
-        )?;
-
-        self.board.frame = Some(frame);
-      }
-      ::core::option::Option::None => {}
-    }
-
-    let frame = match self.board.frame.as_mut() {
-      Some(frame) => frame,
-      None => return Ok(()),
+    let mut frame = match self.board.frames.spare.take() {
+      Some(spare) => match (spare.size == size, spare.use_) {
+        (true, Attached::Released) => spare,
+        (false, _) | (true, Attached::Held) => Frame::new(&self.board.shm, &hand, size)?,
+      },
+      None => Frame::new(&self.board.shm, &hand, size)?,
     };
-
     let pixels = frame.storage.pixels().map_err(SurfaceError::Memory)?;
-
-    paint(pixels, across, down, scale);
+    paint(pixels, size.width, size.height);
     let buffer = frame
       .storage
       .painted_buffer()
       .map_err(SurfaceError::Memory)?;
-    up.surface.attach(Some(buffer), 0, 0);
-    up.surface.set_buffer_scale(scale);
-    let Ok(damaged_across) = fitted(across);
-    let Ok(damaged_down) = fitted(down);
+    let Ok(()) = commit(&up, buffer, size, scale);
+    frame.use_ = Attached::Held;
 
-    up.surface.damage_buffer(0, 0, damaged_across, damaged_down);
-    up.surface.commit();
+    match keep {
+      Keep::Resting => self.board.frames.kept = Some(frame),
+      Keep::Transient => self.board.frames.spare = Some(frame),
+    }
+
+    let _flushed = self.flush()?;
+
+    Ok(Drawn::Yes)
+  }
+
+  pub fn draw_kept(&mut self) -> Result<Drawn, SurfaceError> {
+    let Ok(target) = self.board.target();
+    let (up, size, scale) = match target {
+      Some(configured) => configured,
+      None => return Ok(Drawn::NotYet),
+    };
+    let frame = match self.board.frames.kept.as_mut() {
+      Some(frame) => match (frame.size == size).then_some(()) {
+        Some(()) => frame,
+        None => return Ok(Drawn::NotYet),
+      },
+      None => return Ok(Drawn::NotYet),
+    };
+    let Ok(buffer) = frame.storage.buffer();
+    let Ok(()) = commit(&up, buffer, size, scale);
+    frame.use_ = Attached::Held;
+    let _flushed = self.flush()?;
+
+    Ok(Drawn::Yes)
+  }
+
+  pub fn draw_prepared(&mut self, prepared: PreparedFrame) -> Result<Drawn, SurfaceError> {
+    let Ok(target) = self.board.target();
+    let (up, size, scale) = match target {
+      Some(configured) => configured,
+      None => return Ok(Drawn::NotYet),
+    };
+    let Ok(prepared_size) = prepared.size();
+
+    match (size == prepared_size).then_some(()) {
+      Some(()) => {}
+      None => return Ok(Drawn::NotYet),
+    }
+
+    let storage = ShmBuffer::import_prepared(&self.board.shm, &self.queue.handle(), prepared)
+      .map_err(SurfaceError::Memory)?;
+    let Ok(buffer) = storage.buffer();
+    let Ok(()) = commit(&up, buffer, size, scale);
+    self.board.frames.kept = Some(Frame {
+      storage,
+      size,
+      use_: Attached::Held,
+    });
+    let _flushed = self.flush()?;
+
+    Ok(Drawn::Yes)
+  }
+
+  pub fn forget_kept(&mut self) -> Result<(), Never> {
+    self.board.frames.kept = None;
+
+    Ok(())
+  }
+
+  pub fn send_keys(&self) -> Result<(), SurfaceError> {
     self.flush().map(|_pending_output_is_retried_in_wait| ())
   }
 
@@ -410,11 +450,17 @@ impl Screen {
     also: &[BorrowedFd<'_>],
     until: Option<std::time::Duration>,
   ) -> Result<u32, SurfaceError> {
-    self
+    let dispatched = self
       .queue
       .dispatch_pending(&mut self.board)
+      .map(|count| count.cmp(&0))
       .map_err(SurfaceError::Closed)?;
     let flushed = self.flush()?;
+
+    match dispatched {
+      std::cmp::Ordering::Greater | std::cmp::Ordering::Less => return Ok(0),
+      std::cmp::Ordering::Equal => {}
+    }
 
     let guard = match self.connection.prepare_read() {
       Some(guard) => guard,
@@ -536,23 +582,51 @@ fn retry_when_ready(fault: WaylandError) -> Result<(), SurfaceError> {
   }
 }
 
+impl Board {
+  fn target(&self) -> Result<Option<(wl_surface::WlSurface, Size<u32>, i32)>, Never> {
+    let (up, (wide, tall)) = match (self.up.as_ref(), self.size) {
+      (Some(up), Some(size)) => (up, size),
+      (None, _) | (_, None) => return Ok(None),
+    };
+    let Ok(many) = fitted::<i32, u32>(self.scale);
+    let size = Size {
+      width: wide.saturating_mul(many),
+      height: tall.saturating_mul(many),
+    };
+
+    Ok(Some((up.surface.clone(), size, self.scale)))
+  }
+}
+
+fn commit(
+  surface: &wl_surface::WlSurface,
+  buffer: &wl_buffer::WlBuffer,
+  size: Size<u32>,
+  scale: i32,
+) -> Result<(), Never> {
+  let Ok(across) = fitted(size.width);
+  let Ok(down) = fitted(size.height);
+  surface.attach(Some(buffer), 0, 0);
+  surface.set_buffer_scale(scale);
+  surface.damage_buffer(0, 0, across, down);
+  surface.commit();
+
+  Ok(())
+}
+
 impl Frame {
   fn new(
     shm: &wl_shm::WlShm,
     hand: &QueueHandle<Board>,
     room: Size<u32>,
   ) -> Result<Frame, SurfaceError> {
-    let Size {
-      width: wide,
-      height: tall,
-    } = room;
     let storage =
       ShmBuffer::new(shm, hand, room, wl_shm::Format::Argb8888).map_err(SurfaceError::Memory)?;
 
     Ok(Frame {
       storage,
-      width: wide,
-      height: tall,
+      size: room,
+      use_: Attached::Released,
     })
   }
 }
@@ -585,6 +659,11 @@ impl Dispatch<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1, ()> for Board {
     _connection: &Connection,
     _hand: &QueueHandle<Self>,
   ) {
+    match (board.up.as_ref().map(|up| &up.layer) == Some(layer)).then_some(()) {
+      Some(()) => {}
+      None => return,
+    }
+
     match event {
       zwlr_layer_surface_v1::Event::Configure {
         serial,
@@ -597,7 +676,6 @@ impl Dispatch<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1, ()> for Board {
       zwlr_layer_surface_v1::Event::Closed => {
         board.closed = true;
         board.up = None;
-        board.frame = None;
         board.size = None;
       }
       _ => {}
@@ -615,14 +693,19 @@ impl Dispatch<wl_surface::WlSurface, ()> for Board {
   )]
   fn event(
     board: &mut Self,
-    _surface: &wl_surface::WlSurface,
+    surface: &wl_surface::WlSurface,
     event: wl_surface::Event,
     _held: &(),
     _connection: &Connection,
     _hand: &QueueHandle<Self>,
   ) {
     match event {
-      wl_surface::Event::PreferredBufferScale { factor } => board.scale = factor.max(1),
+      wl_surface::Event::PreferredBufferScale { factor } => {
+        match (board.up.as_ref().map(|up| &up.surface) == Some(surface)).then_some(()) {
+          Some(()) => board.scale = factor.max(1),
+          None => {}
+        }
+      }
       _ => {}
     }
   }
@@ -631,10 +714,35 @@ impl Dispatch<wl_surface::WlSurface, ()> for Board {
 delegate_noop!(Board: ignore wl_compositor::WlCompositor);
 delegate_noop!(Board: ignore wl_shm::WlShm);
 delegate_noop!(Board: ignore wl_shm_pool::WlShmPool);
-delegate_noop!(Board: ignore wl_buffer::WlBuffer);
 delegate_noop!(Board: ignore zwlr_layer_shell_v1::ZwlrLayerShellV1);
 delegate_noop!(Board: ignore zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1);
 delegate_noop!(Board: ignore zwp_virtual_keyboard_v1::ZwpVirtualKeyboardV1);
+
+impl Dispatch<wl_buffer::WlBuffer, ()> for Board {
+  fn event(
+    board: &mut Self,
+    buffer: &wl_buffer::WlBuffer,
+    event: wl_buffer::Event,
+    _held: &(),
+    _connection: &Connection,
+    _hand: &QueueHandle<Self>,
+  ) {
+    match (
+      &mut board.frames.spare,
+      matches!(event, wl_buffer::Event::Release),
+    ) {
+      (Some(frame), true) => {
+        let Ok(stored) = frame.storage.buffer();
+
+        match (stored == buffer).then_some(()) {
+          Some(()) => frame.use_ = Attached::Released,
+          None => {}
+        }
+      }
+      (None, _) | (_, false) => {}
+    }
+  }
+}
 
 impl Dispatch<wl_seat::WlSeat, ()> for Board {
   #[cfg_attr(

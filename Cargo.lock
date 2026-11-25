@@ -3299,6 +3299,7 @@ dependencies = [
  "console-core-words",
  "console-cpu-boost",
  "console-events",
+ "console-input-alphabets",
  "console-input-bindings",
  "console-input-event-devices",
  "console-input-gamepad",
@@ -3399,6 +3400,7 @@ dependencies = [
 name = "console-input-keyboard"
 version = "0.1.0"
 dependencies = [
+ "console-concurrency",
  "console-core-arguments",
  "console-core-color",
  "console-core-external-programs",
@@ -3409,6 +3411,7 @@ dependencies = [
  "console-core-logging",
  "console-core-never",
  "console-core-number-conversion",
+ "console-core-parallel-execution",
  "console-core-path-rasterizer",
  "console-core-places",
  "console-core-state-machine",

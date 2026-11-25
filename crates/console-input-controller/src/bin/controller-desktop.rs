@@ -1201,6 +1201,19 @@ fn run(arguments: &[String]) -> Result<Option<Detached>, Never> {
     None => return Ok(None),
   };
 
+  let Ok(keyboard) = InternalProgram::KeyboardToggle.name();
+  let Ok(keyboard_path) = InternalProgram::KeyboardToggle.path();
+
+  match ((program == keyboard || program == keyboard_path) && rest.is_empty()).then_some(()) {
+    Some(()) => match console_input_alphabets::keyboard_socket::toggle() {
+      Ok(()) => return Ok(None),
+      Err(fault) => {
+        console_core_logging::debug!("toggling the keyboard through its launcher: {fault}");
+      }
+    },
+    None => {}
+  }
+
   let Ok(panel) = resident_panel(program);
 
   match panel {

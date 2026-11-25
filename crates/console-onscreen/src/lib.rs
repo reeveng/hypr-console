@@ -277,7 +277,7 @@ pub fn write_tab(tab: &str) -> Result<(), Error> {
     None => {}
   }
 
-  console_core_atomic_writes::whole(&note, tab.as_bytes()).map_err(Error::Writing)
+  console_core_atomic_writes::publish(&note, tab.as_bytes()).map_err(Error::Writing)
 }
 
 pub fn forget_if_still(said: &str) -> Result<(), Error> {

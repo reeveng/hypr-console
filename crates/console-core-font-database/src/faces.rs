@@ -23,6 +23,7 @@ use alloc::{string::String, vec::Vec};
 use console_core_font_reading::tables::{
   name::NameId, os2::SelectionFlags, post::Post as PostTable,
 };
+use console_core_font_reading::types::Tag;
 use console_core_font_reading::{FileRef, FontRef, Presence, TableProvider, TopLevelTable};
 use console_core_number_conversion::fixed_index;
 
@@ -133,6 +134,7 @@ fn parse_face_info(
     | (Style::Italic | Style::Oblique, Slant::Upright | Slant::Slanted) => upright_style,
   };
   let Ok(id) = ID::dummy();
+  let Ok(variable_weight) = variable_weight(raw_face);
 
   Ok(FaceInfo {
     id,
@@ -142,9 +144,30 @@ fn parse_face_info(
     post_script_name: naming.post_script_name,
     style,
     weight,
+    variable_weight,
     stretch,
     pitch: post.pitch,
   })
+}
+
+fn variable_weight(
+  raw_face: &FontRef<'_>,
+) -> Result<Option<core::ops::RangeInclusive<f32>>, Never> {
+  let axes = match raw_face.fvar().and_then(|table| table.axes()) {
+    Ok(axes) => axes,
+    Err(_missing_or_malformed) => return Ok(None),
+  };
+  let Ok(weight) = Tag::new(b"wght");
+  let found = axes.iter().find(|axis| axis.axis_tag() == Ok(weight));
+
+  Ok(found.map(|axis| {
+    let Ok(minimum) = axis.min_value();
+    let Ok(maximum) = axis.max_value();
+    let Ok(lower) = minimum.to_f32();
+    let Ok(upper) = maximum.to_f32();
+
+    lower..=upper
+  }))
 }
 
 #[derive(Clone, Copy)]

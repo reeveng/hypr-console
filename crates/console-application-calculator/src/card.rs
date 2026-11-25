@@ -13,7 +13,6 @@
 //! a swipe across the number, which a pad cannot make, so backspace takes the
 //! place beside equals that the wide nought had.
 
-use console_actor::Actor;
 use console_core_arguments::{Command, Operands};
 use console_core_never::Never;
 use console_core_state_machine::{Machine, Queue};
@@ -22,6 +21,7 @@ use console_panel::icons::Icon;
 use console_panel::page::{
   Active, Alignment, ButtonPress, ButtonStyle, Headline, Page, Picture, Row, Rows, Showing,
 };
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use crate::sum::{Key, Operator, Sum};
 
@@ -49,6 +49,53 @@ impl Machine for Calculator {
 
   fn handle(sum: Sum, key: Key, _effects: &mut Queue<Never>) -> Result<Sum, Never> {
     sum.press(key)
+  }
+}
+
+#[derive(Clone)]
+#[cfg_attr(
+  dylint_lib = "explicit081_no_shared_ownership",
+  expect(
+    explicit081_no_shared_ownership,
+    reason = "the retained keypad actions and row reader share one accumulator scoped to the open panel"
+  )
+)]
+struct Keypad(Arc<Mutex<Sum>>);
+
+impl Keypad {
+  #[cfg_attr(
+    dylint_lib = "explicit081_no_shared_ownership",
+    expect(
+      explicit081_no_shared_ownership,
+      reason = "each retained key handler and the row reader carry the same per-panel accumulator"
+    )
+  )]
+  fn new() -> Result<Self, Never> {
+    let Ok(initial) = Calculator::initial_transition(&(), None);
+
+    Ok(Self(Arc::new(Mutex::new(initial.state))))
+  }
+
+  #[cfg_attr(
+    dylint_lib = "explicit057_no_unbounded_wait",
+    expect(
+      explicit057_no_unbounded_wait,
+      reason = "the lock covers a short arithmetic transition or a snapshot clone, with no external calls or waits"
+    )
+  )]
+  fn held(&self) -> Result<MutexGuard<'_, Sum>, Never> {
+    Ok(match self.0.lock() {
+      Ok(held) => held,
+      Err(poisoned) => poisoned.into_inner(),
+    })
+  }
+
+  fn press(&self, key: Key) -> Result<(), Never> {
+    let Ok(mut held) = self.held();
+    let Ok(transition) = Calculator::transition(std::mem::take(&mut *held), key);
+    *held = transition.state;
+
+    Ok(())
   }
 }
 
@@ -105,7 +152,10 @@ pub fn door(_argv: &[String]) -> Result<Door, Never> {
 }
 
 pub fn card(_argv: &[String]) -> Result<Card, Never> {
-  Card::supervised::<Calculator, _>((), |held| {
+  let Ok(held) = Keypad::new();
+
+  Card::new(move || {
+    let Ok(initial) = rows_for(&held, Sum::default());
     let reading = held.clone();
     let Ok(rows) = Rows::computed(move || {
       let Ok(rows) = rows(&reading);
@@ -113,25 +163,31 @@ pub fn card(_argv: &[String]) -> Result<Card, Never> {
       rows
     });
     let Ok(page) = Page::new(TITLE, rows);
+    let Ok(fixed) = page.fixed_opening(WHO);
+    let Ok(ready) = fixed.meanwhile(move || initial.clone());
 
-    Ok(vec![page])
+    vec![ready]
   })
 }
 
-fn press(held: &Actor<Calculator>, key: Key, showing: &dyn Showing) -> Result<(), Never> {
-  match held.send(key) {
-    Ok(_without_effects) => showing.refresh(),
-    Err(_calculator_closed) => return Ok(()),
-  }
+fn press(held: &Keypad, key: Key, showing: &dyn Showing) -> Result<(), Never> {
+  let Ok(()) = held.press(key);
+  showing.refresh();
 
   Ok(())
 }
 
-fn rows(held: &Actor<Calculator>) -> Result<Vec<Row>, Never> {
-  let sum = match held.get() {
-    Ok(sum) => sum,
-    Err(_calculator_closed) => Sum::default(),
+fn rows(held: &Keypad) -> Result<Vec<Row>, Never> {
+  let sum = {
+    let Ok(current) = held.held();
+
+    current.clone()
   };
+
+  rows_for(held, sum)
+}
+
+fn rows_for(held: &Keypad, sum: Sum) -> Result<Vec<Row>, Never> {
   let Ok(shown) = sum.shown();
   let Ok(above) = sum.above();
   let Ok(lit) = sum.lit();

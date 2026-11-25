@@ -1,9 +1,9 @@
 //! The font faces a machine has, and which of them serves a CSS family and style.
 //!
 //! A font file is one face or a collection of them, and what is kept is the face:
-//! its families, its PostScript name, its style, weight and stretch, and whether
-//! it is monospaced, read once when it is loaded. Nothing else of a face is parsed
-//! here; a caller that wants its outlines asks for its bytes. A query names
+//! its families, its PostScript name, its style, weight and stretch, its
+//! variable weight range and whether it is monospaced, read once when it is loaded.
+//! A caller that wants its outlines asks for its bytes. A query names
 //! families in order, and the first of them that any face carries is the family
 //! the answer comes from, so a later family is a fallback rather than a vote.
 //!
@@ -292,6 +292,8 @@ pub struct FaceInfo {
   pub style: Style,
 
   pub weight: Weight,
+
+  pub variable_weight: Option<core::ops::RangeInclusive<f32>>,
 
   pub stretch: Stretch,
 

@@ -1,72 +1,16 @@
-//! Asking the program that holds the panels to put one up.
+//! The two ways to ask the resident panel host for an opening.
 //!
-//! Three days of the device's own timing file said the same thing every day:
-//! the two largest stretches of an opening are `exec` and the toolkit coming
-//! up, and everything a card does after that is a fraction of either. Neither
-//! is work about the panel. They are the cost of starting from nothing, paid
-//! again every time someone presses a button, on a machine that spent the
-//! moment before asleep.
+//! A stand-in process takes the picker lease, sends a request and holds a
+//! connection until the surface closes. Acceptance and compositor feedback
+//! are separate replies. A failed handoff lets the stand-in draw locally.
 //!
-//! So one program keeps the toolkit up and draws whichever panel is asked for,
-//! and this is how it is asked. What is on the other side of the socket has
-//! already opened the display, parsed the stylesheet and read the icon theme,
-//! and none of that happens twice.
+//! A resident input source sends a one-shot request on the resident socket.
+//! The host takes the picker lease and owns the surface until dismissal. The
+//! same lease marker tells conventional pickers and console-put-away to ask
+//! the host to close its surface through the control socket.
 //!
-//! **The program that asks is still the program that holds the screen.** The
-//! one-picker lock is a `flock` on a file held open for as long as a process
-//! lives, and it is released by the kernel however that process ends -- which
-//! is what lets a picker that was killed outright leave nothing behind. A
-//! host that outlived every panel would be a host that never let the lock go.
-//! So the panel's own program stays: it takes the lock, asks for the surface,
-//! and waits with nothing to draw until the surface is gone. Every road in --
-//! the bar's `on-click`, a `.desktop` file, the daemon's table, a key bound in
-//! the compositor -- reaches the same program under the same name, and what
-//! `hyprctl` reports as being on the screen is the same namespace as before.
-//!
-//! **The host could hold the lock, and the lock is not what keeps the program
-//! that asks.** A `flock` the host took for one panel would be let go on every
-//! road out: a panel closed is a `close` the host answers, a drawing that fails
-//! is the pipe the host already watches for the surface ending, and a host that
-//! is killed is a process ending, which the kernel answers for a host exactly as
-//! it does for a panel. What the file holds beside the lock is a pid, and the
-//! pid is the half everything else uses: a picker coming asks the one there to
-//! go with a SIGTERM and takes it off the screen with a SIGKILL when it will
-//! not, and the paddle's `console-put-away` is that SIGTERM and nothing more.
-//! Held by the host, every one of those lands on the process holding every
-//! panel -- a panel put away is the host told to stop, and one slow to go is the
-//! host killed. Teaching the host that a SIGTERM means "put away what is up" is
-//! a host that no longer stops the way the service manager stops it, and the
-//! bar and the daemon, which only start a program today, would each have to be
-//! told whether their press opened something or closed it, because a door that
-//! only opens and a second press that closes are the holder's to decide. All
-//! of that would buy the asking program's own start, which measured against
-//! `socat` knocking on the same socket is the loader and a few reads -- small
-//! beside the card being built and drawn, which no road in skips.
-//!
-//! **A panel with no host is merely slower.** This is a daemon that can be
-//! down, and nothing here may be written as though it cannot be: a socket that
-//! refuses is a panel that draws in its own process, exactly as it did before
-//! any of this, and says so on the journal rather than on the screen.
-//!
-//! **What the lock file says is said by the one holding it.** `picker::mark_drawn`
-//! and `picker::gone` write into the lock this process opened, and the host
-//! has no such lock -- called there they would be two no-ops, and the door name
-//! they write is what `alone` reads to decide that a door which only opens has
-//! been asked twice. So the host says which of the two has happened and the
-//! stand-in writes it, which is the same order it happened in when a panel was
-//! one process.
-//!
-//! Acceptance and drawing are separate replies. Acceptance is sent before the
-//! card is built; Drawn follows the compositor's presentation acknowledgement.
-//! A failed drawing says Failed, and the stand-in draws locally. The request's
-//! completion file, when requested, records those replies as they arrive.
-//!
-//! Lines, and no version number, for `console_events::wire`'s reasons: both
-//! ends are built by the same `console apply` from the same commit, and someone
-//! holding `socat` against the socket should be able to read what went past.
-//! What is escaped here is not what is escaped there -- an event group is one
-//! token and a space is what ends it, and these are a program's arguments,
-//! which are allowed to hold anything at all except a nul.
+//! Requests and replies are newline-delimited. Arguments preserve spaces,
+//! backslashes, and newlines through the wire escaping below.
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::fd::{AsRawFd, BorrowedFd};
@@ -80,9 +24,14 @@ use console_core_never::Never;
 
 pub const SOCKET: &str = "panels.sock";
 
+pub const RESIDENT_SOCKET: &str = "panels-resident.sock";
+
 pub const OPEN: &str = "open";
 
 pub const CLOSE: &str = "close";
+
+const RESIDENT: &str = "resident ";
+const DISMISS: &str = "dismiss";
 
 pub use crate::completion::{ACCEPTED, DRAWN, FAILED, GONE};
 
@@ -98,6 +47,77 @@ pub struct Request {
   pub arguments: Vec<String>,
 }
 
+pub enum HostRequest {
+  StandIn(Request),
+  Resident(Request),
+  Dismiss,
+}
+
+pub fn read_host(line: &str) -> Result<Option<HostRequest>, Never> {
+  match line.strip_prefix(RESIDENT) {
+    Some(said) => {
+      let Ok(request) = read(said);
+
+      Ok(request.map(HostRequest::Resident))
+    }
+    None => match (line == DISMISS).then_some(()) {
+      Some(()) => Ok(Some(HostRequest::Dismiss)),
+      None => {
+        let Ok(request) = read(line);
+
+        Ok(request.map(HostRequest::StandIn))
+      }
+    },
+  }
+}
+
+pub fn open_resident((who, from): (&str, &str), arguments: &[String]) -> std::io::Result<()> {
+  let Ok(pressed) = console_response_times::press_stamp();
+  let Ok(tells) = crate::description::where_to();
+  let Ok(said) = serialize(&Request {
+    who: who.to_owned(),
+    from: from.to_owned(),
+    pressed: pressed.map(|(_, stamp)| stamp),
+    exec: Duration::ZERO,
+    tells,
+    arguments: arguments.to_vec(),
+  });
+
+  send_to_host(&format!("{RESIDENT}{said}\n"))
+}
+
+pub(crate) fn dismiss_resident() -> std::io::Result<()> {
+  send_to_host(concat!("dismiss", "\n"))
+}
+
+fn send_to_host(packet: &str) -> std::io::Result<()> {
+  use rustix::net::{
+    AddressFamily, SendFlags, SocketAddrUnix, SocketFlags, SocketType, connect, send, socket_with,
+  };
+
+  let Ok(path) = resident_where();
+  let at = path.ok_or(std::io::ErrorKind::NotFound)?;
+  let socket = socket_with(
+    AddressFamily::UNIX,
+    SocketType::STREAM,
+    SocketFlags::CLOEXEC | SocketFlags::NONBLOCK,
+    None,
+  )?;
+  let address = SocketAddrUnix::new(at)?;
+  connect(&socket, &address)?;
+  let written = send(&socket, packet.as_bytes(), SendFlags::NOSIGNAL).map(|bytes| {
+    let Ok(count) = console_core_number_conversion::fitted::<_, u64>(bytes);
+
+    count
+  })?;
+  let Ok(length) = console_core_number_conversion::fitted::<_, u64>(packet.len());
+
+  match (written == length).then_some(()) {
+    Some(()) => Ok(()),
+    None => Err(std::io::Error::from(std::io::ErrorKind::WriteZero)),
+  }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DrawnBy {
   ByTheHost,
@@ -108,6 +128,12 @@ pub fn where_() -> Result<Option<PathBuf>, Never> {
   let ours = console_core_places::application_runtime()?;
 
   Ok(ours.map(|ours_2| ours_2.join(SOCKET)))
+}
+
+pub fn resident_where() -> Result<Option<PathBuf>, Never> {
+  let ours = console_core_places::application_runtime()?;
+
+  Ok(ours.map(|directory| directory.join(RESIDENT_SOCKET)))
 }
 
 pub fn serialize(asked: &Request) -> Result<String, Never> {

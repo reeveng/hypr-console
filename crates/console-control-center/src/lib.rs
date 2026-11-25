@@ -69,6 +69,8 @@ pub const CAPTURE_TEXT: &str = "Capture Text";
 
 pub const CLOSE: &str = "Close";
 
+pub const TASK_MANAGER: &str = "Task Manager";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Swipe {
   Down,
@@ -95,6 +97,7 @@ pub enum Tapped {
   ScreenshotArea,
   CaptureText,
   Close,
+  TaskManager,
   Outside,
 }
 
@@ -105,6 +108,7 @@ pub struct Sheet {
   pub screenshot_area: Panel,
   pub capture_text: Panel,
   pub close: Panel,
+  pub task_manager: Panel,
 }
 
 pub fn sheet(room: Size<u32>, wearing: &Wearing) -> Result<Sheet, Never> {
@@ -123,8 +127,8 @@ pub fn sheet(room: Size<u32>, wearing: &Wearing) -> Result<Sheet, Never> {
     size: Size {
       width: wide,
       height: BUTTON_TALL
-        .saturating_mul(2)
-        .saturating_add(PADDING.saturating_mul(3)),
+        .saturating_mul(3)
+        .saturating_add(PADDING.saturating_mul(4)),
     },
     round: Round(CARD_ROUND),
     fill: wearing.panel,
@@ -159,6 +163,13 @@ pub fn sheet(room: Size<u32>, wearing: &Wearing) -> Result<Sheet, Never> {
     screenshot_area: button(first.saturating_add(step), down),
     capture_text: button(first, down.saturating_add(row_step)),
     close: button(first.saturating_add(step), down.saturating_add(row_step)),
+    task_manager: Panel {
+      size: Size {
+        width: wide.saturating_sub(PADDING.saturating_mul(2)),
+        height: BUTTON_TALL,
+      },
+      ..button(first, down.saturating_add(row_step.saturating_mul(2)))
+    },
   })
 }
 
@@ -172,6 +183,7 @@ pub fn hit_test(sheet: &Sheet, at: (f64, f64)) -> Result<Tapped, Never> {
     (sheet.screenshot_area, Tapped::ScreenshotArea),
     (sheet.capture_text, Tapped::CaptureText),
     (sheet.close, Tapped::Close),
+    (sheet.task_manager, Tapped::TaskManager),
   ] {
     let Ok(covers) = panel.covers(point);
 
@@ -192,6 +204,7 @@ pub struct Labels {
   pub screenshot_area: Size<u32>,
   pub capture_text: Size<u32>,
   pub close: Size<u32>,
+  pub task_manager: Size<u32>,
 }
 
 pub fn render(sheet: &Sheet, labels: Labels, wearing: &Wearing) -> Result<Vec<Shape>, Never> {
@@ -209,6 +222,12 @@ pub fn render(sheet: &Sheet, labels: Labels, wearing: &Wearing) -> Result<Vec<Sh
     wearing,
   );
   let Ok(close) = label(sheet.close, labels.close, CLOSE, wearing);
+  let Ok(task_manager) = label(
+    sheet.task_manager,
+    labels.task_manager,
+    TASK_MANAGER,
+    wearing,
+  );
 
   Ok(vec![
     Shape::Panel(sheet.card),
@@ -220,6 +239,8 @@ pub fn render(sheet: &Sheet, labels: Labels, wearing: &Wearing) -> Result<Vec<Sh
     capture_text,
     Shape::Panel(sheet.close),
     close,
+    Shape::Panel(sheet.task_manager),
+    task_manager,
   ])
 }
 
@@ -300,7 +321,7 @@ mod tests {
   }
 
   #[test]
-  fn the_sheet_offers_both_screenshot_modes_text_capture_and_close() {
+  fn the_sheet_offers_screenshots_text_capture_close_and_task_manager() {
     let Ok(sheet) = sheet(
       Size {
         width: 1280,
@@ -314,6 +335,7 @@ mod tests {
     assert_eq!(hit_test(&sheet, (780.0, down)), Ok(Tapped::ScreenshotArea));
     assert_eq!(hit_test(&sheet, (500.0, 130.0)), Ok(Tapped::CaptureText));
     assert_eq!(hit_test(&sheet, (780.0, 130.0)), Ok(Tapped::Close));
+    assert_eq!(hit_test(&sheet, (640.0, 200.0)), Ok(Tapped::TaskManager));
     assert_eq!(hit_test(&sheet, (640.0, down)), Ok(Tapped::Outside));
     assert_eq!(hit_test(&sheet, (640.0, 600.0)), Ok(Tapped::Outside));
     assert_eq!(hit_test(&sheet, (20.0, down)), Ok(Tapped::Outside));

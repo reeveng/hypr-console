@@ -1107,6 +1107,12 @@ pub struct PagePositions {
   pub(crate) changed: Retained<dyn Fn(PagePosition) + Send + Sync>,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) enum Extent {
+  Standard,
+  Compact,
+}
+
 #[derive(Clone)]
 pub struct Page {
   pub title: String,
@@ -1121,6 +1127,8 @@ pub struct Page {
   pub set: Set,
   pub selecting: Vec<Selecting>,
   pub(crate) positions: Option<PagePositions>,
+  pub(crate) extent: Extent,
+  pub(crate) opening: Option<&'static str>,
 }
 
 pub const SELECT: &str = "Select";
@@ -1198,7 +1206,23 @@ impl Page {
       set: Set::FromTheTop,
       selecting: Vec::new(),
       positions: None,
+      extent: Extent::Standard,
+      opening: None,
     })
+  }
+
+  #[doc = "Identify a single-page opening whose initial shapes and selection are identical until the theme or geometry changes."]
+  pub fn fixed_opening(mut self, identity: &'static str) -> Result<Self, Never> {
+    self.opening = Some(identity);
+
+    Ok(self)
+  }
+
+  #[doc = "Fit a short, single-page action menu in a compact card."]
+  pub fn compact(mut self) -> Result<Self, Never> {
+    self.extent = Extent::Compact;
+
+    Ok(self)
   }
 
   pub fn trashing_selected(self) -> Result<Self, Never> {

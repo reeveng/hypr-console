@@ -419,30 +419,35 @@ fn shape_run(
     .into_iter()
     .collect::<alloc::collections::BTreeSet<_>>();
 
-  'fallback_fonts: for fallback_font in font_iter.by_ref() {
-    match missing.is_empty().then_some(()) {
-      Some(()) => break 'fallback_fonts,
-      None => {}
-    }
+  match missing.is_empty().then_some(()) {
+    Some(()) => {}
+    None => {
+      for fallback_font in font_iter.by_ref() {
+        let Ok(font_id) = fallback_font.id();
+        console_core_logging::trace!("Evaluating fallback with font '{font_id:?}'");
+        let mut fallback_glyphs = Vec::new();
+        let Ok(fallback_missing) = shape_fallback(
+          &mut scratch,
+          &mut fallback_glyphs,
+          &fallback_font,
+          run,
+          attrs_list,
+          options,
+        );
+        let Ok(()) = merge_fallback_glyphs(
+          glyphs,
+          crate::GlyphIndex(first_glyph),
+          &mut missing,
+          fallback_glyphs,
+          fallback_missing,
+        );
 
-    let Ok(font_id) = fallback_font.id();
-    console_core_logging::trace!("Evaluating fallback with font '{font_id:?}'");
-    let mut fallback_glyphs = Vec::new();
-    let Ok(fallback_missing) = shape_fallback(
-      &mut scratch,
-      &mut fallback_glyphs,
-      &fallback_font,
-      run,
-      attrs_list,
-      options,
-    );
-    let Ok(()) = merge_fallback_glyphs(
-      glyphs,
-      crate::GlyphIndex(first_glyph),
-      &mut missing,
-      fallback_glyphs,
-      fallback_missing,
-    );
+        match missing.is_empty().then_some(()) {
+          Some(()) => break,
+          None => {}
+        }
+      }
+    }
   }
 
   let Ok(()) = font_iter.check_missing(run);

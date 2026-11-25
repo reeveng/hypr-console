@@ -2,9 +2,7 @@
 //!
 //! While GitHub lists the migration release as latest, fetch its canonical counterpart.
 
-use std::borrow::Cow;
 use std::collections::BTreeSet;
-use std::error::Error;
 use std::ffi::{OsStr, OsString};
 use std::fs::{self, DirBuilder};
 use std::io::ErrorKind;
@@ -14,18 +12,23 @@ use std::os::unix::fs::{DirBuilderExt, MetadataExt};
 use std::os::unix::net::{SocketAddr, UnixListener};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode};
+use std::process::{Command, ExitCode, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use console_core_external_programs::Program;
 use console_core_internal_programs::InternalProgram;
 use console_core_never::Never;
 use console_core_state_machine::SingleEffectMachine;
+use console_device::update_menu::{
+  self, Hex, PreviousRelease, ReleaseSlot, UndoFault, UpdateError, checked, hex, output,
+  undo_target,
+};
+use console_operating_system_linux::program_lifetime::forked;
+use console_operating_system_linux::program_runtime::commands::finished;
+use console_program_contract::ExitStatus;
 
 #[path = "console-update/installation.rs"]
 mod installation;
-#[path = "console-update/menu.rs"]
-mod menu;
 #[path = "console-update/notices.rs"]
 mod notices;
 #[path = "console-update/pattern.rs"]
@@ -57,13 +60,12 @@ const CURL_COULD_NOT_RESOLVE_HOST: i32 = 6;
 const PREPARATION_NOTICE_MS: u32 = 1_800_000;
 const USAGE: &str = "Usage: console-update [console-vX.Y.Z | --check | --prompt | --rollback | --enroll-pattern | --forget-pattern]";
 
-type UpdateError = Box<dyn Error>;
-
 enum Request {
   Help,
   Latest,
   Check,
   Prompt,
+  AvailableUpdate,
   Tag(String),
   Rollback,
   RollbackStatus,
@@ -106,7 +108,8 @@ fn parse_request(arguments: &[OsString]) -> Result<Request, UpdateError> {
     [word] => match word.to_str() {
       Some("--help") => Ok(Request::Help),
       Some("--check") => Ok(Request::Check),
-      Some("--prompt") => Ok(Request::Prompt),
+      Some(update_menu::PROMPT_ARGUMENT) => Ok(Request::Prompt),
+      Some(update_menu::AVAILABLE_UPDATE) => Ok(Request::AvailableUpdate),
       Some("--rollback") => Ok(Request::Rollback),
       Some("--rollback-status") => Ok(Request::RollbackStatus),
       Some("--enroll-pattern") => Ok(Request::EnrollPattern),
@@ -141,7 +144,8 @@ fn run(caller: Option<&OsStr>) -> Result<(), UpdateError> {
       println!("{USAGE}");
       return Ok(());
     }
-    Request::Prompt => return menu::show(live),
+    Request::Prompt => return update_menu::open(),
+    Request::AvailableUpdate => return print_available(live),
     Request::Latest
     | Request::Check
     | Request::Tag(_)
@@ -166,6 +170,7 @@ fn run(caller: Option<&OsStr>) -> Result<(), UpdateError> {
     }
     Request::Help
     | Request::Prompt
+    | Request::AvailableUpdate
     | Request::Latest
     | Request::Check
     | Request::Tag(_)
@@ -191,6 +196,7 @@ fn run(caller: Option<&OsStr>) -> Result<(), UpdateError> {
     }
     Request::Help
     | Request::Prompt
+    | Request::AvailableUpdate
     | Request::Latest
     | Request::Check
     | Request::Tag(_)
@@ -211,6 +217,7 @@ fn run(caller: Option<&OsStr>) -> Result<(), UpdateError> {
     Request::ForgetPattern => return pattern::forget(releases),
     Request::Help
     | Request::Prompt
+    | Request::AvailableUpdate
     | Request::Latest
     | Request::Check
     | Request::Tag(_)
@@ -241,6 +248,7 @@ fn run(caller: Option<&OsStr>) -> Result<(), UpdateError> {
     Request::RollbackStatus => return report_previous(live, releases, pending.as_deref()),
     Request::Help
     | Request::Prompt
+    | Request::AvailableUpdate
     | Request::Latest
     | Request::Tag(_)
     | Request::Rollback
@@ -388,6 +396,7 @@ fn request_release(
     | Request::Check
     | Request::Help
     | Request::Prompt
+    | Request::AvailableUpdate
     | Request::RollbackStatus
     | Request::EnrollPattern
     | Request::ForgetPattern
@@ -641,77 +650,12 @@ fn latest_update(live: &Path) -> Result<Option<Release>, UpdateError> {
   })
 }
 
-fn prompt_release(
-  update: Result<Option<Release>, UpdateError>,
-  notify: impl FnOnce(&str, &str) -> Result<(), UpdateError>,
-) -> Result<Option<Release>, UpdateError> {
-  match update {
-    Ok(Some(release)) => Ok(Some(release)),
-    Ok(None) => {
-      notify("Console is up to date", "")?;
-      Ok(None)
-    }
-    Err(fault) => {
-      match notify("Could not check for Console updates", &fault.to_string()) {
-        Err(notice) => {
-          eprintln!("console-update: could not show the check failure: {notice}");
-        }
-        ::core::result::Result::Ok(_) => {}
-      }
+fn print_available(live: &Path) -> Result<(), UpdateError> {
+  let available = latest_update(live)?;
 
-      Err(fault)
-    }
-  }
-}
-
-fn prompt(live: &Path) -> Result<(), UpdateError> {
-  let update = prompt_release(latest_update(live), |title, body| {
-    let options = console_operating_system_linux::notification::Options {
-      app_name: Some("Console Updates"),
-      ..Default::default()
-    };
-    let Ok(mut notify) = options.command(title, Some(body));
-    checked(&mut notify)
-  })?;
-
-  let latest = match update {
-    Some(matched_latest) => matched_latest,
-    ::core::option::Option::None => return Ok(()),
-  };
-
-  let tag = latest.tag;
-
-  let Ok(updater) = InternalProgram::Update.path();
-  let Ok(mut sudo) = Program::Sudo.command_from(Path::new("/usr/bin"));
-
-  let status = output(sudo.args(["-n", "--", updater, "--pattern-status"]))?;
-
-  match status.as_str() {
-    "enrolled" => {
-      let Ok(dialog) = InternalProgram::UpdatePattern.path();
-      return checked(Command::new(dialog).arg(&tag));
-    }
-    "absent" => {}
-    _ => {
-      return Err(UpdateError::from(
-        "the updater returned an invalid pattern status",
-      ));
-    }
-  }
-
-  let question = format!("Install {tag} now? This will restart Console services.");
-  let Ok(confirm) = InternalProgram::Confirm.path();
-  let accepted = Command::new(confirm)
-    .env(console_core_internal_programs::CONFIRM_DOES, "Install")
-    .arg(question)
-    .status()?;
-
-  match { ::core::primitive::bool::then_some(accepted.success(), ()) } {
-    ::core::option::Option::Some(()) => {
-      let Ok(mut pkexec) = Program::Pkexec.command();
-      checked(pkexec.args([updater, &tag]))?;
-    }
-    ::core::option::Option::None => {}
+  match available {
+    Some(release) => println!("{}", release.tag),
+    None => {}
   }
 
   Ok(())
@@ -742,33 +686,24 @@ fn fetch_release(tag: Option<&str>) -> Result<release_metadata::GitHubRelease, U
   };
   let Ok(mut metadata) = curl(&url);
   let maximum = release_metadata::MAX_METADATA.to_string();
-  let response = metadata.args(["--max-filesize", &maximum]).output()?;
+  metadata
+    .args(["--max-filesize", &maximum])
+    .stdin(Stdio::null())
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped());
+  let request = forked(&mut metadata)?;
+  let response = finished(request, None)?;
 
-  match {
-    ::core::primitive::bool::then_some(
-      response.status.code() == Some(CURL_COULD_NOT_RESOLVE_HOST),
-      (),
-    )
-  } {
-    ::core::option::Option::Some(()) => {
-      return Err(UpdateError::from(
-        "Could not resolve api.github.com. Check your connection and try again.",
-      ));
-    }
-    ::core::option::Option::None => {}
+  match response.status {
+    ExitStatus::Success => release_metadata::decode(response.output.as_bytes()),
+    ExitStatus::Failure(Some(CURL_COULD_NOT_RESOLVE_HOST)) => Err(UpdateError::from(
+      "Could not resolve api.github.com. Check your connection and try again.",
+    )),
+    ExitStatus::Failure(_) | ExitStatus::Interrupt => Err(UpdateError::from(format!(
+      "GitHub release metadata: {}",
+      response.error_output.trim()
+    ))),
   }
-
-  match { ::core::primitive::bool::then_some(!response.status.success(), ()) } {
-    ::core::option::Option::Some(()) => {
-      let Ok(details) = diagnostic(&response.stderr);
-      return Err(UpdateError::from(format!(
-        "GitHub release metadata: {details}"
-      )));
-    }
-    ::core::option::Option::None => {}
-  }
-
-  release_metadata::decode(&response.stdout)
 }
 
 fn parse_release(
@@ -1129,67 +1064,10 @@ impl AsRef<Path> for BundleMember<'_> {
   }
 }
 
-enum Hex {
-  Valid,
-  Invalid,
-}
-
-fn hex<const LENGTH: u8>(text: &str) -> Result<Hex, Never> {
-  let valid = u8::try_from(text.len()) == Ok(LENGTH)
-    && text
-      .bytes()
-      .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte));
-
-  Ok(match bool::then_some(valid, ()) {
-    Some(()) => Hex::Valid,
-    None => Hex::Invalid,
-  })
-}
-
 fn slot_path(releases: &Path, slot: &str) -> Result<PathBuf, UpdateError> {
   let storage = ReleaseSlot::parse(slot)?;
 
   Ok(releases.join(storage).join("tree"))
-}
-
-#[derive(Clone)]
-struct PreviousRelease {
-  target: String,
-  label: String,
-}
-
-#[derive(Debug)]
-enum UndoFault {
-  InvalidTarget,
-  Absent,
-  Changed,
-  Pending,
-}
-
-impl std::fmt::Display for UndoFault {
-  fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    to.write_str(match self {
-      Self::InvalidTarget => "invalid undo target",
-      Self::Absent => "there is no previous release",
-      Self::Changed => "the previous release changed. Open Console Updates again",
-      Self::Pending => "a release switch is already pending",
-    })
-  }
-}
-
-impl Error for UndoFault {}
-
-fn undo_target(target: &str) -> Result<&str, UndoFault> {
-  let inner = target
-    .strip_prefix("undo:")
-    .ok_or(UndoFault::InvalidTarget)?;
-  let (slot, revision) = inner.split_once(':').ok_or(UndoFault::InvalidTarget)?;
-  let _slot = ReleaseSlot::parse(slot).map_err(|_| UndoFault::InvalidTarget)?;
-
-  match hex::<40>(revision) {
-    Ok(Hex::Valid) => Ok(slot),
-    Ok(Hex::Invalid) => Err(UndoFault::InvalidTarget),
-  }
 }
 
 fn previous_release(
@@ -1261,27 +1139,6 @@ fn restore_release(live: &Path, releases: &Path, slot: &str) -> Result<(), Updat
   remember_held(live, releases)?;
   println!("Restoring the previous Console release.");
   begin(live, releases, slot)
-}
-
-struct ReleaseSlot<'a>(&'a str);
-
-impl<'a> ReleaseSlot<'a> {
-  fn parse(slot: &'a str) -> Result<Self, UpdateError> {
-    let parts = slot
-      .strip_prefix("release-")
-      .ok_or("bad release storage name")?;
-    let (process, time) = parts.split_once('-').ok_or("bad release storage name")?;
-    process.parse::<u32>()?;
-    time.parse::<u128>()?;
-
-    Ok(Self(slot))
-  }
-}
-
-impl AsRef<Path> for ReleaseSlot<'_> {
-  fn as_ref(&self) -> &Path {
-    Path::new(self.0)
-  }
 }
 
 impl Switch {
@@ -1654,43 +1511,6 @@ fn git(root: &Path, arguments: &[&str]) -> Result<String, UpdateError> {
   )
 }
 
-fn output(command: &mut Command) -> Result<String, UpdateError> {
-  let result = command.output()?;
-
-  match { ::core::primitive::bool::then_some(!result.status.success(), ()) } {
-    ::core::option::Option::Some(()) => {
-      let Ok(details) = diagnostic(&result.stderr);
-      return Err(UpdateError::from(format!(
-        "{command:?} exited with {}: {details}",
-        result.status
-      )));
-    }
-    ::core::option::Option::None => {}
-  }
-
-  let output = String::from_utf8(result.stdout)?;
-
-  Ok(output.trim().to_owned())
-}
-
-fn diagnostic(bytes: &[u8]) -> Result<Cow<'_, str>, Never> {
-  Ok(match std::str::from_utf8(bytes) {
-    Ok(message) => Cow::Borrowed(message.trim()),
-    Err(_stderr_not_utf8) => Cow::Owned(format!("{bytes:?}")),
-  })
-}
-
-fn checked(command: &mut Command) -> Result<(), UpdateError> {
-  let status = command.status()?;
-
-  match { ::core::primitive::bool::then_some(status.success(), ()) } {
-    ::core::option::Option::Some(()) => Ok(()),
-    ::core::option::Option::None => Err(UpdateError::from(format!(
-      "{command:?} exited with {status}"
-    ))),
-  }
-}
-
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -1896,24 +1716,6 @@ mod tests {
       Path::new("/unused-storage"),
       Some("pending release"),
     )
-  }
-
-  #[test]
-  fn a_failed_check_shows_its_reason_and_a_successful_check_can_say_up_to_date() {
-    let reason = "Could not resolve api.github.com. Check your connection and try again.";
-    let failed = prompt_release(Err(UpdateError::from(reason)), |title, body| {
-      assert_eq!(title, "Could not check for Console updates");
-      assert_eq!(body, reason);
-      Ok(())
-    });
-    assert!(matches!(failed, Err(fault) if fault.to_string() == reason));
-
-    let checked = prompt_release(Ok(None), |title, body| {
-      assert_eq!(title, "Console is up to date");
-      assert!(body.is_empty());
-      Ok(())
-    });
-    assert!(matches!(checked, Ok(None)));
   }
 
   #[test]

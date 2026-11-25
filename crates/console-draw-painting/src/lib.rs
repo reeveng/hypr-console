@@ -198,11 +198,20 @@ enum Ground<'a> {
 }
 
 pub fn onto(pixels: &mut [u8], frame: Frame, shapes: &[Shape]) -> Result<(), Cannot> {
-  paint(pixels, frame, shapes, Ground::Cleared)
+  paint(pixels, frame, shapes, Ground::Cleared, Point::default())
+}
+
+pub fn onto_region(
+  pixels: &mut [u8],
+  frame: Frame,
+  shapes: &[Shape],
+  origin: Point<i32>,
+) -> Result<(), Cannot> {
+  paint(pixels, frame, shapes, Ground::Cleared, origin)
 }
 
 pub fn over(pixels: &mut [u8], frame: Frame, shapes: &[Shape]) -> Result<(), Cannot> {
-  paint(pixels, frame, shapes, Ground::Preserved)
+  paint(pixels, frame, shapes, Ground::Preserved, Point::default())
 }
 
 pub fn over_picture(
@@ -211,7 +220,13 @@ pub fn over_picture(
   picture: Picture<&Pixels>,
   above: &[Shape],
 ) -> Result<(), Cannot> {
-  paint(pixels, frame, above, Ground::Picture(picture))
+  paint(
+    pixels,
+    frame,
+    above,
+    Ground::Picture(picture),
+    Point::default(),
+  )
 }
 
 fn paint(
@@ -219,12 +234,16 @@ fn paint(
   frame: Frame,
   shapes: &[Shape],
   ground: Ground<'_>,
+  origin: Point<i32>,
 ) -> Result<(), Cannot> {
   let Ok(ratio) = ratio(frame);
   let Ok(across) = narrow_f32(ratio.width);
   let Ok(down) = narrow_f32(ratio.height);
-  let Ok(transform) =
+  let Ok(scale) =
     Transform::from_scale_factors(console_core_paths::ScaleFactors { x: across, y: down });
+  let Ok(left) = narrow_f32(-f64::from(origin.x));
+  let Ok(top) = narrow_f32(-f64::from(origin.y));
+  let Ok(transform) = scale.pre_translate_by(console_core_paths::Point { x: left, y: top });
   let mut canvas = Canvas::new(pixels, frame.device, transform)?;
 
   match ground {

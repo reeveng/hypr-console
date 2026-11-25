@@ -1,54 +1,19 @@
-//! One program, holding every panel.
+//! The resident host for Console panels.
 //!
-//! Three days of the device's own timing file said the same thing every day:
-//! the two largest stretches of any opening are `exec` and the toolkit coming
-//! up. Neither is work about the panel. A card is built and filled and drawn in
-//! a fraction of either, so no amount of work on how a card is built moves the
-//! number a thumb waits -- and the thing that does is not starting a process at
-//! all.
+//! A controller press can send the host a request directly. The host holds
+//! the picker lease for that opening. Stand-in launchers also use the host
+//! and keep their existing close and completion protocol.
 //!
-//! So this one stays up. It opens the display once, parses the stylesheet once,
-//! reads the icon theme once, and draws whichever panel it is asked for. What
-//! reaches it is a request on a socket from the panel's own program, which is
-//! still exec'd and still holds the screen -- see `console_panel::handoff` for
-//! why that half did not go away, and why it was not taken over here.
+//! Each opening rebuilds its live page and action handlers. The host retains
+//! up to three first-frame buffers. An identical card at the same geometry
+//! can attach its prepared buffer while the page continues with live inputs.
+//! A closed panel has no surface, active subscriptions, or render loop.
 //!
-//! **A closed panel costs nothing.** This is the whole of what a resident
-//! process owes a handheld. With nothing on the screen this process is asleep
-//! in one `poll` over the door, the panel it is holding and the signal that
-//! asks it to stop, so the cost of being warm is the memory and not the
-//! battery -- but only for as long as nothing is left running underneath. What a panel holds while it is up is a `pactl subscribe` or a
-//! `busctl monitor` per watch, a thread per actor, and a window; today those
-//! cost nothing because the process dies. Here they are released by name, in
-//! `shut`, and `console-events`' own head is the argument for why that matters:
-//! twenty-five orphaned subscriptions were once found alive on this device, the
-//! oldest four hours old.
-//!
-//! **Nothing is kept between openings.** The window is destroyed and built
-//! again rather than hidden and shown, and the panel's state is built by the
-//! same call its `main` used to make. That is deliberate and it costs a few
-//! milliseconds of the cheapest stretch there is: a surface that survived would
-//! be a surface holding a reading no one refreshed, which is the one hazard
-//! the `programs.md` note in Orbit names as the real one in a program that
-//! holds state. An opening here runs the same code an exec ran, less the
-//! toolkit coming up.
-//!
-//! **One at a time, and never none between two.** A request that arrives while
-//! something is up is drawn first and closes what was up after its first
-//! frame, so the screen goes from one panel to the next without an empty
-//! moment in between. It used to close first, and every listener on the
-//! compositor's layers -- the bar lighting its icons most of all -- read that
-//! moment as nothing being up, so a tap on the clock with settings open lit
-//! the calendar, put it out and lit it again. The two are up together for one
-//! frame, which is shorter than anything the picker's lock is there to stop:
-//! it is about a hand driving a picker it cannot see, and nothing can be
-//! pressed into the one going in the frame it takes to go.
-//!
-//! Closing normally waits for drawing to stop before running the panel's
-//! finalizer. If the surface outlives its close deadline, its finalizer stays
-//! uncalled. A requester that already saw Drawn then reaches the end of the
-//! socket with its drawing still owned by the host.
+//! When switching panels, the incoming panel draws before the outgoing panel
+//! closes. Closing waits for the drawing thread before calling its finalizer.
+//! A surface that outlives the close deadline keeps its finalizer uncalled.
 
+use std::collections::VecDeque;
 use std::io::{self, BufRead, BufReader, Write};
 use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::os::unix::fs::FileTypeExt;
@@ -65,16 +30,20 @@ use console_core_arguments::{Command, Operands};
 use console_core_internal_programs::InternalProgram;
 use console_core_iteration::Step;
 use console_core_never::Never;
-use console_panel::card::{Card, Finalizer, refusal};
+use console_panel::card::{Card, Door, Finalizer, refusal};
 use console_panel::completion::Progress;
-use console_panel::handoff::{self, CLOSE, Request};
-use console_panel::left_open::LeftOpen;
-use console_panel::picker;
+use console_panel::handoff::{self, CLOSE, HostRequest, Request};
+use console_panel::left_open::{self, Journal, LeftOpen};
+use console_panel::picker::{self, Again, ResidentLease};
 use console_panel::surface;
 use console_panel::tasks::{self, InProgress};
 use console_waiting::{Outcome, Ready, Schedule, until};
 
+mod connection;
+
 const ACCEPTS_PER_TURN: u8 = 16;
+
+const PREPARED_PANELS: u32 = 3;
 
 const CLOSE_PATIENCE: Duration = Duration::from_secs(2);
 
@@ -84,6 +53,7 @@ pub struct Panel {
   pub who: &'static str,
   pub command: Command,
   pub card: fn(&[String]) -> Result<Card, Never>,
+  pub door: fn(&[String]) -> Result<Door, Never>,
   pub program: InternalProgram,
 }
 
@@ -99,61 +69,78 @@ pub const PANELS: &[Panel] = &[
     who: console_launcher::WHO,
     command: console_launcher::COMMAND,
     card: console_launcher::card,
+    door: console_launcher::door,
     program: InternalProgram::Launcher,
   },
   Panel {
     who: console_settings::WHO,
     command: console_settings::COMMAND,
     card: console_settings::card,
+    door: console_settings::door,
     program: InternalProgram::SettingsPanel,
   },
   Panel {
     who: console_application_music::WHO,
     command: console_application_music::COMMAND,
     card: console_application_music::card,
+    door: console_application_music::door,
     program: InternalProgram::MusicPanel,
   },
   Panel {
     who: console_notifications::WHO,
     command: console_notifications::COMMAND,
     card: console_notifications::card,
+    door: console_notifications::door,
     program: InternalProgram::NotificationsPanel,
   },
   Panel {
     who: console_application_clipboard::WHO,
     command: console_application_clipboard::COMMAND,
     card: console_application_clipboard::card,
+    door: console_application_clipboard::door,
     program: InternalProgram::Clipboard,
   },
   Panel {
     who: console_application_task_manager::WHO,
     command: console_application_task_manager::COMMAND,
     card: console_application_task_manager::card,
+    door: console_application_task_manager::door,
     program: InternalProgram::TaskManager,
   },
   Panel {
     who: console_input_mapping::WHO,
     command: console_input_mapping::COMMAND,
     card: console_input_mapping::card,
+    door: console_input_mapping::door,
     program: InternalProgram::MappingPanel,
   },
   Panel {
     who: console_application_calculator::WHO,
     command: console_application_calculator::COMMAND,
     card: console_application_calculator::card,
+    door: console_application_calculator::door,
     program: InternalProgram::Calculator,
   },
   Panel {
     who: console_calendar::WHO,
     command: console_calendar::COMMAND,
     card: console_calendar::card,
+    door: console_calendar::door,
     program: InternalProgram::CalendarPanel,
   },
   Panel {
     who: console_forecast::WHO,
     command: console_forecast::COMMAND,
     card: console_forecast::card,
+    door: console_forecast::door,
     program: InternalProgram::ForecastPanel,
+  },
+  Panel {
+    who: console_device::update_menu::WHO,
+    command: console_device::update_menu::COMMAND,
+    card: console_device::update_menu::card,
+    door: console_device::update_menu::door,
+    program: InternalProgram::Update,
   },
 ];
 
@@ -165,15 +152,92 @@ struct Up {
   who: String,
   shut: surface::Close,
   thread: thread::JoinHandle<Result<(), Never>>,
-  writer: UnixStream,
-  reader: BufReader<UnixStream>,
+  owner: Owner,
   while_it_is_up: OwnedFd,
   done: Option<Finalizer>,
+}
+
+enum Owner {
+  StandIn {
+    writer: UnixStream,
+    reader: BufReader<UnixStream>,
+  },
+  Resident {
+    lease: ResidentLease,
+    door: Door,
+  },
+}
+
+impl Owner {
+  fn reader(&self) -> Result<Option<&BufReader<UnixStream>>, Never> {
+    Ok(match self {
+      Self::StandIn { reader, .. } => Some(reader),
+      Self::Resident { .. } => None,
+    })
+  }
+
+  fn report(&mut self, progress: Progress) -> Result<(), Never> {
+    match self {
+      Self::StandIn { writer, .. } => say(writer, progress),
+      Self::Resident { lease, door } => match progress {
+        Progress::Visible => {
+          match lease.visible(&door.name) {
+            Ok(()) => {}
+            Err(fault) => console_core_logging::warn!("recording the resident picker: {fault}"),
+          }
+
+          Ok(())
+        }
+        Progress::Accepted | Progress::Gone | Progress::Failed => Ok(()),
+      },
+    }
+  }
 }
 
 struct PanelResources {
   tasks: InProgress,
   fonts: surface::FontCatalog,
+  journal: Option<Journal>,
+  prepared: VecDeque<(&'static str, surface::PreparedCard)>,
+  connection: Option<connection::Spare>,
+}
+
+impl PanelResources {
+  fn take_prepared(&mut self, who: &str) -> Result<Option<surface::PreparedCard>, Never> {
+    match self.prepared.iter().position(|(known, _)| *known == who) {
+      Some(at) => Ok(self.prepared.remove(at).map(|(_, frame)| frame)),
+      None => Ok(None),
+    }
+  }
+
+  fn keep_prepared(
+    &mut self,
+    who: &'static str,
+    frame: surface::PreparedCard,
+  ) -> Result<(), Never> {
+    let occupied = match u32::try_from(self.prepared.len()) {
+      Ok(count) => count,
+      Err(_outside_the_cache_limit) => u32::MAX,
+    };
+
+    match (occupied >= PREPARED_PANELS).then_some(()) {
+      Some(()) => {
+        let _ = self.prepared.pop_front();
+      }
+      None => {}
+    }
+
+    self.prepared.push_back((who, frame));
+
+    Ok(())
+  }
+
+  fn remember(&self, open: Option<&LeftOpen>) -> Result<(), Never> {
+    match self.journal.as_ref() {
+      Some(journal) => journal.remember(open),
+      None => left_open::remember_directly(open, || {}),
+    }
+  }
 }
 
 pub fn serve() -> Result<(), Never> {
@@ -231,51 +295,86 @@ pub fn serve() -> Result<(), Never> {
     }
   };
   let Ok(fonts) = surface::prepare_fonts();
-  let resources = PanelResources {
+  let record_worker = match Journal::start() {
+    Ok(journal) => Some(journal),
+    Err(fault) => {
+      console_core_logging::warn!(
+        "console-panels: could not start the panel record worker: {fault}"
+      );
+      None
+    }
+  };
+  let mut resources = PanelResources {
     tasks: kept.actor.clone(),
     fonts,
+    journal: record_worker,
+    prepared: VecDeque::new(),
+    connection: match connection::Spare::start() {
+      Ok(spare) => Some(spare),
+      Err(fault) => {
+        console_core_logging::warn!("could not start the spare panel connection: {fault}");
+
+        None
+      }
+    },
   };
+  let Ok(resident) = listen_for_resident();
 
   console_core_logging::info!("holding the panels, listening at {}", at.display());
 
   let Ok(()) = put_back();
 
-  let held_until_stopped = console_core_iteration::iterate(None, |mut up: Option<Up>| {
-    let held = up.as_ref().map(|up_2| Descriptors {
-      panel: up_2.reader.get_ref().as_fd(),
-      gone: up_2.while_it_is_up.as_fd(),
-      pending: up_2.reader.buffer(),
-    });
-    let Ok(gone) = wait_for_request(&listening, stopping.as_ref(), held);
+  let held_until_stopped =
+    console_core_iteration::iterate((None::<Up>, &mut resources), |(mut up, held_resources)| {
+      let held = up.as_ref().map(|up_2| {
+        let Ok(reader) = up_2.owner.reader();
 
-    match gone {
-      PanelRequest::ToStop => {
-        let Ok(()) = nothing_is_up(&mut up);
-
-        return Ok(Step::Halt(()));
-      }
-      PanelRequest::ForAPanel => {
-        let Ok(()) = accept_pending(&mut up, &listening, &resources);
-      }
-      PanelRequest::ByThePanel => {
-        let Ok(said) = a_word(&mut up);
-
-        match said {
-          Word::Close | Word::Closed => {
-            let Ok(()) = nothing_is_up(&mut up);
-          }
-          Word::None => {}
+        Descriptors {
+          panel: reader.map(|connection| connection.get_ref().as_fd()),
+          gone: up_2.while_it_is_up.as_fd(),
+          pending: reader.map_or(&[], BufReader::buffer),
         }
-      }
-      PanelRequest::PanelGone => {
-        let Ok(()) = nothing_is_up(&mut up);
-        let Ok(()) = console_panel::left_open::put_away();
-      }
-      PanelRequest::None => {}
-    }
+      });
+      let Ok(gone) = wait_for_request(
+        (&listening, resident.as_ref().map(|(_, socket)| socket)),
+        stopping.as_ref(),
+        held,
+      );
 
-    Ok(Step::Again(up))
-  });
+      match gone {
+        PanelRequest::ToStop => {
+          let Ok(()) = nothing_is_up(&mut up);
+
+          return Ok(Step::Halt(()));
+        }
+        PanelRequest::ForAPanel => {
+          let Ok(()) = accept_pending(&mut up, &listening, held_resources);
+        }
+        PanelRequest::FromResident => match resident.as_ref() {
+          Some((_, socket)) => {
+            let Ok(()) = accept_pending(&mut up, socket, held_resources);
+          }
+          None => {}
+        },
+        PanelRequest::ByThePanel => {
+          let Ok(said) = a_word(&mut up);
+
+          match said {
+            Word::Close | Word::Closed => {
+              let Ok(()) = nothing_is_up(&mut up);
+            }
+            Word::None => {}
+          }
+        }
+        PanelRequest::PanelGone => {
+          let Ok(()) = nothing_is_up(&mut up);
+          let Ok(()) = held_resources.remember(None);
+        }
+        PanelRequest::None => {}
+      }
+
+      Ok(Step::Again((up, held_resources)))
+    });
 
   match held_until_stopped {
     Ok(()) => {}
@@ -284,7 +383,51 @@ pub fn serve() -> Result<(), Never> {
 
   let Ok(()) = clean_socket(&at);
 
+  match resident {
+    Some((path, _socket)) => {
+      let Ok(()) = clean_socket(&path);
+    }
+    None => {}
+  }
+
+  match resources.journal {
+    Some(journal) => {
+      let Ok(()) = journal.close();
+    }
+    None => {}
+  }
+
   kept.scope.close()
+}
+
+fn listen_for_resident() -> Result<Option<(std::path::PathBuf, UnixListener)>, Never> {
+  let Ok(address) = handoff::resident_where();
+  let at = match address {
+    Some(at) => at,
+    None => return Ok(None),
+  };
+  let listening = no_one_is_there(&at).and_then(|free| match free {
+    Free::Yes => UnixListener::bind(&at),
+    Free::Occupied => Err(io::Error::from(io::ErrorKind::AddrInUse)),
+  });
+  let listener = match listening {
+    Ok(listener) => listener,
+    Err(fault) => {
+      console_core_logging::warn!("listening for resident panel requests: {fault}");
+
+      return Ok(None);
+    }
+  };
+
+  Ok(match listener.set_nonblocking(true) {
+    Ok(()) => Some((at, listener)),
+    Err(fault) => {
+      console_core_logging::warn!("making the resident panel socket nonblocking: {fault}");
+      let Ok(()) = clean_socket(&at);
+
+      None
+    }
+  })
 }
 
 fn put_back() -> Result<(), Never> {
@@ -310,6 +453,7 @@ fn put_back() -> Result<(), Never> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PanelRequest {
   ForAPanel,
+  FromResident,
   ByThePanel,
   PanelGone,
   ToStop,
@@ -319,19 +463,20 @@ enum PanelRequest {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Watching {
   Door,
+  Resident,
   Stopping,
   Panel,
   Gone,
 }
 
 struct Descriptors<'a> {
-  panel: BorrowedFd<'a>,
+  panel: Option<BorrowedFd<'a>>,
   gone: BorrowedFd<'a>,
   pending: &'a [u8],
 }
 
 fn wait_for_request(
-  listening: &UnixListener,
+  (listening, resident): (&UnixListener, Option<&UnixListener>),
   stopping: Option<&OwnedFd>,
   up: Option<Descriptors<'_>>,
 ) -> Result<PanelRequest, Never> {
@@ -348,6 +493,14 @@ fn wait_for_request(
   let mut watch: Vec<PollFd<'_>> =
     vec![PollFd::from_borrowed_fd(listening.as_fd(), PollFlags::IN)];
 
+  match resident {
+    Some(socket) => {
+      which.push(Watching::Resident);
+      watch.push(PollFd::from_borrowed_fd(socket.as_fd(), PollFlags::IN));
+    }
+    None => {}
+  }
+
   match stopping {
     Some(stopping_2) => {
       which.push(Watching::Stopping);
@@ -358,8 +511,14 @@ fn wait_for_request(
 
   match up {
     Some(up_3) => {
-      which.push(Watching::Panel);
-      watch.push(PollFd::from_borrowed_fd(up_3.panel, PollFlags::IN));
+      match up_3.panel {
+        Some(panel) => {
+          which.push(Watching::Panel);
+          watch.push(PollFd::from_borrowed_fd(panel, PollFlags::IN));
+        }
+        None => {}
+      }
+
       which.push(Watching::Gone);
       watch.push(PollFd::from_borrowed_fd(up_3.gone, PollFlags::IN));
     }
@@ -384,6 +543,7 @@ fn wait_for_request(
 
   Ok(match said {
     Some(Watching::Door) => PanelRequest::ForAPanel,
+    Some(Watching::Resident) => PanelRequest::FromResident,
     Some(Watching::Stopping) => PanelRequest::ToStop,
     Some(Watching::Panel) => PanelRequest::ByThePanel,
     Some(Watching::Gone) => PanelRequest::PanelGone,
@@ -453,7 +613,7 @@ fn clean_socket(at: &Path) -> Result<(), Never> {
 fn accept_pending(
   up: &mut Option<Up>,
   listening: &UnixListener,
-  resources: &PanelResources,
+  resources: &mut PanelResources,
 ) -> Result<(), Never> {
   for _ in 0..ACCEPTS_PER_TURN {
     let asking = match listening.accept() {
@@ -480,18 +640,9 @@ fn accept_pending(
 fn asked_of(
   up: &mut Option<Up>,
   asking: UnixStream,
-  resources: &PanelResources,
+  resources: &mut PanelResources,
 ) -> Result<(), Never> {
-  let heard = match asking.try_clone() {
-    Ok(heard) => heard,
-    Err(fault) => {
-      console_core_logging::warn!("cloning a panel request socket: {fault}");
-
-      return Ok(());
-    }
-  };
-
-  let mut reader = BufReader::new(heard);
+  let mut reader = BufReader::new(asking);
   let mut line = String::new();
 
   match reader.read_line(&mut line) {
@@ -500,41 +651,116 @@ fn asked_of(
     Ok(_) => {}
   }
 
-  let Ok(asked) = handoff::read(line.trim_end());
+  let request = match line.strip_suffix('\n') {
+    Some(packet) => packet.trim_end(),
+    None => return Ok(()),
+  };
+  let Ok(asked) = handoff::read_host(request);
 
-  let asked_3 = match asked {
-    Some(asked_2) => asked_2,
+  match asked {
+    Some(HostRequest::StandIn(client)) => stand_in(up, client, reader, resources),
+    Some(HostRequest::Resident(sent)) => resident(up, sent, resources),
+    Some(HostRequest::Dismiss) => dismiss(up, resources),
     None => {
       console_core_logging::warn!("{:?} is not a request", line.trim_end());
+
+      Ok(())
+    }
+  }
+}
+
+fn stand_in(
+  up: &mut Option<Up>,
+  asked: Request,
+  reader: BufReader<UnixStream>,
+  resources: &mut PanelResources,
+) -> Result<(), Never> {
+  let writer = match reader.get_ref().try_clone() {
+    Ok(writer) => writer,
+    Err(fault) => {
+      console_core_logging::warn!("cloning a panel request socket: {fault}");
 
       return Ok(());
     }
   };
+  let Ok(known) = one(&asked.who);
 
-  put_up(up, asked_3, asking, reader, resources)
+  match known {
+    Some(panel) => put_up(
+      up,
+      asked,
+      panel,
+      Owner::StandIn { writer, reader },
+      resources,
+    ),
+    None => {
+      console_core_logging::warn!("nothing here draws {:?}", asked.who);
+
+      say(&writer, Progress::Failed)
+    }
+  }
+}
+
+fn resident(
+  up: &mut Option<Up>,
+  asked: Request,
+  resources: &mut PanelResources,
+) -> Result<(), Never> {
+  let Ok(known) = one(&asked.who);
+  let panel = match known {
+    Some(panel) => panel,
+    None => return Ok(()),
+  };
+  let Ok(refused) = refusal(&panel.command, &asked.arguments);
+
+  match refused {
+    Some(_) => return Ok(()),
+    None => {}
+  }
+
+  let Ok(door) = (panel.door)(&asked.arguments);
+  let current = up.as_ref().map(|opened| &opened.owner);
+  let offered = match current {
+    Some(Owner::Resident { lease, door: open }) => match (open.name == door.name, door.again) {
+      (true, Again::Keeps) => return Ok(()),
+      (true, Again::Closes) => return dismiss(up, resources),
+      (false, _) => lease.duplicate().map(Some),
+    },
+    Some(Owner::StandIn { .. }) => Ok(None),
+    None => ResidentLease::acquire(),
+  };
+  let lease = match offered {
+    Ok(Some(lease)) => lease,
+    Ok(None) => return left_open::started(panel.program, asked.arguments),
+    Err(fault) => {
+      console_core_logging::warn!("the resident picker could not take the screen: {fault}");
+
+      return left_open::started(panel.program, asked.arguments);
+    }
+  };
+
+  put_up(up, asked, panel, Owner::Resident { lease, door }, resources)
+}
+
+fn dismiss(up: &mut Option<Up>, resources: &PanelResources) -> Result<(), Never> {
+  match up.as_ref().map(|opened| &opened.owner) {
+    Some(Owner::Resident { .. }) => {
+      let Ok(()) = nothing_is_up(up);
+
+      resources.remember(None)
+    }
+    Some(Owner::StandIn { .. }) | None => Ok(()),
+  }
 }
 
 fn put_up(
   up: &mut Option<Up>,
   asked: Request,
-  writer: UnixStream,
-  reader: BufReader<UnixStream>,
-  resources: &PanelResources,
+  known: &Panel,
+  mut owner: Owner,
+  resources: &mut PanelResources,
 ) -> Result<(), Never> {
-  let Ok(known) = one(&asked.who);
-
-  let known_3 = match known {
-    Some(known_2) => known_2,
-    None => {
-      console_core_logging::warn!("nothing here draws {:?}", asked.who);
-
-      let Ok(()) = say(&writer, Progress::Failed);
-
-      return Ok(());
-    }
-  };
-
-  let Ok(()) = say(&writer, Progress::Accepted);
+  let Ok(()) = owner.report(Progress::Accepted);
 
   let Ok(()) = console_panel::opening::start(
     &asked.who,
@@ -543,11 +769,7 @@ fn put_up(
     asked.exec,
   );
 
-  let Ok(()) = console_panel::left_open::opened(&LeftOpen {
-    who: asked.who.clone(),
-    arguments: asked.arguments.clone(),
-  });
-  let Ok(card) = (known_3.card)(&asked.arguments);
+  let Ok(card) = (known.card)(&asked.arguments);
   let Card {
     build,
     column,
@@ -560,15 +782,21 @@ fn put_up(
     Err(fault) => {
       console_core_logging::warn!("nothing to hear a panel close on: {fault}");
 
-      let Ok(()) = say(&writer, Progress::Failed);
-
-      return Ok(());
+      return owner.report(Progress::Failed);
     }
   };
 
   let Ok((first_frame, drawn)) = surface::drawing_notifications();
   let Ok(fonts) = resources.fonts.for_draw_thread();
-
+  let Ok(previous) = resources.take_prepared(known.who);
+  let connected = match resources.connection.as_ref() {
+    Some(spare) => {
+      let Ok(held) = spare.take();
+      held
+    }
+    None => None,
+  };
+  let (remember, prepared) = mpsc::sync_channel(1);
   let Ok((shut, surface_thread)) = surface::run(
     &asked.who,
     (build, resources.tasks.clone()),
@@ -578,42 +806,65 @@ fn put_up(
       fonts,
       while_it_is_up: told_when_it_is_not,
       first_frame,
+      preparation: surface::Preparing {
+        previous,
+        remember,
+        connected,
+      },
     },
-    asked.tells.clone(),
+    asked.tells,
   );
 
   let Ok(clock) = console_waiting::clock::LiveClock::started();
   let presented = wait_for_drawing(&drawn, &clock, picker::COMING);
-  let incoming = Up {
+  let mut incoming = Up {
     who: asked.who.clone(),
     shut,
     thread: surface_thread,
-    writer,
-    reader,
+    owner,
     while_it_is_up,
     done: Some(done),
   };
 
-  match presented {
+  let Ok(()) = match presented {
     Ok(()) => {
-      let Ok(()) = nothing_is_up(up);
+      match prepared.try_recv() {
+        Ok(frame) => {
+          let Ok(()) = resources.keep_prepared(known.who, frame);
+        }
+        Err(mpsc::TryRecvError::Empty | mpsc::TryRecvError::Disconnected) => {
+          console_core_logging::trace!("{} did not retain its first frame", known.who);
+        }
+      }
 
+      let Ok(()) = nothing_is_up(up);
+      let Ok(()) = incoming.owner.report(Progress::Visible);
       *up = Some(incoming);
 
-      match up.as_ref() {
-        Some(up_2) => {
-          let Ok(()) = say(&up_2.writer, Progress::Visible);
-        }
-        None => {}
-      }
+      let Ok(()) = resources.remember(Some(&LeftOpen {
+        who: asked.who,
+        arguments: asked.arguments,
+      }));
+
+      Ok(())
     }
     Err(fault) => {
       console_core_logging::warn!("{} did not present its first frame: {fault:?}", asked.who);
-      let Ok(()) = finish(incoming, Finish::Unpresented(fault));
-    }
-  }
 
-  Ok(())
+      let recover = matches!(&incoming.owner, Owner::Resident { .. }).then_some(known.program);
+      let Ok(()) = finish(incoming, Finish::Unpresented(fault));
+
+      match recover {
+        Some(program) => left_open::started(program, asked.arguments),
+        None => Ok(()),
+      }
+    }
+  };
+
+  match resources.connection.as_ref() {
+    Some(spare) => spare.replenish(),
+    None => Ok(()),
+  }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -698,7 +949,12 @@ fn a_word(up: &mut Option<Up>) -> Result<Word, Never> {
     None => return Ok(Word::None),
   };
 
-  Ok(match up_3.reader.read_line(&mut line) {
+  let reader = match &mut up_3.owner {
+    Owner::StandIn { reader, .. } => reader,
+    Owner::Resident { .. } => return Ok(Word::None),
+  };
+
+  Ok(match reader.read_line(&mut line) {
     Ok(0) => Word::Closed,
     Err(_the_read_failed) => Word::Closed,
     Ok(_) => match ::core::primitive::bool::then_some(line.trim() == CLOSE, ()) {
@@ -732,8 +988,7 @@ fn finish(up: Up, finished: Finish) -> Result<(), Never> {
     who,
     shut: _,
     thread,
-    writer,
-    reader: _,
+    mut owner,
     while_it_is_up: _,
     done,
   } = up;
@@ -752,7 +1007,7 @@ fn finish(up: Up, finished: Finish) -> Result<(), Never> {
 
       return match finished {
         Finish::Presented => Ok(()),
-        Finish::Unpresented(_) => say(&writer, Progress::Failed),
+        Finish::Unpresented(_) => owner.report(Progress::Failed),
       };
     }
   }
@@ -785,10 +1040,10 @@ fn finish(up: Up, finished: Finish) -> Result<(), Never> {
   let Ok(()) = closing.finish();
 
   match finished {
-    Finish::Presented => say(&writer, Progress::Gone),
+    Finish::Presented => owner.report(Progress::Gone),
     Finish::Unpresented(fault) => {
       let Ok(progress) = drawing_ended(fault);
-      say(&writer, progress)
+      owner.report(progress)
     }
   }
 }
@@ -959,10 +1214,10 @@ mod tests {
 
     let (while_it_is_up, _still_up) = rustix::pipe::pipe_with(rustix::pipe::PipeFlags::CLOEXEC)?;
     let heard = wait_for_request(
-      &listening,
+      (&listening, None),
       None,
       Some(Descriptors {
-        panel: reader.get_ref().as_fd(),
+        panel: Some(reader.get_ref().as_fd()),
         gone: while_it_is_up.as_fd(),
         pending: reader.buffer(),
       }),
@@ -986,10 +1241,10 @@ mod tests {
     drop(told_when_it_is_not);
 
     let heard = wait_for_request(
-      &listening,
+      (&listening, None),
       None,
       Some(Descriptors {
-        panel: asked_by.as_fd(),
+        panel: Some(asked_by.as_fd()),
         gone: while_it_is_up.as_fd(),
         pending: &[],
       }),
@@ -1039,13 +1294,13 @@ mod tests {
   fn a_panel_left_open_is_put_back_by_starting_the_program_that_asks_for_it() {
     for panel in PANELS {
       let Ok(program) = panel.program.name();
-      let application = panel
-        .who
-        .strip_prefix("console-")
-        .map(|name| format!("console-application-{name}"));
+      let leaf = match panel.who.strip_prefix("console-") {
+        Some(name) => name,
+        None => panel.who,
+      };
 
       assert!(
-        program == panel.who || application.as_deref() == Some(program),
+        program == panel.who || program.strip_prefix("console-application-") == Some(leaf),
         "a restart would start the wrong program to put {} back",
         panel.who
       );

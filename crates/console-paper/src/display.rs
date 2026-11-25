@@ -155,12 +155,12 @@ impl Wall {
     )
   }
 
-  pub fn wait(&mut self, commands: BorrowedFd<'_>, until: Option<Duration>) -> io::Result<()> {
+  pub fn wait(&mut self, commands: &[BorrowedFd<'_>], until: Option<Duration>) -> io::Result<()> {
     waiting::wait(
       &self.connection,
       &mut self.queue,
       &mut self.outputs,
-      &[commands],
+      commands,
       until,
     )
     .map_err(io::Error::from)

@@ -70,7 +70,9 @@ use console_core_number_conversion::{fitted, index};
 use console_core_parallel_execution::{Failed, Worker, Workers};
 
 mod fifo;
+mod latest;
 pub use fifo::FifoPool;
+pub use latest::{Latest, WorkerStopped};
 
 pub struct HostWorkers;
 

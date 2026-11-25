@@ -4,9 +4,8 @@
 //! surface that is up is a run of frames, and what a person notices about it is
 //! not how long any one of them took but the one that came a refresh late: a
 //! list that stepped twice and was drawn once, a card that tore on the way in.
-//! So this counts every frame a surface commits and writes a line only for the
-//! ones a person could have seen arrive late, and one more when the surface
-//! goes, with how many there were of each kind.
+//! So this counts every frame a surface commits and records the first frame,
+//! each late frame, and a summary when the surface goes.
 //!
 //! **Late is said against the screen, not against a number.** The compositor
 //! tells a surface when each frame reached the glass and how long a refresh is
@@ -43,6 +42,7 @@ use crate::{FELT, Record, monotonic_now, written_down};
 
 const MONOTONIC: u32 = 1;
 pub const RESPONSE_BUDGET: Duration = Duration::from_millis(50);
+pub const FIRST_PRESENTATION: &str = "first presentation";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Painting(Option<Duration>);
@@ -222,6 +222,13 @@ impl Frames {
     };
     let took = timed.painted.saturating_add(timed.composited);
 
+    match (self.presented, self.since) {
+      (1, Some(since)) => {
+        let Ok(()) = first_presentation(&self.who, (since, committed.at), timed, presented.at);
+      }
+      (1, None) | (0 | 2.., _) => {}
+    }
+
     self.slowest = self.slowest.max(took);
 
     match committed.input {
@@ -311,6 +318,33 @@ impl Frames {
       ],
     })
   }
+}
+
+fn first_presentation(
+  who: &str,
+  (started, committed): (Duration, Duration),
+  timed: Timed,
+  presented: Duration,
+) -> Result<(), Never> {
+  let Ok(arrived) = monotonic_now();
+  let Ok(refresh) = microseconds(timed.refresh);
+  let preparing = committed
+    .saturating_sub(started)
+    .saturating_sub(timed.painted);
+  let feedback = arrived.map_or(Duration::ZERO, |now| now.saturating_sub(presented));
+
+  written_down(Record {
+    who: who.to_string(),
+    what: FIRST_PRESENTATION.to_owned(),
+    waited: presented.saturating_sub(started),
+    marks: vec![
+      ("preparing".to_owned(), preparing),
+      ("painting".to_owned(), timed.painted),
+      ("compositing".to_owned(), timed.composited),
+      ("feedback".to_owned(), feedback),
+    ],
+    notes: vec![("refresh_microseconds".to_owned(), Value::Count(refresh))],
+  })
 }
 
 fn late(who: &str, timed: Timed, missed: u64) -> Result<(), Never> {

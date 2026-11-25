@@ -11,6 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 console-compositor.workspace = true
+console-concurrency.workspace = true
 console-core-bounded-reads.workspace = true
 console-core-geometry.workspace = true
 console-core-iteration.workspace = true

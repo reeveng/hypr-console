@@ -14,6 +14,7 @@ name = "console-panels"
 path = "src/bin/console-panels.rs"
 
 [dependencies]
+console-concurrency.workspace = true
 console-core-iteration.workspace = true
 console-core-logging = { workspace = true, features = ["std"] }
 console-input-mapping.workspace = true
@@ -28,6 +29,7 @@ console-application-music.workspace = true
 console-core-internal-programs.workspace = true
 console-core-arguments.workspace = true
 console-core-never.workspace = true
+console-device.workspace = true
 console-notifications.workspace = true
 console-panel.workspace = true
 console-settings.workspace = true

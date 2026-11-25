@@ -10,7 +10,7 @@ use alloc::vec::Vec;
 use core::fmt;
 use core::ops::{Deref, DerefMut};
 use fontdb::{FaceInfo, Pitch, Query, Style};
-use skrifa::MetadataProvider;
+use std::collections::hash_map::Entry;
 
 pub use fontdb;
 pub use harfrust;
@@ -37,39 +37,16 @@ pub struct FontMatchKey {
 }
 
 impl FontMatchKey {
-  fn new(
-    attrs: &Attrs,
-    face: &FaceInfo,
-    db: &fontdb::Database,
-  ) -> Result<FontMatchKey, console_core_never::Never> {
+  fn new(attrs: &Attrs, face: &FaceInfo) -> Result<FontMatchKey, console_core_never::Never> {
     {
       let not_emoji = !face.post_script_name.contains("Emoji");
       let font_weight_diff = attrs.weight.0.abs_diff(face.weight.0);
 
       let variable_weight_match = font_weight_diff != 0
-        && ({
-          let Ok(adapted) = db.with_face_data(face.id, |font_data, face_index| {
-            let font_ref = match skrifa::FontRef::from_index(font_data, face_index) {
-              Ok(font) => font,
-              Err(error) => {
-                console_core_logging::warn!("Cannot match variable font weight: {error:?}");
-
-                return false;
-              }
-            };
-            let axis = match font_ref.axes().get_by_tag({
-              let Ok(adapted) = skrifa::Tag::new(b"wght");
-              adapted
-            }) {
-              Some(axis) => axis,
-              None => return false,
-            };
-            let w = f32::from(attrs.weight.0);
-
-            w >= axis.min_value() && w <= axis.max_value()
-          });
-          adapted
-        }) == Some(true);
+        && face
+          .variable_weight
+          .as_ref()
+          .is_some_and(|axis| axis.contains(&f32::from(attrs.weight.0)));
       let font_weight = face.weight.0;
       let font_stretch_diff = ({
         let Ok(adapted) = attrs.stretch.to_number();
@@ -115,7 +92,7 @@ fn match_candidates(
   let Ok(faces) = db.faces();
   let mut candidates: Vec<_> = faces
     .map(|face| {
-      let Ok(key) = FontMatchKey::new(attrs, face, db);
+      let Ok(key) = FontMatchKey::new(attrs, face);
       key
     })
     .collect();
@@ -133,7 +110,7 @@ fn match_candidates(
 
       match face {
         Some(face_2) => {
-          let Ok(key) = FontMatchKey::new(attrs, face_2, db);
+          let Ok(key) = FontMatchKey::new(attrs, face_2);
           candidates.push(key);
         }
         None => console_core_logging::error!("Font database returned an unavailable face {id:?}"),
@@ -438,34 +415,16 @@ impl FontSystem {
     id: fontdb::ID,
     weight: fontdb::Weight,
   ) -> Result<Option<Arc<Font>>, console_core_never::Never> {
-    {
-      Ok(
-        self
-          .font_cache
-          .entry((id, weight))
-          .or_insert_with(|| {
-            match match Font::new(&self.db, id, weight) {
-              Ok(value) => value,
-            } {
-              Some(font) => Some(Arc::new(font)),
-              None => {
-                match {
-                  let Ok(adapted) = self.db.face(id);
-                  adapted
-                } {
-                  Some(face) => {
-                    console_core_logging::warn!("Failed to load font '{}'", face.post_script_name)
-                  }
-                  None => console_core_logging::warn!("Font {id:?} is unavailable"),
-                }
+    let cached = match self.font_cache.entry((id, weight)) {
+      Entry::Occupied(held) => held.into_mut(),
+      Entry::Vacant(empty) => {
+        let Ok(candidate) = load_shaper(&mut self.db, id, weight);
 
-                None
-              }
-            }
-          })
-          .clone(),
-      )
-    }
+        empty.insert(candidate.map(Arc::new))
+      }
+    };
+
+    Ok(cached.clone())
   }
 
   pub fn is_monospace(
@@ -596,6 +555,37 @@ impl FontSystem {
   }
 }
 
+fn load_shaper(
+  db: &mut fontdb::Database,
+  id: fontdb::ID,
+  weight: fontdb::Weight,
+) -> Result<Option<Font>, console_core_never::Never> {
+  let Ok(backing) = db.make_shared_face_data(id);
+  let candidate = match backing {
+    Some(_) => {
+      let Ok(found) = Font::new(db, id, weight);
+      found
+    }
+    None => None,
+  };
+
+  match candidate.as_ref() {
+    Some(_) => {}
+    None => {
+      let Ok(face) = db.face(id);
+
+      match face {
+        Some(detected) => {
+          console_core_logging::warn!("Failed to load font '{}'", detected.post_script_name)
+        }
+        None => console_core_logging::warn!("Font {id:?} is unavailable"),
+      }
+    }
+  }
+
+  Ok(candidate)
+}
+
 #[derive(Debug)]
 pub struct BorrowedWithFontSystem<'a, T> {
   pub(crate) inner: &'a mut T,
@@ -613,5 +603,29 @@ impl<T> Deref for BorrowedWithFontSystem<'_, T> {
 impl<T> DerefMut for BorrowedWithFontSystem<'_, T> {
   fn deref_mut(&mut self) -> &mut Self::Target {
     self.inner
+  }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+  use super::*;
+  use crate::{Buffer, Family, LineHeight, Metrics, Pruning, Shaping};
+
+  #[test]
+  fn complete_run_does_not_load_a_fallback_shaper() -> Result<(), console_core_never::Never> {
+    let Ok(mut db) = fontdb::Database::new();
+    let Ok(()) = db.load_font_data(include_bytes!("../../fonts/Inter-Regular.ttf").to_vec());
+    let Ok(()) = db.load_font_data(include_bytes!("../../fonts/NotoSans-Regular.ttf").to_vec());
+    let Ok(mut fonts) = FontSystem::new_with_locale_and_db(String::from("en-US"), db);
+    let Ok(metrics) = Metrics::new(16.0, LineHeight(20.0));
+    let Ok(mut text) = Buffer::new_empty(metrics);
+    let Ok(default) = Attrs::new();
+    let Ok(attrs) = default.family(Family::Name("Inter"));
+    let Ok(()) = text.set_text("Hello", &attrs, Shaping::Advanced, None);
+    let Ok(()) = text.shape_until_scroll(&mut fonts, Pruning::Preserve);
+
+    assert_eq!(fonts.font_cache.len(), 1);
+
+    Ok(())
   }
 }

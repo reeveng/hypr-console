@@ -1092,11 +1092,7 @@ fn perform(
 
       Ok(None)
     }
-    Effect::Run(arguments) => {
-      eprintln!("controller-desktop: {}", arguments.join(" "));
-
-      run(arguments)
-    }
+    Effect::Run(arguments) => run(arguments),
     Effect::Dispatch(action) => {
       let Ok(()) = dispatch(*action);
 
@@ -1205,6 +1201,19 @@ fn run(arguments: &[String]) -> Result<Option<Detached>, Never> {
     None => return Ok(None),
   };
 
+  let Ok(panel) = resident_panel(program);
+
+  match panel {
+    Some(who) => match console_panel::handoff::open_resident((who, "pad"), rest) {
+      Ok(()) => return Ok(None),
+      Err(fault) => {
+        console_core_logging::debug!("opening {who} through its launcher: {fault}");
+      }
+    },
+    None => {}
+  }
+
+  eprintln!("controller-desktop: {}", arguments.join(" "));
   let mut starting = Command::new(program);
   starting
     .args(rest)
@@ -1219,4 +1228,22 @@ fn run(arguments: &[String]) -> Result<Option<Detached>, Never> {
       None
     }
   })
+}
+
+fn resident_panel(program: &str) -> Result<Option<&'static str>, Never> {
+  let routes = [
+    (InternalProgram::Launcher, "launcher"),
+    (InternalProgram::SettingsPanel, "settings-panel"),
+    (InternalProgram::MappingPanel, "mapping-panel"),
+    (InternalProgram::NotificationsPanel, "notifications-panel"),
+    (InternalProgram::Clipboard, "console-clipboard"),
+    (InternalProgram::TaskManager, "console-task-manager"),
+  ];
+
+  Ok(routes.into_iter().find_map(|(internal, panel)| {
+    let Ok(name) = internal.name();
+    let Ok(path) = internal.path();
+
+    (program == name || program == path).then_some(panel)
+  }))
 }

@@ -1,5 +1,6 @@
 //! Run the background layer or send one request to the session's renderer.
 
+mod decoder;
 mod display;
 mod picture;
 mod play;
@@ -7,7 +8,6 @@ mod play;
 use std::ffi::OsString;
 use std::io::{self, Write};
 use std::os::fd::AsFd;
-use std::os::unix::net::SocketAddr;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Instant;
@@ -17,9 +17,10 @@ use console_core_never::Never;
 use console_core_state_machine::Machine;
 use console_paper::{self as paper, Motion, Request, Socket};
 
+use decoder::Decoder;
 use display::Wall;
 use picture::Drawing;
-use play::{Effect, Event, Paper, Playback};
+use play::{Decoded, Effect, Event, Paper, State};
 
 enum Command {
   Serve([u8; 3]),
@@ -82,8 +83,9 @@ fn run(command: Command) -> io::Result<()> {
 struct Desktop {
   wall: Wall,
   socket: Socket,
+  decoder: Decoder,
   drawing: Drawing,
-  playback: Playback,
+  state: Option<State>,
 }
 
 enum Turn {
@@ -105,14 +107,16 @@ impl Desktop {
   fn open(color: [u8; 3]) -> io::Result<Self> {
     let wall = Wall::open()?;
     let socket = Socket::open()?;
+    let decoder = Decoder::start()?;
     let Ok(drawing) = Drawing::new(color);
     let Ok(initial) = Paper::initial_transition(&(), None);
     console_readiness::ready()?;
     Ok(Self {
       wall,
       socket,
+      decoder,
       drawing,
-      playback: initial.state,
+      state: Some(initial.state),
     })
   }
 
@@ -134,7 +138,21 @@ impl Desktop {
 
     match received {
       Some((peer, request)) => {
-        let handling = self.respond(Event::Asked(request), Some(&peer))?;
+        let handling = self.respond(Event::Asked(peer, request))?;
+
+        match handling {
+          Turn::Stop => return Ok(Running::Stop),
+          Turn::Next | Turn::Report(_) => {}
+        }
+      }
+      None => {}
+    }
+
+    let loaded = self.decoder.receive()?;
+
+    match loaded {
+      Some(decoded) => {
+        let handling = self.respond(Event::Decoded(decoded))?;
 
         match handling {
           Turn::Stop => return Ok(Running::Stop),
@@ -146,7 +164,7 @@ impl Desktop {
 
     let Ok(display) = self.wall.observe(&self.drawing);
     let Ok(woke) = now();
-    let handling = self.respond(Event::Woke(woke, display), None)?;
+    let handling = self.respond(Event::Woke(woke, display))?;
 
     match handling {
       Turn::Stop => return Ok(Running::Stop),
@@ -155,21 +173,32 @@ impl Desktop {
 
     let Ok(availability) = self.wall.observe(&self.drawing);
     let Ok(sample) = now();
-    let Ok(wait) = self.playback.wait(availability, sample);
-    self.wall.wait(self.socket.channel.as_fd(), wait)?;
+    let state = self
+      .state
+      .as_ref()
+      .ok_or_else(|| io::Error::other("wallpaper state is already in use"))?;
+    let Ok(wait) = state.wait(availability, sample);
+    let Ok(decoded) = self.decoder.descriptor();
+    self
+      .wall
+      .wait(&[self.socket.channel.as_fd(), decoded], wait)?;
     Ok(Running::Wait)
   }
 
-  fn respond(&mut self, event: Event, peer: Option<&SocketAddr>) -> io::Result<Turn> {
+  fn respond(&mut self, event: Event) -> io::Result<Turn> {
     let mut next = event;
 
     for _ in 0..3 {
-      let Ok(step) = Paper::transition(self.playback, next);
-      self.playback = step.state;
+      let state = self
+        .state
+        .take()
+        .ok_or_else(|| io::Error::other("wallpaper state is already in use"))?;
+      let Ok(step) = Paper::transition(state, next);
+      self.state = Some(step.state);
       let mut report = None;
 
       for action in step.effects {
-        let result = self.effect(action, peer)?;
+        let result = self.effect(action)?;
 
         match result {
           Turn::Next => {}
@@ -187,12 +216,29 @@ impl Desktop {
     Err(io::Error::other("wallpaper effect did not settle"))
   }
 
-  fn effect(&mut self, effect: Effect, peer: Option<&SocketAddr>) -> io::Result<Turn> {
+  fn effect(&mut self, effect: Effect) -> io::Result<Turn> {
     match effect {
-      Effect::Load(path, motion) => {
-        let Ok(result) = self.drawing.load(path, motion);
+      Effect::Decode(ticket, path, motion) => {
+        let Ok(input) = self.drawing.decoding(path, motion);
+
+        match self.decoder.schedule(ticket, input) {
+          Ok(()) => {}
+          Err(fault) => {
+            return Ok(Turn::Report(Event::Decoded(Decoded {
+              ticket,
+              result: Err(fault),
+            })));
+          }
+        }
+      }
+      Effect::Install(peer, prepared) => {
+        let Ok(activation) = self.drawing.install(prepared);
         let Ok(sample) = now();
-        return Ok(Turn::Report(Event::Loaded(result, sample)));
+
+        return Ok(Turn::Report(Event::Activated(peer, activation, sample)));
+      }
+      Effect::Cancel => {
+        let Ok(()) = self.decoder.cancel();
       }
       Effect::Clear(color) => {
         let Ok(()) = self.drawing.clear(color);
@@ -203,26 +249,19 @@ impl Desktop {
         let Ok(sample) = now();
         return Ok(Turn::Report(Event::Advanced(timing, sample)));
       }
-      Effect::ReadStatus => {
+      Effect::ReadStatus(peer) => {
         let Ok(status) = self.wall.status();
-        self.reply(peer, Ok(&status))?;
+        let Ok(()) = self.socket.reply(&peer, Ok(&status));
       }
-      Effect::Reply(result) => {
-        self.reply(peer, result.as_ref().map(|_| "").map_err(String::as_str))?
+      Effect::Reply(peer, Ok(())) => {
+        let Ok(()) = self.socket.reply(&peer, Ok(""));
+      }
+      Effect::Reply(peer, Err(fault)) => {
+        let Ok(()) = self.socket.reply(&peer, Err(&fault.to_string()));
       }
       Effect::Stop => return Ok(Turn::Stop),
     }
 
     Ok(Turn::Next)
-  }
-
-  fn reply(&self, peer: Option<&SocketAddr>, response: Result<&str, &str>) -> io::Result<()> {
-    match peer {
-      Some(client) => {
-        let Ok(()) = self.socket.reply(client, response);
-        Ok(())
-      }
-      None => Err(io::Error::other("a wallpaper reply needs a client")),
-    }
   }
 }

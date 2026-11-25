@@ -21,3 +21,4 @@
 pub mod deploying;
 pub mod migrating;
 pub mod pulling;
+pub mod update_menu;

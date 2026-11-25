@@ -52,6 +52,7 @@ use std::os::fd::{AsFd, OwnedFd};
 use std::path::Path;
 use std::sync::mpsc;
 use std::thread;
+use std::time::Duration;
 
 use console_actor::Actor;
 use console_core_color::Oklch;
@@ -72,7 +73,7 @@ use console_core_shapes::{
 pub use console_draw_painting::text::FontCatalog;
 use console_draw_painting::{self as painting, Frame, Run};
 pub use console_draw_surface::Drawing;
-use console_draw_surface::standing::DmaBufSupport;
+use console_draw_surface::standing::{AnimationFrame, DmaBufSupport, DrawingStatus};
 pub use console_draw_surface::standing::{DrawingSender, drawing_notifications};
 use console_events::again::Worth;
 use console_events::subscription::{Received, Subscriber, Subscriptions};
@@ -104,6 +105,12 @@ use console_sound_effects::{Degree, SoundEffects};
 
 mod accessibility;
 mod effects;
+mod prepared;
+mod rows;
+
+pub use prepared::{PreparedCard, Preparing};
+
+use rows::{LayoutCache, RowLayout, StackedText};
 
 const TAB_LEAST: i32 = EM * 40 / 9;
 const OVER_ROWS: i32 = EM * 5 / 9;
@@ -127,6 +134,10 @@ const INSIDE_A_ROW: i32 = EM * 8 / 9;
 const CARET: u32 = (EM / 9).unsigned_abs();
 const DRAGGED: f64 = 12.0;
 const A_NOTCH: f64 = 10.0;
+const COMPACT_WIDE: i32 = 640;
+const COMPACT_ROWS: i32 = 3;
+const COMPACT_HEIGHT: i32 =
+  fitting::STRIP + OVER_ROWS + fitting::ROW * COMPACT_ROWS + fitting::BREATH;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Opened {
@@ -137,6 +148,7 @@ pub enum Opened {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Framing {
   Card,
+  Compact,
   Window,
 }
 
@@ -1295,6 +1307,7 @@ pub(crate) struct Standing {
   opened: Opened,
   zoom: crate::zoom::Zoom,
   selected: Selected,
+  stacked: Option<StackedText>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1524,6 +1537,7 @@ fn wait_for_frame(
   logical: Size<u32>,
   was: (Dirty, Stale),
   overlay: Overlay,
+  pending: &mut crate::frames::FrameReceived,
 ) -> Result<(Dirty, Stale), console_draw_surface::SurfaceError> {
   let (mut dirty, mut stale) = was;
   let Ok(descriptor) = waking.descriptor();
@@ -1540,22 +1554,51 @@ fn wait_for_frame(
     crate::frames::FrameReceived::No => {}
   }
 
-  match (woken.frame, dirty, &panelled.moving, overlay) {
-    (crate::frames::FrameReceived::Yes, Dirty::No, Some(_), Overlay::Note) => dirty = Dirty::Yes,
-    (crate::frames::FrameReceived::Yes, Dirty::No, Some(moving), Overlay::None) => {
-      let Ok(repainted) = repainted(surface, moving, logical);
-
-      match repainted {
-        Visible::Yes => {}
-        Visible::NotYet => dirty = Dirty::Yes,
-      }
-    }
-    (crate::frames::FrameReceived::Yes, Dirty::No, None, _)
-    | (crate::frames::FrameReceived::Yes, Dirty::Yes, _, _)
-    | (crate::frames::FrameReceived::No, _, _, _) => {}
+  match woken.frame {
+    crate::frames::FrameReceived::Yes => *pending = crate::frames::FrameReceived::Yes,
+    crate::frames::FrameReceived::No => {}
   }
 
-  Ok((dirty, stale))
+  let frame = paint_animation(surface, panelled, logical, (dirty, overlay), pending)?;
+
+  Ok((frame, stale))
+}
+
+fn paint_animation(
+  surface: &mut Surface,
+  panelled: &Panelled,
+  logical: Size<u32>,
+  (dirty, overlay): (Dirty, Overlay),
+  pending: &mut crate::frames::FrameReceived,
+) -> Result<Dirty, console_draw_surface::SurfaceError> {
+  let moved = match (*pending, dirty, &panelled.moving) {
+    (crate::frames::FrameReceived::Yes, Dirty::No, Some(moving)) => moving,
+    (crate::frames::FrameReceived::No, _, _)
+    | (crate::frames::FrameReceived::Yes, Dirty::Yes, _)
+    | (crate::frames::FrameReceived::Yes, Dirty::No, None) => {
+      *pending = crate::frames::FrameReceived::No;
+
+      return Ok(dirty);
+    }
+  };
+  let Ok(available) = surface.animation_frame();
+
+  match available {
+    AnimationFrame::Waiting => return Ok(dirty),
+    AnimationFrame::Ready => {}
+  }
+
+  *pending = crate::frames::FrameReceived::No;
+  let next = match overlay {
+    Overlay::Note => Dirty::Yes,
+    Overlay::None => match repainted(surface, moved, logical) {
+      Ok(Visible::Yes) => dirty,
+      Ok(Visible::NotYet) => Dirty::Yes,
+    },
+  };
+  surface.pace_animation()?;
+
+  Ok(next)
 }
 
 fn repainted(
@@ -1676,16 +1719,15 @@ fn retire_device(surface: &mut Surface) -> Result<(), Never> {
   surface.clear_layer()
 }
 
-pub(crate) fn stage(rows: &[Row], room: i32) -> Result<i32, Never> {
+fn stage(rows: &[Row], room: i32, layout: &RowLayout) -> Result<i32, Never> {
   let first = match rows.first() {
     Some(first) => first,
     None => return Ok(0),
   };
 
-  let Ok(many) = fitted::<_, i32>(rows.len());
-  let left_over = room
-    .saturating_sub(many.saturating_mul(fitting::ROW))
-    .max(0);
+  let Ok(many) = fitted::<_, u64>(rows.len());
+  let Ok(height) = layout.height(many);
+  let left_over = room.saturating_sub(height).max(0);
 
   match &first.headline {
     Some(_) => return Ok(left_over),
@@ -1742,16 +1784,6 @@ fn row_shapes(
 ) -> Result<Panelled, Never> {
   let mut shapes = Vec::new();
   let mut touching = Vec::new();
-  let Ok(wide) = fitted::<i32, u32>(card.width);
-  let mut checkout = measured.rows.try_borrow_mut();
-  let mut fallback = BTreeMap::new();
-  let rows = match checkout.as_deref_mut() {
-    Ok(cached) => cached,
-    Err(_another_view_holds_the_cache) => &mut fallback,
-  };
-  let Ok(fixed) = fitted::<u32, u64>(standing.at);
-  let Ok(identity) = RowIdentity::of(row, fixed);
-  let Ok(measured_row_2) = cached_measurement(rows, row, identity, wide);
   let Ok(RowSurface {
     frame,
     lit,
@@ -1840,6 +1872,38 @@ fn row_shapes(
     wearing,
   );
 
+  let text = RowText {
+    band: Band { top, height: tall },
+    words_x,
+    far: far_2,
+    width: box_wide,
+    lit,
+    ink,
+    quiet,
+  };
+
+  match (standing.stacked, &row.buttons) {
+    (Some(stacked), None) => {
+      let Ok(()) = stacked.draw(row, text, &mut shapes);
+      return Ok(Panelled {
+        shapes,
+        touching,
+        moving,
+      });
+    }
+    (Some(_), Some(_)) | (None, _) => {}
+  }
+
+  let Ok(wide) = fitted::<i32, u32>(card.width);
+  let mut checkout = measured.rows.try_borrow_mut();
+  let mut fallback = BTreeMap::new();
+  let rows = match checkout.as_deref_mut() {
+    Ok(cached) => cached,
+    Err(_another_view_holds_the_cache) => &mut fallback,
+  };
+  let Ok(identity) = RowIdentity::of(row, u64::from(standing.at));
+  let Ok(measured_row_2) = cached_measurement(rows, row, identity, wide);
+
   match &row.buttons {
     Some(across) => {
       let strip = ButtonStrip {
@@ -1865,15 +1929,6 @@ fn row_shapes(
     None => {}
   }
 
-  let text = RowText {
-    band: Band { top, height: tall },
-    words_x,
-    far: far_2,
-    width: box_wide,
-    lit,
-    ink,
-    quiet,
-  };
   let Ok(()) = row_words(
     row,
     measured_row_2,
@@ -3668,8 +3723,45 @@ pub(crate) enum Leaving {
 
 pub(crate) struct State {
   rows: Vec<Row>,
+  row_layout: LayoutCache,
+  reveal: Reveal,
   model: CardModel,
   loading: bool,
+}
+
+#[derive(Clone, Copy)]
+enum Reveal {
+  Focus,
+  Scrolled,
+}
+
+impl State {
+  fn layout(&self) -> Result<&RowLayout, Never> {
+    self.row_layout.layout()
+  }
+
+  fn measure_rows(&mut self, card: &Card, marks: MeasuredMarks) -> Result<(), Never> {
+    self.row_layout.measure(&self.rows, card, marks)
+  }
+
+  fn reveal_focus(&mut self) -> Result<(), Never> {
+    self.reveal = Reveal::Focus;
+    Ok(())
+  }
+
+  fn visible_scroll(&self, viewport: Viewport) -> Result<i32, Never> {
+    let Ok(layout) = self.layout();
+
+    match (layout, self.reveal) {
+      (RowLayout::Wrapped(_), Reveal::Scrolled) => {
+        let Ok(count) = fitted::<_, u64>(self.rows.len());
+        clamped_scroll(layout, viewport, count)
+      }
+      (RowLayout::Uniform, _) | (RowLayout::Wrapped(_), Reveal::Focus) => {
+        scrolled(self.at, viewport, layout)
+      }
+    }
+  }
 }
 
 pub(crate) struct CardModel {
@@ -3940,7 +4032,6 @@ pub(crate) fn shapes(
   let mut touching = Vec::new();
   let mut moving: Option<Moving> = None;
   let Ok(strip_tall) = fitted::<i32, i32>(fitting::STRIP);
-  let Ok(row_tall) = fitted::<i32, i32>(fitting::ROW);
   let Ok(card_wide_u) = fitted::<i32, u32>(card.width);
   let Ok(card_tall_u) = fitted::<i32, u32>(card.height);
   let Ok(left) = inside_left(card);
@@ -3950,7 +4041,7 @@ pub(crate) fn shapes(
   let (round, fill, edge) = match (state.opened, state.framing) {
     (Opened::Expanded, _) => (Round(0), wearing.night, Edge::None),
     (Opened::No, Framing::Window) => (Round(0), wearing.panel, Edge::None),
-    (Opened::No, Framing::Card) => (
+    (Opened::No, Framing::Card | Framing::Compact) => (
       Round(CARD_ROUND),
       wearing.panel,
       Edge::Of {
@@ -4059,12 +4150,13 @@ pub(crate) fn shapes(
       }
 
       let rows = &state.rows;
+      let Ok(layout) = state.layout();
       let breath = match state.opened {
         Opened::Expanded => 0,
         Opened::No => fitting::BREATH,
       };
       let bottom = card.y.saturating_add(card.height).saturating_sub(breath);
-      let Ok(stage) = stage(rows, bottom.saturating_sub(rows_start));
+      let Ok(stage) = stage(rows, bottom.saturating_sub(rows_start), layout);
       let card_bottom = card.y.saturating_add(card.height);
       let Ok(list_tall) = fitted::<i32, u32>(card_bottom.saturating_sub(rows_start));
 
@@ -4098,12 +4190,12 @@ pub(crate) fn shapes(
       }
 
       let Ok(count) = fitted::<_, u64>(rows.len());
-      let Ok(window_2) = crate::row_window::visible_rows(crate::row_window::RowViewport {
+      let Ok(window_2) = layout.visible(crate::row_window::RowViewport {
         count,
         height: card_bottom.saturating_sub(rows_start),
         scroll: state.scroll,
         stage,
-        row: row_tall,
+        row: fitting::ROW,
       });
       let Ok(first) = index(window_2.start);
       let Ok(last) = index(window_2.end);
@@ -4128,20 +4220,14 @@ pub(crate) fn shapes(
       for (offset, row) in visible.iter().enumerate() {
         let ::core::result::Result::Ok(index) =
           ::console_core_number_conversion::fixed_index(first.saturating_add(offset));
-        let Ok(row_y_offset) =
-          fitted::<_, i32>(match ::console_core_number_conversion::index(index) {
-            ::core::result::Result::Ok(native_position) => native_position,
-          });
-        let Ok(index_2) =
-          fitted::<_, u32>(match ::console_core_number_conversion::index(index) {
-            ::core::result::Result::Ok(native_position) => native_position,
-          });
+        let Ok(index_2) = fitted::<u64, u32>(index);
+        let Ok((row_band, stacked)) = layout.row(index);
         let (below, this_tall) = match index_2 {
-          0 => (0, row_tall.saturating_add(stage)),
-          _ => (stage, row_tall),
+          0 => (0, row_band.height.saturating_add(stage)),
+          _ => (stage, row_band.height),
         };
         let at_y = rows_start
-          .saturating_add(row_y_offset.saturating_mul(row_tall))
+          .saturating_add(row_band.top)
           .saturating_add(below)
           .saturating_sub(state.scroll);
 
@@ -4162,6 +4248,7 @@ pub(crate) fn shapes(
           opened: state.opened,
           zoom,
           selected,
+          stacked,
         };
         let band = Band {
           top: at_y,
@@ -4173,20 +4260,24 @@ pub(crate) fn shapes(
         shapes.extend(drawn.shapes);
 
         let whole = at_y >= rows_start && row_bottom <= card_bottom;
+        let (visible_top, visible_bottom) = match (whole, stacked) {
+          (true, _) => {
+            touching.extend(drawn.touching);
+            (at_y, row_bottom)
+          }
+          (false, Some(_)) => (at_y.max(rows_start), row_bottom.min(card_bottom)),
+          (false, None) => continue,
+        };
 
-        match ::core::primitive::bool::then_some(whole, ()) {
-          ::core::option::Option::Some(()) => {}
-          ::core::option::Option::None => continue,
-        }
-
-        touching.extend(drawn.touching);
-
-        let Ok(tall) = fitted::<i32, u32>(this_tall);
+        let Ok(tall) = width(visible_bottom.saturating_sub(visible_top));
 
         touching.push(HitRegion {
           lands: Lands::Row(index_2),
           panel: ShapePanel {
-            at: Point { x: left, y: at_y },
+            at: Point {
+              x: left,
+              y: visible_top,
+            },
             size: Size {
               width: inside_wide,
               height: tall,
@@ -4657,26 +4748,32 @@ pub(crate) struct Viewport {
   y: i32,
 }
 
-pub(crate) fn scrolled(at: Option<u32>, viewport: Viewport) -> Result<i32, Never> {
-  let at_3 = match at {
+fn scrolled(at: Option<u32>, viewport: Viewport, layout: &RowLayout) -> Result<i32, Never> {
+  let selected = match at {
     Some(at_2) => at_2,
     None => return Ok(0),
   };
 
-  let Ok(index) = fitted::<u32, i32>(at_3);
-  let top = index.saturating_mul(fitting::ROW);
-  let under = top.saturating_add(fitting::ROW);
+  let Ok((band, stacked)) = layout.row(u64::from(selected));
+  let Band { top, height } = band;
+  let under = top.saturating_add(height);
+  let end = viewport.y.saturating_add(viewport.room);
 
-  Ok(
-    match (
-      top < viewport.y,
-      under > viewport.y.saturating_add(viewport.room),
-    ) {
-      (true, _) => top,
-      (false, true) => under.saturating_sub(viewport.room),
-      (false, false) => viewport.y,
-    },
-  )
+  match (stacked, (height > viewport.room).then_some(())) {
+    (Some(_), Some(())) => {
+      return Ok(match (top < end && under > viewport.y).then_some(()) {
+        Some(()) => viewport.y,
+        None => top,
+      });
+    }
+    (Some(_), None) | (None, _) => {}
+  }
+
+  Ok(match (top < viewport.y, under > end) {
+    (true, _) => top,
+    (false, true) => under.saturating_sub(viewport.room),
+    (false, false) => viewport.y,
+  })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -5362,6 +5459,15 @@ pub struct HostedDrawing {
   pub fonts: FontCatalog,
   pub while_it_is_up: OwnedFd,
   pub first_frame: DrawingSender,
+  pub preparation: Preparing,
+}
+
+pub struct Connected(Surface);
+
+impl Connected {
+  pub fn open() -> Result<Self, console_draw_surface::SurfaceError> {
+    Surface::connect().map(Self)
+  }
 }
 
 pub fn prepare_fonts() -> Result<FontCatalog, Never> {
@@ -5391,6 +5497,7 @@ pub fn run(
       fonts,
       while_it_is_up,
       first_frame,
+      preparation,
     } = drawing;
     let Ok(()) = fonts.use_on_draw_thread();
     let drawn = serve(
@@ -5402,6 +5509,7 @@ pub fn run(
       Reported {
         front: None,
         first_frame: FirstFrame::Hosted(first_frame),
+        preparation: Some(preparation),
         tells,
         presses: 0,
         told_presses: 0,
@@ -5442,6 +5550,7 @@ pub fn show(
       Reported {
         front: None,
         first_frame: FirstFrame::LocalPicker,
+        preparation: None,
         tells,
         presses: 0,
         told_presses: 0,
@@ -5474,6 +5583,7 @@ pub fn app(who: &str, card: crate::card::Card) -> Result<(), Never> {
       Reported {
         front: None,
         first_frame: FirstFrame::Reported,
+        preparation: None,
         tells,
         presses: 0,
         told_presses: 0,
@@ -5508,6 +5618,8 @@ fn opened_on(
 ) -> Result<State, Never> {
   Ok(State {
     rows: Vec::new(),
+    row_layout: LayoutCache::Unmeasured,
+    reveal: Reveal::Focus,
     loading: false,
     model: CardModel {
       here: match crate::page::find(&pages, start) {
@@ -5563,11 +5675,18 @@ fn card_on(surface: &Size<i32>, opened: Opened, framing: Framing) -> Result<Card
         height: surface.height,
       });
     }
-    (Opened::No, Framing::Card) => {}
+    (Opened::No, Framing::Card | Framing::Compact) => {}
   }
 
-  let Ok(wide) = shape::part_of(surface.width);
-  let Ok(tall) = shape::tall_part_of(surface.height);
+  let Ok(standard_wide) = shape::part_of(surface.width);
+  let Ok(standard_tall) = shape::tall_part_of(surface.height);
+  let (wide, tall) = match framing {
+    Framing::Compact => (
+      standard_wide.min(COMPACT_WIDE),
+      standard_tall.min(COMPACT_HEIGHT),
+    ),
+    Framing::Card | Framing::Window => (standard_wide, standard_tall),
+  };
 
   let Ok(x) = fitted::<i32, i32>(surface.width.saturating_sub(wide).saturating_div(2));
   let Ok(y) = fitted::<i32, i32>(surface.height.saturating_sub(tall).saturating_div(2));
@@ -5929,24 +6048,14 @@ fn outside(card: &Card, hit: Point<i32>) -> Result<Covers, Never> {
 }
 
 fn scrolled_to(state: &mut State, viewport: Viewport) -> Result<(), Never> {
-  let Viewport { room, y: down } = viewport;
-  let Ok(many) = fitted::<_, i32>(state.rows.len());
-  let furthest = many
-    .saturating_mul(fitting::ROW)
-    .saturating_sub(room)
-    .max(0);
-  let down_2 = down.clamp(0, furthest);
+  let Ok(count) = fitted::<_, u64>(state.rows.len());
+  let Ok(layout) = state.layout();
+  let Ok(y) = clamped_scroll(layout, viewport, count);
+  let Ok((first, last)) = scroll_focus(layout, Viewport { y, ..viewport }, count);
 
-  state.scroll = down_2;
+  state.scroll = y;
+  state.reveal = Reveal::Scrolled;
 
-  let first = down_2
-    .saturating_add(fitting::ROW)
-    .saturating_sub(1)
-    .saturating_div(fitting::ROW);
-  let last = down_2
-    .saturating_add(room)
-    .saturating_div(fitting::ROW)
-    .saturating_sub(1);
   let Ok(at) = fitted::<u32, i32>(match state.at {
     Some(at) => at,
     None => 0,
@@ -5966,12 +6075,47 @@ fn scrolled_to(state: &mut State, viewport: Viewport) -> Result<(), Never> {
   Ok(())
 }
 
+fn clamped_scroll(layout: &RowLayout, viewport: Viewport, count: u64) -> Result<i32, Never> {
+  let Ok(height) = layout.height(count);
+  let furthest = height.saturating_sub(viewport.room).max(0);
+
+  Ok(viewport.y.clamp(0, furthest))
+}
+
+fn scroll_focus(layout: &RowLayout, viewport: Viewport, count: u64) -> Result<(i32, i32), Never> {
+  let Viewport { room, y } = viewport;
+
+  Ok(match layout {
+    RowLayout::Uniform => (
+      y.saturating_add(fitting::ROW)
+        .saturating_sub(1)
+        .saturating_div(fitting::ROW),
+      y.saturating_add(room)
+        .saturating_div(fitting::ROW)
+        .saturating_sub(1),
+    ),
+    RowLayout::Wrapped(_) => {
+      let Ok(visible) = layout.visible(crate::row_window::RowViewport {
+        count,
+        height: room,
+        scroll: y,
+        stage: 0,
+        row: fitting::ROW,
+      });
+      let Ok(first) = fitted::<u64, i32>(visible.start);
+      let Ok(end) = fitted::<u64, i32>(visible.end);
+      (first, end.saturating_sub(1))
+    }
+  })
+}
+
 fn tapped(
   state: &mut State,
   lands: Option<Lands>,
   hit: Point<i32>,
   card: &Card,
 ) -> Result<ActionOutcome, Never> {
+  let Ok(()) = state.reveal_focus();
   let rows = &state.rows;
   let model = &mut state.model;
 
@@ -6162,18 +6306,14 @@ fn serve(
       return Ok(());
     }
   };
-  let Ok(()) = crate::arrivals::follow();
-  let Ok(_nothing_to_say_before_a_card_is_up) = tasks::told(&tasks, TaskEvent::CardUp);
   let Ok(()) = serving(
     who,
-    (build, tasks.clone()),
+    (build, tasks),
     start,
     framing,
     (shut, &waking),
     &mut reported_2,
   );
-  let Ok(_said_as_notifications_once_nothing_is_up) = tasks::told(&tasks, TaskEvent::CardGone);
-
   let front = match reported_2.front {
     Some(front) => front,
     None => return Ok(()),
@@ -6196,7 +6336,7 @@ fn built(build: crate::card::Build) -> Result<Vec<Page>, Never> {
   Ok(pages)
 }
 
-fn first_drawn(rows: &[Row]) -> Result<(), Never> {
+fn first_drawn(rows: u64) -> Result<(), Never> {
   let Ok(running) = crate::opening::running();
 
   match running {
@@ -6204,8 +6344,7 @@ fn first_drawn(rows: &[Row]) -> Result<(), Never> {
     crate::opening::Running::No => return Ok(()),
   }
 
-  let Ok(many) = fitted::<_, u64>(rows.len());
-  let Ok(()) = crate::opening::counted("rows", many);
+  let Ok(()) = crate::opening::counted("rows", rows);
   let Ok(()) = crate::opening::mark("frame");
 
   crate::opening::finish()
@@ -6241,6 +6380,7 @@ impl FirstFrame {
 struct Reported {
   front: Option<String>,
   first_frame: FirstFrame,
+  preparation: Option<Preparing>,
   tells: Option<String>,
   presses: u64,
   told_presses: u64,
@@ -6255,13 +6395,17 @@ fn tell(
   presses: u64,
   reported: &mut Reported,
 ) -> Result<(), Never> {
+  let path = match reported.tells.as_deref() {
+    Some(path) => path,
+    None => return Ok(()),
+  };
   let Ok(told) = what_it_drew(state, panelled, &state.rows, room);
   let told_2 = description::Description {
     presses,
     keyboard: reported.keyboard,
     ..told
   };
-  let Ok(()) = description::wrote(&told_2, reported.tells.as_deref());
+  let Ok(()) = description::wrote(&told_2, Some(path));
 
   reported.told_presses = presses;
   reported.told_keyboard = reported.keyboard;
@@ -6308,6 +6452,13 @@ fn serving(
   let Ok(()) = crate::whose::set_owner(who);
 
   let Ok(pages) = built(build);
+  let chosen_framing = match (framing, pages.as_slice()) {
+    (Framing::Card, [page]) => match page.extent {
+      crate::page::Extent::Standard => Framing::Card,
+      crate::page::Extent::Compact => Framing::Compact,
+    },
+    (mode, _) => mode,
+  };
   let Ok(theme) = ThemeSettings::current();
   let wearing = match Wearing::for_theme(&theme) {
     Ok(wearing) => wearing,
@@ -6318,7 +6469,12 @@ fn serving(
     }
   };
 
-  let mut surface = match Surface::connect() {
+  let Ok(state) = opened_on(pages, start, chosen_framing, tasks.clone());
+  let connected = reported
+    .preparation
+    .as_mut()
+    .and_then(|preparation| preparation.connected.take());
+  let mut surface = match open_surface(chosen_framing, connected) {
     Ok(surface) => surface,
     Err(fault) => {
       console_core_logging::warn!("console-panel: no surface: {fault}");
@@ -6327,31 +6483,43 @@ fn serving(
     }
   };
 
-  let Ok(state) = opened_on(pages, start, framing, tasks);
-
-  let shown = match framing {
-    Framing::Card => {
-      let Ok(wanted) = covering();
-
-      surface.show(&wanted)
-    }
-    Framing::Window => {
-      let Ok(window) = windowed();
-
-      surface.show_window(&window)
-    }
-  };
-
-  match shown {
-    Ok(()) => {}
+  let Ok(()) = crate::opening::mark("surface");
+  let initial = match prepared_opening(&mut surface, &state, wearing, reported) {
+    Ok(preview) => preview,
     Err(fault) => {
-      console_core_logging::warn!("console-panel: no surface to draw on: {fault}");
+      console_core_logging::warn!("console-panel: presenting the prepared opening: {fault}");
 
       return Ok(());
     }
-  }
+  };
+  let (painted, panelled) = match initial {
+    Some(preview) => {
+      let Ok(clock) = console_waiting::clock::LiveClock::started();
 
-  let Ok(()) = crate::opening::mark("surface");
+      match dispatch_opening(&mut surface, &shut, waking, &clock) {
+        Ok(StopRequest::Open) => {}
+        Ok(StopRequest::Requested) => return Ok(()),
+        Err(fault) => {
+          console_core_logging::warn!("console-panel: receiving the prepared opening: {fault}");
+
+          return Ok(());
+        }
+      }
+
+      (Visible::Yes, preview)
+    }
+    None => (
+      Visible::NotYet,
+      Panelled {
+        shapes: Vec::new(),
+        touching: Vec::new(),
+        moving: None,
+      },
+    ),
+  };
+
+  let Ok(()) = crate::arrivals::follow();
+  let Ok(_nothing_to_say_before_a_card_is_up) = tasks::told(&tasks, TaskEvent::CardUp);
   let marks_measured = measure_marks()?;
   let Ok(()) = crate::opening::mark("fonts");
   let Ok(none) = InFront::none();
@@ -6362,7 +6530,7 @@ fn serving(
     wearing,
     accessibility,
     state,
-    painted: Visible::NotYet,
+    painted,
     front: none,
     rows_of: None,
     asked: None,
@@ -6372,11 +6540,8 @@ fn serving(
     measured_tabs: Vec::new(),
     measured_rows: RefCell::new(BTreeMap::new()),
     fits: 1,
-    panelled: Panelled {
-      shapes: Vec::new(),
-      touching: Vec::new(),
-      moving: None,
-    },
+    panelled,
+    pending_animation: crate::frames::FrameReceived::No,
     finger: None,
     reported,
   };
@@ -6391,7 +6556,156 @@ fn serving(
     Err(fault) => console_core_logging::warn!("console-panel: the event loop stopped: {fault:?}"),
   }
 
+  let Ok(_said_as_notifications_once_nothing_is_up) = tasks::told(&tasks, TaskEvent::CardGone);
+
   Ok(())
+}
+
+#[doc = "Dispatch first-presentation feedback ahead of layout within one bounded wait."]
+fn dispatch_opening(
+  surface: &mut Surface,
+  shut: &CloseWatch,
+  waking: &crate::frames::WakeReceiver,
+  clock: &impl console_waiting::clock::Clock,
+) -> Result<StopRequest, console_draw_surface::SurfaceError> {
+  const FEEDBACK_BUDGET: Duration = Duration::from_millis(17);
+
+  let Ok(descriptor) = waking.descriptor();
+  let stopped = console_core_iteration::iterate(surface, |drawing_surface| {
+    let Ok(stop) = shut.stop();
+    let Ok(drawing) = drawing_surface.drawing_status();
+    let Ok(elapsed) = clock.elapsed();
+    let remaining = FEEDBACK_BUDGET.saturating_sub(elapsed);
+
+    match (stop, drawing, remaining.is_zero().then_some(())) {
+      (StopRequest::Requested, _, _)
+      | (StopRequest::Open, DrawingStatus::Settled, _)
+      | (StopRequest::Open, DrawingStatus::AwaitingFeedback, Some(())) => {
+        Ok(Stepped::Halt(Ok(stop)))
+      }
+      (StopRequest::Open, DrawingStatus::AwaitingFeedback, None) => {
+        match drawing_surface.wait(&[descriptor], Some(remaining)) {
+          Ok(()) => {
+            let Ok(_opening_can_only_be_woken_to_close) = waking.state();
+
+            Ok(Stepped::Again(drawing_surface))
+          }
+          Err(fault) => Ok(Stepped::Halt(Err(fault))),
+        }
+      }
+    }
+  });
+
+  match stopped {
+    Ok(outcome) => outcome,
+    Err(_endless) => Ok(StopRequest::Open),
+  }
+}
+
+fn fixed_appearance(
+  state: &State,
+  logical: Size<u32>,
+  wearing: Wearing,
+) -> Result<Option<prepared::Appearance>, Never> {
+  Ok(
+    match (state.pages.as_slice(), state.framing, state.opened) {
+      ([page], Framing::Card | Framing::Compact, Opened::No) => {
+        page.opening.map(|identity| prepared::Appearance {
+          identity,
+          logical,
+          wearing,
+        })
+      }
+      (_, _, _) => None,
+    },
+  )
+}
+
+fn prepared_opening(
+  surface: &mut Surface,
+  state: &State,
+  wearing: Wearing,
+  reported: &mut Reported,
+) -> Result<Option<Panelled>, console_draw_surface::SurfaceError> {
+  let Ok(logical) = surface.logical();
+  let view = match (logical, reported.preparation.as_mut()) {
+    (Some(size), Some(preparation)) => (size, preparation),
+    (None, _) | (_, None) => return Ok(None),
+  };
+  let Ok(appearance) = fixed_appearance(state, view.0, wearing);
+  let key = match appearance {
+    Some(key) => key,
+    None => return Ok(None),
+  };
+  let previous = std::mem::replace(&mut reported.first_frame, FirstFrame::Reported);
+  let mut finished = match previous {
+    FirstFrame::Hosted(sender) => Some(sender),
+    other @ (FirstFrame::LocalPicker | FirstFrame::Reported) => {
+      reported.first_frame = other;
+
+      return Ok(None);
+    }
+  };
+  let ready = view.1.preview(surface, key, &mut finished)?;
+  reported.first_frame = finished.map_or(FirstFrame::Reported, FirstFrame::Hosted);
+
+  match ready {
+    Some(opening) => {
+      reported.preparation = None;
+
+      match opening.painted {
+        prepared::Painted::No => {
+          let Ok(()) = crate::opening::counted("prepared_frame", 1);
+        }
+        prepared::Painted::Yes => {}
+      }
+
+      let Ok(()) = crate::opening::counted("early_frame", 1);
+      let Ok(()) = first_drawn(opening.rows);
+
+      Ok(Some(opening.panel))
+    }
+    None => Ok(None),
+  }
+}
+
+fn open_surface(
+  framing: Framing,
+  connected: Option<Connected>,
+) -> Result<Surface, console_draw_surface::SurfaceError> {
+  match connected {
+    Some(Connected(surface)) => match show_surface(framing, surface) {
+      Ok(ready) => {
+        let Ok(()) = crate::opening::counted("prepared_connection", 1);
+
+        return Ok(ready);
+      }
+      Err(fault) => console_core_logging::debug!("reconnecting the panel to Wayland: {fault}"),
+    },
+    None => {}
+  }
+
+  let surface = Surface::connect()?;
+
+  show_surface(framing, surface)
+}
+
+fn show_surface(
+  framing: Framing,
+  mut surface: Surface,
+) -> Result<Surface, console_draw_surface::SurfaceError> {
+  match framing {
+    Framing::Card | Framing::Compact => {
+      let Ok(wanted) = covering();
+      surface.show(&wanted)?;
+    }
+    Framing::Window => {
+      let Ok(window) = windowed();
+      surface.show_window(&window)?;
+    }
+  }
+
+  Ok(surface)
 }
 
 struct Turning<'a> {
@@ -6411,6 +6725,7 @@ struct Turning<'a> {
   measured_rows: RowMeasurements,
   fits: u32,
   panelled: Panelled,
+  pending_animation: crate::frames::FrameReceived,
   finger: Option<Touch>,
   reported: &'a mut Reported,
 }
@@ -6558,6 +6873,7 @@ fn turn_once(turning: &mut Turning<'_>, still: Still<'_>) -> Result<ActionOutcom
       let Ok(live) = running.live();
 
       state.rows = first_2;
+      state.row_layout = LayoutCache::Unmeasured;
       state.model.live = live;
 
       match (state.at.is_none() && !state.rows.is_empty()).then_some(()) {
@@ -6574,8 +6890,10 @@ fn turn_once(turning: &mut Turning<'_>, still: Still<'_>) -> Result<ActionOutcom
     }
   }
 
-  match (*stale, page) {
-    (Stale::Yes, Some(page_2)) => {
+  let Ok(defer_rows) = DeferredRows::for_page(state.framing, *painted, page);
+
+  match (*stale, page, defer_rows) {
+    (Stale::Yes, Some(page_2), DeferredRows::ReadNow) => {
       match &page_2.rows {
         crate::page::Rows::Fixed(rows) => {
           let rows_2 = rows.clone();
@@ -6591,7 +6909,7 @@ fn turn_once(turning: &mut Turning<'_>, still: Still<'_>) -> Result<ActionOutcom
 
       *stale = Stale::No;
     }
-    (Stale::No, _) | (_, ::core::option::Option::None) => {}
+    (Stale::No, _, _) | (_, None, _) | (_, _, DeferredRows::AfterFirstFrame) => {}
   }
 
   match asked
@@ -6634,6 +6952,7 @@ fn turn_once(turning: &mut Turning<'_>, still: Still<'_>) -> Result<ActionOutcom
   }
 
   let Ok(room) = scroll_room(state, &card);
+  let Ok(()) = state.measure_rows(&card, marks_measured);
   let mut accessibility_changed = accessibility::ViewChange::Unchanged;
   let loading = asked.is_some() && state.rows.is_empty();
 
@@ -6664,13 +6983,10 @@ fn turn_once(turning: &mut Turning<'_>, still: Still<'_>) -> Result<ActionOutcom
       match finger.as_ref().map(|finger_2| finger_2.dragged) {
         Some(Dragged::Yes) => {}
         Some(Dragged::No) | None => {
-          let Ok(down_to) = scrolled(
-            state.at,
-            Viewport {
-              room,
-              y: state.scroll,
-            },
-          );
+          let Ok(down_to) = state.visible_scroll(Viewport {
+            room,
+            y: state.scroll,
+          });
 
           state.scroll = down_to;
         }
@@ -6725,7 +7041,14 @@ fn turn_once(turning: &mut Turning<'_>, still: Still<'_>) -> Result<ActionOutcom
       let drawn_size = (surface_size.width, surface_size.height);
 
       let redraw = match bool::then_some(!already_drawn, ()) {
-        Some(()) => redraw_card(surface, state, panelled, logical, reported),
+        Some(()) => redraw_card(
+          surface,
+          state,
+          panelled,
+          (logical, *wearing),
+          &card,
+          reported,
+        ),
         None => Ok(()),
       };
 
@@ -6747,7 +7070,9 @@ fn turn_once(turning: &mut Turning<'_>, still: Still<'_>) -> Result<ActionOutcom
       let told_already =
         (presses, reported.keyboard) == (reported.told_presses, reported.told_keyboard);
 
-      match { ::core::primitive::bool::then_some(!already_drawn || !told_already, ()) } {
+      match {
+        ::core::primitive::bool::then_some(entering || !already_drawn || !told_already, ())
+      } {
         ::core::option::Option::Some(()) => {
           let Ok(()) = tell(state, panelled, drawn_size, presses, reported);
         }
@@ -6759,7 +7084,54 @@ fn turn_once(turning: &mut Turning<'_>, still: Still<'_>) -> Result<ActionOutcom
     }
   }
 
+  let Ok(()) = defer_rows.read(state, asked, stale);
   handle_input(turning, &card, logical, room, accessibility_changed, waking)
+}
+
+#[derive(Clone, Copy)]
+enum DeferredRows {
+  AfterFirstFrame,
+  ReadNow,
+}
+
+impl DeferredRows {
+  fn for_page(framing: Framing, painted: Visible, page: Option<&Page>) -> Result<Self, Never> {
+    let rows = page.map(|current| &current.rows);
+    let fixed = page.and_then(|current| current.opening);
+
+    Ok(match (framing, painted, rows, fixed) {
+      (Framing::Compact, Visible::NotYet, Some(crate::page::Rows::Computed(_)), _)
+      | (Framing::Card, Visible::NotYet, Some(crate::page::Rows::Computed(_)), Some(_)) => {
+        Self::AfterFirstFrame
+      }
+      (_, _, _, _) => Self::ReadNow,
+    })
+  }
+
+  fn read(
+    self,
+    state: &State,
+    asked: &mut Option<Reading>,
+    stale: &mut Stale,
+  ) -> Result<(), Never> {
+    match self {
+      Self::AfterFirstFrame => {
+        let Ok(current) = nth(&state.model.pages, state.model.here);
+
+        match current {
+          Some(page) => {
+            let Ok(started) = reading(page, state.model.here);
+            *asked = Some(started);
+            *stale = Stale::No;
+          }
+          None => {}
+        }
+      }
+      Self::ReadNow => {}
+    }
+
+    Ok(())
+  }
 }
 
 fn record_position(state: &State) -> Result<(), Never> {
@@ -6784,10 +7156,103 @@ fn redraw_card(
   surface: &mut Surface,
   state: &State,
   panelled: &Panelled,
-  points: Size<u32>,
+  (points, wearing): (Size<u32>, Wearing),
+  card: &Card,
   reported: &mut Reported,
 ) -> Result<(), console_draw_surface::standing::SurfaceError> {
   let Ok(()) = surface.resize(points);
+  let Ok(layer) = surface.layer_support();
+  let Ok(note) = noted_now(state);
+  let part = match (state.framing, state.opened, layer, &panelled.moving) {
+    (Framing::Compact, Opened::No, console_draw_surface::LayerSupport::Available, _)
+    | (Framing::Card, Opened::No, console_draw_surface::LayerSupport::Available, None) => {
+      let Ok(width) = fitted::<i32, u32>(card.width);
+      let Ok(height) = fitted::<i32, u32>(card.height);
+      Some(match note {
+        Some(_) => Part {
+          at: Point { x: 0, y: card.y },
+          size: Size {
+            width: points.width,
+            height,
+          },
+        },
+        None => Part {
+          at: Point {
+            x: card.x,
+            y: card.y,
+          },
+          size: Size { width, height },
+        },
+      })
+    }
+    (Framing::Compact | Framing::Card, Opened::Expanded, _, _) => {
+      let Ok(()) = surface.clear_layer();
+      None
+    }
+    (
+      Framing::Compact | Framing::Card,
+      Opened::No,
+      console_draw_surface::LayerSupport::Unavailable,
+      _,
+    )
+    | (Framing::Card, Opened::No, console_draw_surface::LayerSupport::Available, Some(_))
+    | (Framing::Window, _, _, _) => None,
+  };
+
+  let preparation = reported.preparation.take();
+  let Ok(appearance) = fixed_appearance(state, points, wearing);
+  let Ok(rows) = fitted::<_, u64>(state.rows.len());
+  let fixed = appearance.map(|appearance_2| prepared::Fixed {
+    appearance: appearance_2,
+    rows,
+  });
+  let drawn = reported.first_frame.draw(
+    surface,
+    |place, finished| {
+      paint_card(
+        place,
+        panelled,
+        (points, part),
+        (finished, preparation, fixed),
+      )
+    },
+    |_| crate::picker::mark_drawn(),
+  );
+  drawn?;
+  let Ok(()) = first_drawn(rows);
+
+  Ok(())
+}
+
+fn paint_card(
+  surface: &mut Surface,
+  panelled: &Panelled,
+  (points, part): (Size<u32>, Option<Part>),
+  (mut finished, preparation, fixed): (
+    Option<DrawingSender>,
+    Option<Preparing>,
+    Option<prepared::Fixed>,
+  ),
+) -> Result<(), console_draw_surface::standing::SurfaceError> {
+  match part {
+    Some(region) => {
+      let visible = match preparation {
+        Some(ready) => ready.draw(surface, (region, panelled, fixed), &mut finished)?,
+        None => {
+          surface.draw_layer_on_backdrop(region, &mut finished, |pixels, device, _scale| {
+            paint_region(pixels, device, (region, &panelled.shapes))
+          })?
+        }
+      };
+
+      match visible {
+        Visible::Yes => return Ok(()),
+        Visible::NotYet => {}
+      }
+    }
+    None => {}
+  }
+
   let paint = |pixels: &mut [u8], device, _scale| {
     let frame = Frame { device, points };
 
@@ -6799,17 +7264,26 @@ fn redraw_card(
     Ok(())
   };
 
-  let drawn = reported.first_frame.draw(
-    surface,
-    |place, finished| match finished {
-      Some(finished_2) => place.draw_notifying(finished_2, paint),
-      None => place.draw(paint),
-    },
-    |_| crate::picker::mark_drawn(),
-  );
-  drawn?;
+  match finished {
+    Some(report) => surface.draw_notifying(report, paint),
+    None => surface.draw(paint),
+  }
+}
 
-  let Ok(()) = first_drawn(&state.rows);
+fn paint_region(
+  pixels: &mut [u8],
+  device: Size<u32>,
+  (part, shapes): (Part, &[Shape]),
+) -> Result<(), Never> {
+  let frame = Frame {
+    device,
+    points: part.size,
+  };
+
+  match painting::onto_region(pixels, frame, shapes, part.at) {
+    Ok(()) => {}
+    Err(fault) => console_core_logging::warn!("console-panel: painting the card region: {fault}"),
+  }
 
   Ok(())
 }
@@ -6822,6 +7296,7 @@ fn apply_rows(state: &mut State, read: Vec<Row>) -> Result<(), Never> {
   let Ok(live) = running.live();
 
   state.rows = read_2;
+  state.row_layout = LayoutCache::Unmeasured;
   state.live = live;
 
   match (state.at.is_none() && !state.rows.is_empty()).then_some(()) {
@@ -6885,6 +7360,7 @@ fn handle_input(
     reported,
     dirty,
     stale,
+    pending_animation,
     ..
   } = turning;
   let Ok(text_input) = text_input_state(state, card);
@@ -6911,6 +7387,7 @@ fn handle_input(
     logical,
     (*dirty, *stale),
     overlay,
+    pending_animation,
   );
 
   match updates {
@@ -7049,6 +7526,13 @@ impl PanelInput<'_> {
       meaning,
       driving,
     );
+
+    match (before != self.state.at).then_some(()) {
+      Some(()) => {
+        let Ok(()) = self.state.reveal_focus();
+      }
+      None => {}
+    }
 
     match outcome {
       ActionOutcome::Close => return Ok(outcome),
@@ -7749,6 +8233,8 @@ mod tests {
 
     Ok(State {
       rows,
+      row_layout: super::LayoutCache::Unmeasured,
+      reveal: super::Reveal::Focus,
       loading: false,
       model: super::CardModel {
         leaving: super::Leaving::No,
@@ -8623,17 +9109,18 @@ mod tests {
   #[test]
   fn a_highlight_under_the_card_brings_the_list_up_to_it() {
     let room = crate::fitting::ROW.saturating_mul(4);
+    let layout = &super::RowLayout::Uniform;
 
     let top = Viewport { room, y: 0 };
 
-    assert_eq!(scrolled(None, top), Ok(0));
+    assert_eq!(scrolled(None, top, layout), Ok(0));
     assert_eq!(
-      scrolled(Some(2), top),
+      scrolled(Some(2), top, layout),
       Ok(0),
       "a row already in the room does not move it"
     );
     assert_eq!(
-      scrolled(Some(5), top),
+      scrolled(Some(5), top, layout),
       Ok(crate::fitting::ROW.saturating_mul(2)),
       "the sixth row of four is two rows down"
     );
@@ -8643,11 +9130,85 @@ mod tests {
         Viewport {
           room,
           y: crate::fitting::ROW.saturating_mul(3)
-        }
+        },
+        layout,
       ),
       Ok(crate::fitting::ROW),
       "stepping back up brings the row to the top"
     );
+  }
+
+  #[test]
+  fn a_long_window_title_wraps_above_the_next_row() -> Result<(), Failure> {
+    let title = "Workspace 2 · A window with a long document title that needs several lines \
+      to show its name, location, and the rest of its text on the handheld screen";
+    let Ok(row) = Row::stacked(Picture::None, "Writer", Aside(title));
+    let Ok(handler) = Handler::and_stay(|_| {});
+    let Ok(row_2) = row.choosing(handler);
+    let Ok(opening) = row_2.opening();
+    let Ok(next) = said_row("Next window");
+    let Ok(page) = Page::new("Task Manager", Rows::Fixed(vec![opening, next]));
+    let mut state = state_of(vec![page])?;
+    let card = Card {
+      x: 0,
+      y: 0,
+      width: 360,
+      height: 520,
+    };
+    let Ok(marks) = super::measure_marks();
+    let Ok(()) = state.measure_rows(&card, marks);
+    let wearing = sample_palette()?;
+    let Ok(panelled) = drawn(&state, &card, &wearing);
+    let text = |said: &str| {
+      panelled.shapes.iter().find_map(|shape| match shape {
+        super::Shape::Text(text) => (text.said == said).then_some(text),
+        super::Shape::Panel(_)
+        | super::Shape::Picture(_)
+        | super::Shape::Cropped(_)
+        | super::Shape::Line(_)
+        | super::Shape::Clip(_) => None,
+      })
+    };
+    let name = text("Writer").ok_or("missing application name")?;
+    let detail = text(title).ok_or("missing complete window title")?;
+    let next_text = text("Next window").ok_or("missing next window")?;
+    let Ok(lines) = super::painting::wrapped(
+      super::Run {
+        said: &detail.said,
+        weight: detail.weight,
+        width: detail.width,
+      },
+      &detail.font,
+    );
+    let Ok(size) = super::painting::measure_text(
+      super::Run {
+        said: &detail.said,
+        weight: detail.weight,
+        width: detail.width,
+      },
+      &detail.font,
+    );
+    let Ok(height) = fitted::<u32, i32>(size.height);
+    let Ok(layout) = state.layout();
+    let Ok((second, _)) = layout.row(1);
+
+    assert!(lines.len() > 2);
+    assert_eq!(name.at.x, detail.at.x);
+    assert!(name.at.y < detail.at.y);
+    assert!(detail.at.y.saturating_add(height) < next_text.at.y);
+    assert!(second.top > crate::fitting::ROW);
+    assert_eq!(
+      scrolled(
+        Some(1),
+        Viewport {
+          room: second.height,
+          y: 0
+        },
+        layout
+      ),
+      Ok(second.top)
+    );
+    Ok(())
   }
 
   #[test]
@@ -8883,17 +9444,18 @@ mod tests {
     let Ok(a) = said_row("a");
     let Ok(b) = said_row("b");
     let room = crate::fitting::ROW.saturating_mul(10);
+    let layout = &super::RowLayout::Uniform;
 
     assert_eq!(
-      stage(&[looked, a.clone(), b.clone()], room),
+      stage(&[looked, a.clone(), b.clone()], room, layout),
       Ok(crate::fitting::ROW.saturating_mul(7))
     );
     assert_eq!(
-      stage(&[playing], room),
+      stage(&[playing], room, layout),
       Ok(crate::fitting::ROW.saturating_mul(9))
     );
-    assert_eq!(stage(&[a, b], room), Ok(0));
-    assert_eq!(stage(&[], room), Ok(0));
+    assert_eq!(stage(&[a, b], room, layout), Ok(0));
+    assert_eq!(stage(&[], room, layout), Ok(0));
   }
 
   #[test]
@@ -9327,6 +9889,7 @@ mod tests {
         opened: Opened::No,
         zoom: crate::zoom::Zoom::default(),
         selected: super::Selected::No,
+        stacked: None,
       },
       lit: super::Lit::No,
     };
@@ -10251,15 +10814,7 @@ mod tests {
     assert_eq!(state.note.as_deref(), Some("Choice applied"));
 
     let Ok(room) = super::scroll_room(&state, &card);
-    let mut reported = super::Reported {
-      front: None,
-      first_frame: super::FirstFrame::Reported,
-      tells: None,
-      presses: 0,
-      told_presses: 0,
-      keyboard: super::KeyboardFocus::Here,
-      told_keyboard: super::KeyboardFocus::Here,
-    };
+    let Ok(mut reported) = focused_report();
     let mut dirty = super::Dirty::No;
     let mut stale = super::Stale::No;
     let mut finger = None;
@@ -10303,6 +10858,19 @@ mod tests {
         })
         .collect(),
     )
+  }
+
+  fn focused_report() -> Result<super::Reported, Never> {
+    Ok(super::Reported {
+      front: None,
+      first_frame: super::FirstFrame::Reported,
+      preparation: None,
+      tells: None,
+      presses: 0,
+      told_presses: 0,
+      keyboard: super::KeyboardFocus::Here,
+      told_keyboard: super::KeyboardFocus::Here,
+    })
   }
 
   #[test]

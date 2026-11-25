@@ -12,6 +12,7 @@ path = "src/lib.rs"
 [dependencies]
 console-core-color.workspace = true
 console-core-curve-geometry = { workspace = true, features = ["std"] }
+console-core-fonts.workspace = true
 console-core-geometry.workspace = true
 console-core-never.workspace = true
 console-core-number-conversion.workspace = true

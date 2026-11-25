@@ -281,6 +281,7 @@ mod tests {
       post_script_name: alloc::string::String::new(),
       style: Style::Normal,
       weight: Weight::NORMAL,
+      variable_weight: None,
       stretch: Stretch::Normal,
       pitch: Pitch::Proportional,
     })

@@ -109,6 +109,7 @@ struct Holding {
 enum Lock {
   Acquired,
   AfterDrawing(i32),
+  AfterResident,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -353,6 +354,43 @@ fn write_lock_record(handle: &mut File, name: &str) -> std::io::Result<()> {
   handle.flush()
 }
 
+const RESIDENT_OWNER: &str = "resident ";
+
+pub struct ResidentLease(File);
+
+impl ResidentLease {
+  pub fn acquire() -> std::io::Result<Option<Self>> {
+    let Ok(path) = where_();
+    let handle = open_picker(&path)?;
+    let Ok(taken) = take(&handle);
+
+    match taken {
+      Took::It => {
+        let mut lease = Self(handle);
+        lease.visible("")?;
+
+        Ok(Some(lease))
+      }
+      Took::Not => Ok(None),
+    }
+  }
+
+  pub fn duplicate(&self) -> std::io::Result<Self> {
+    self.0.try_clone().map(Self)
+  }
+
+  pub fn visible(&mut self, door: &str) -> std::io::Result<()> {
+    let _start = self.0.seek(SeekFrom::Start(0))?;
+    self.0.set_len(0)?;
+    write!(self.0, "{RESIDENT_OWNER}{door}")?;
+    self.0.flush()
+  }
+}
+
+fn resident_door(said: &str) -> Result<Option<&str>, Never> {
+  Ok(said.strip_prefix(RESIDENT_OWNER).map(str::trim))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Again {
   Closes,
@@ -386,6 +424,13 @@ fn told_to_go(where_: &Path) -> Result<Away, Never> {
   }
 
   let Ok(said) = read(&mut handle);
+  let Ok(resident) = resident_door(&said);
+
+  match resident {
+    Some(_) => return dismiss_resident(),
+    None => {}
+  }
+
   let Ok((pid, _door)) = holder(&said);
 
   match ::core::primitive::bool::then_some(pid <= 0, ()) {
@@ -403,6 +448,17 @@ fn told_to_go(where_: &Path) -> Result<Away, Never> {
 pub enum Away {
   Notified,
   None,
+}
+
+fn dismiss_resident() -> Result<Away, Never> {
+  Ok(match crate::handoff::dismiss_resident() {
+    Ok(()) => Away::Notified,
+    Err(fault) => {
+      console_core_logging::warn!("console-panel: dismissing the resident picker: {fault}");
+
+      Away::None
+    }
+  })
 }
 
 fn lock() -> Result<std::sync::MutexGuard<'static, Option<Holding>>, Never> {
@@ -477,27 +533,7 @@ fn choosing(name: &str, again: Again, handover: Handover, path: &Path) -> Result
     ::core::option::Option::None => {}
   }
 
-  #[cfg_attr(
-    dylint_lib = "explicit040_no_torn_write",
-    allow(
-      explicit040_no_torn_write,
-      reason = "the lock, whose whole point is the open file and not its bytes -- `truncate(false)` is what keeps what is already in it -- and a rename would hand the next process a different file to take the lock on"
-    )
-  )]
-  let opened = path
-    .parent()
-    .map(std::fs::create_dir_all)
-    .transpose()
-    .and_then(|_| {
-      OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(path)
-    });
-
-  let mut handle = match opened {
+  let mut handle = match open_picker(path) {
     Ok(handle) => handle,
     Err(_unreadable) => return Ok(Alone::Yes),
   };
@@ -510,6 +546,15 @@ fn choosing(name: &str, again: Again, handover: Handover, path: &Path) -> Result
   }
 
   let Ok(said) = read(&mut handle);
+  let Ok(resident) = resident_door(&said);
+
+  match resident {
+    Some(current) => {
+      return choosing_after_resident(&mut held, handle, (door_name, current), again, handover);
+    }
+    None => {}
+  }
+
   let Ok((pid, holding)) = holder(&said);
 
   let Ok(ours) = fitted::<u32, i32>(std::process::id());
@@ -563,7 +608,7 @@ fn choosing(name: &str, again: Again, handover: Handover, path: &Path) -> Result
 
   match ::core::primitive::bool::then_some(holding == door_name, ()) {
     ::core::option::Option::Some(()) => {
-      let Ok(()) = crate::left_open::put_away();
+      let Ok(()) = crate::left_open::remember_directly(None, move || drop(handle));
 
       return Ok(Alone::No);
     }
@@ -571,6 +616,68 @@ fn choosing(name: &str, again: Again, handover: Handover, path: &Path) -> Result
   }
 
   take_ownership(&mut held, handle, door_name)
+}
+
+#[cfg_attr(
+  dylint_lib = "explicit040_no_torn_write",
+  allow(
+    explicit040_no_torn_write,
+    reason = "a rename would replace the inode on which the current picker holds flock"
+  )
+)]
+fn open_picker(path: &Path) -> std::io::Result<File> {
+  let _parents = path.parent().map(std::fs::create_dir_all).transpose()?;
+  OpenOptions::new()
+    .read(true)
+    .write(true)
+    .create(true)
+    .truncate(false)
+    .open(path)
+}
+
+fn choosing_after_resident(
+  held: &mut Option<Holding>,
+  handle: File,
+  (wanted, current): (&str, &str),
+  again: Again,
+  handover: Handover,
+) -> Result<Alone, Never> {
+  match (wanted == current, again, handover) {
+    (true, Again::Keeps, _) => Ok(Alone::No),
+    (false, _, Handover::OnceDrawn) => {
+      *held = Some(Holding {
+        handle,
+        name: wanted.to_owned(),
+        lock: Lock::AfterResident,
+      });
+
+      Ok(Alone::Yes)
+    }
+    (same, _, _) => {
+      let Ok(freed) = freed_from_resident(&handle);
+
+      match (same, freed) {
+        (false, Outcome::Happened) => take_ownership(held, handle, wanted),
+        (true, _) | (false, Outcome::RanOut) => Ok(Alone::No),
+      }
+    }
+  }
+}
+
+fn freed_from_resident(handle: &File) -> Result<Outcome, Never> {
+  let Ok(taken) = take(handle);
+
+  match taken {
+    Took::It => Ok(Outcome::Happened),
+    Took::Not => {
+      let Ok(dismissed) = dismiss_resident();
+
+      match dismissed {
+        Away::Notified => given_up(handle, COMING),
+        Away::None => Ok(Outcome::RanOut),
+      }
+    }
+  }
 }
 
 fn freed_from(handle: &File, pid: i32, name: &str) -> Result<Outcome, Never> {
@@ -609,12 +716,12 @@ pub fn taken_over() -> Result<(), Never> {
     None => return Ok(()),
   };
 
-  let pid = match holding.lock {
+  let transfer = match holding.lock {
     Lock::Acquired => return Ok(()),
-    Lock::AfterDrawing(pid) => pid,
+    Lock::AfterDrawing(pid) => freed_from(&holding.handle, pid, &holding.name),
+    Lock::AfterResident => freed_from_resident(&holding.handle),
   };
-
-  let Ok(freed) = freed_from(&holding.handle, pid, &holding.name);
+  let Ok(freed) = transfer;
 
   match freed {
     Outcome::Happened => holding.lock = Lock::Acquired,
@@ -670,7 +777,7 @@ pub fn mark_drawn() -> Result<(), Never> {
     Lock::Acquired => {
       let Ok(()) = write_owner(&mut holding.handle, &name);
     }
-    Lock::AfterDrawing(_still_the_one_before) => {}
+    Lock::AfterDrawing(_) | Lock::AfterResident => {}
   }
 
   Ok(())
@@ -688,7 +795,7 @@ pub fn gone() -> Result<(), Never> {
     Lock::Acquired => {
       let Ok(()) = write_owner(&mut holding.handle, "");
     }
-    Lock::AfterDrawing(_still_the_one_before) => {}
+    Lock::AfterDrawing(_) | Lock::AfterResident => {}
   }
 
   Ok(())

@@ -37,6 +37,8 @@
 //! stops can come back with the new bytes sitting under the staging name and
 //! the old file still in place -- which is safe, and is also an apply that
 //! reported success and did not happen.
+//! Session observations can use [`publish`] to make the same atomic name
+//! replacement while the process is running, without the persistence steps.
 //!
 //! # The reading
 //!
@@ -306,6 +308,14 @@ pub fn whole(at: &Path, bytes: &[u8]) -> Result<(), Unwritten> {
   commit(&target, at, bytes, Replacement::Allowed)
 }
 
+#[doc = "Replace a runtime observation atomically without waiting for it to reach persistent storage."]
+pub fn publish(at: &Path, bytes: &[u8]) -> Result<(), Unwritten> {
+  let target = Location::new(at)
+    .map_err(|fault| Unwritten::Making(at.to_path_buf(), io::Error::from(fault)))?;
+
+  commit(&target, at, bytes, Replacement::Published)
+}
+
 pub fn whole_with_permissions(
   at: &Path,
   bytes: &[u8],
@@ -390,6 +400,7 @@ pub fn write_and_sync(at: &Path, bytes: &[u8]) -> Result<(), Unwritten> {
 #[derive(Clone, Copy)]
 enum Replacement {
   Allowed,
+  Published,
   WithMode(Mode),
   Rejected,
 }
@@ -408,7 +419,9 @@ fn commit(
   stage_and_sync(target, &staged, bytes, replacement)?;
 
   let flags = match replacement {
-    Replacement::Allowed | Replacement::WithMode(_) => RenameFlags::empty(),
+    Replacement::Allowed | Replacement::Published | Replacement::WithMode(_) => {
+      RenameFlags::empty()
+    }
     Replacement::Rejected => RenameFlags::NOREPLACE,
   };
 
@@ -429,14 +442,20 @@ fn commit(
     }
   }
 
+  match replacement {
+    Replacement::Published => Ok(()),
+    Replacement::Allowed | Replacement::WithMode(_) | Replacement::Rejected => {
+      sync_renamed_directory(target, at)
+    }
+  }
+}
+
+fn sync_renamed_directory(target: &Location, at: &Path) -> Result<(), Unwritten> {
   rustix::fs::fsync(&target.directory).map_err(|fault| {
-    let parent = match at.parent() {
-      Some(parent) => parent,
+    let parent = at.parent().filter(|path| !path.as_os_str().is_empty());
+    let holding = match parent {
+      Some(path) => path,
       None => Path::new("."),
-    };
-    let holding = match ::core::primitive::bool::then_some(parent.as_os_str().is_empty(), ()) {
-      ::core::option::Option::Some(()) => Path::new("."),
-      ::core::option::Option::None => parent,
     };
 
     Unwritten::Naming(holding.to_path_buf(), io::Error::from(fault))
@@ -454,7 +473,9 @@ fn stage_and_sync(
     .ok_or_else(|| Unwritten::Making(at.to_path_buf(), io::Error::from(Errno::INVAL)))?;
   let mode = match replacement {
     Replacement::WithMode(_) => Mode::RUSR | Mode::WUSR,
-    Replacement::Allowed | Replacement::Rejected => Mode::from_raw_mode(0o644),
+    Replacement::Allowed | Replacement::Published | Replacement::Rejected => {
+      Mode::from_raw_mode(0o644)
+    }
   };
   let descriptor = target
     .open_name(name, OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL, mode)
@@ -499,7 +520,9 @@ fn fill_staged(
   replacement: Replacement,
 ) -> Result<(), Unwritten> {
   match replacement {
-    Replacement::Allowed => copy_ownership(target, &at.with_file_name(&target.name), file)?,
+    Replacement::Allowed | Replacement::Published => {
+      copy_ownership(target, &at.with_file_name(&target.name), file)?
+    }
     Replacement::WithMode(_) | Replacement::Rejected => {}
   }
 
@@ -511,11 +534,16 @@ fn fill_staged(
     Replacement::WithMode(mode) => rustix::fs::fchmod(&*file, mode).map_err(|fault| {
       Unwritten::Keeping(at.with_file_name(&target.name), io::Error::from(fault))
     })?,
-    Replacement::Allowed | Replacement::Rejected => {}
+    Replacement::Allowed | Replacement::Published | Replacement::Rejected => {}
   }
 
-  rustix::fs::fsync(file)
-    .map_err(|fault| Unwritten::Settling(at.to_path_buf(), io::Error::from(fault)))
+  match replacement {
+    Replacement::Published => Ok(()),
+    Replacement::Allowed | Replacement::WithMode(_) | Replacement::Rejected => {
+      rustix::fs::fsync(file)
+        .map_err(|fault| Unwritten::Settling(at.to_path_buf(), io::Error::from(fault)))
+    }
+  }
 }
 
 fn copy_ownership(target: &Location, live: &Path, staged: &File) -> Result<(), Unwritten> {

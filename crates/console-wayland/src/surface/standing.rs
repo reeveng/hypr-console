@@ -176,6 +176,7 @@ use std::os::fd::BorrowedFd;
 use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
 use std::time::Duration;
 
+pub use crate::buffer::PreparedFrame;
 use crate::buffer::ShmBuffer;
 use crate::waiting::{self, Flushed, WaitError};
 use crate::{
@@ -184,8 +185,9 @@ use crate::{
 };
 use wayland_client::globals::{BindError, GlobalList, GlobalListContents};
 use wayland_client::protocol::{
-  wl_buffer, wl_compositor, wl_keyboard, wl_output, wl_pointer, wl_region, wl_registry, wl_seat,
-  wl_shm, wl_shm_pool, wl_subcompositor, wl_subsurface, wl_surface, wl_touch,
+  wl_buffer, wl_callback, wl_compositor, wl_keyboard, wl_output, wl_pointer, wl_region,
+  wl_registry, wl_seat, wl_shm, wl_shm_pool, wl_subcompositor, wl_subsurface, wl_surface,
+  wl_touch,
 };
 use wayland_client::{Connection, Dispatch, EventQueue, QueueHandle, delegate_noop};
 use wayland_protocols::ext::session_lock::v1::client::{
@@ -350,6 +352,14 @@ pub struct Part {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AnimationFrame {
+  Ready,
+  Waiting,
+}
+
+struct AnimationCallback;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Damage {
   pub at: Point<i32>,
   pub size: Size<i32>,
@@ -373,6 +383,11 @@ pub enum Drawing {
   Discarded,
   Unavailable,
   Cancelled,
+}
+
+pub enum DrawingStatus {
+  AwaitingFeedback,
+  Settled,
 }
 
 pub struct DrawingSender(SyncSender<Drawing>);
@@ -564,6 +579,20 @@ impl RegionPosition {
 
     Ok(())
   }
+
+  fn desync(self) -> Result<(), Never> {
+    match self {
+      Self::Moved(role) => role.set_desync(),
+      Self::Unchanged => {}
+    }
+
+    Ok(())
+  }
+}
+
+struct RegionUpdate {
+  parent: wl_surface::WlSurface,
+  position: RegionPosition,
 }
 
 impl Drop for RegionLayer {
@@ -578,6 +607,18 @@ struct Frame {
   storage: ShmBuffer,
   size: Size<u32>,
   held: Buffer,
+  reuse: Reuse,
+}
+
+#[derive(PartialEq, Eq)]
+enum Reuse {
+  Writable,
+  Retained,
+}
+
+enum RegionPixels<'a> {
+  Paint,
+  Prepare(&'a mut Option<PreparedFrame>),
 }
 
 impl Frame {
@@ -593,6 +634,7 @@ impl Frame {
       storage,
       size,
       held: Buffer::Released,
+      reuse: Reuse::Writable,
     })
   }
 }
@@ -613,6 +655,77 @@ fn free(
     Some(frame) => Ok(frame),
     None => Frame::new(shm, hand, device),
   }
+}
+
+fn region_frame<State>(
+  layer: &mut RegionLayer,
+  shm: &wl_shm::WlShm,
+  hand: &QueueHandle<Bound>,
+  (device, scale): (Size<u32>, Scale),
+  source: RegionPixels<'_>,
+  state: &mut State,
+  paint: impl FnOnce(&mut State, &mut [u8], Size<u32>, Scale) -> Result<(), Never>,
+) -> Result<Frame, SurfaceError> {
+  let capture = match source {
+    RegionPixels::Paint => None,
+    RegionPixels::Prepare(held) => {
+      let Ok(imported) = import_prepared(shm, hand, device, held.as_ref());
+
+      match imported {
+        Some(ready) => return Ok(ready),
+        None => Some(held),
+      }
+    }
+  };
+  let mut frame = free(&mut layer.spare, shm, hand, device)?;
+  let pixels = frame.storage.pixels().map_err(SurfaceError::Memory)?;
+  let Ok(()) = paint(state, pixels, device, scale);
+  let _painted = frame
+    .storage
+    .painted_buffer()
+    .map_err(SurfaceError::Memory)?;
+
+  match capture {
+    Some(held) => match frame.storage.keep_painted(device) {
+      Ok(kept) => {
+        frame.reuse = Reuse::Retained;
+        *held = Some(kept);
+      }
+      Err(fault) => {
+        *held = None;
+        console_core_logging::debug!("could not keep a prepared Wayland frame: {fault}");
+      }
+    },
+    None => {}
+  }
+
+  Ok(frame)
+}
+
+fn import_prepared(
+  shm: &wl_shm::WlShm,
+  hand: &QueueHandle<Bound>,
+  device: Size<u32>,
+  cached: Option<&PreparedFrame>,
+) -> Result<Option<Frame>, Never> {
+  let prepared = match cached.filter(|frame| frame.size() == Ok(device)) {
+    Some(prepared) => prepared,
+    None => return Ok(None),
+  };
+
+  Ok(match ShmBuffer::prepared(shm, hand, prepared) {
+    Ok(storage) => Some(Frame {
+      storage,
+      size: device,
+      held: Buffer::Released,
+      reuse: Reuse::Retained,
+    }),
+    Err(fault) => {
+      console_core_logging::debug!("could not attach a prepared Wayland frame: {fault}");
+
+      None
+    }
+  })
 }
 
 fn pick_free<T>(
@@ -664,6 +777,7 @@ pub struct Bound {
   timing: Option<Frames>,
   drawing: Option<PendingDrawing>,
   drawing_id: u64,
+  animation: Option<wl_callback::WlCallback>,
   up: Option<Up>,
   region: Option<RegionLayer>,
   dmabuf: Option<dmabuf::Import>,
@@ -834,6 +948,7 @@ impl Surface {
       timing: None,
       drawing: None,
       drawing_id: 0,
+      animation: None,
       up: None,
       region: None,
       dmabuf,
@@ -1174,6 +1289,7 @@ impl Surface {
   pub fn hide(&mut self) -> Result<(), Never> {
     let Ok(()) = self.bound.cancel_drawing();
     let Ok(()) = self.clear_layer();
+    self.bound.animation = None;
 
     match self.bound.text_input.as_mut() {
       Some(input) => {
@@ -1355,6 +1471,27 @@ impl Surface {
     })
   }
 
+  pub fn animation_frame(&self) -> Result<AnimationFrame, Never> {
+    Ok(match self.bound.animation {
+      Some(_) => AnimationFrame::Waiting,
+      None => AnimationFrame::Ready,
+    })
+  }
+
+  pub fn pace_animation(&mut self) -> Result<(), SurfaceError> {
+    match (&self.bound.up, &self.bound.animation) {
+      (Some(up), None) => {
+        let callback = up.surface.frame(&self.queue.handle(), AnimationCallback);
+        self.bound.animation = Some(callback);
+        up.surface.commit();
+        let _flushed = self.flush()?;
+      }
+      (None, _) | (_, Some(_)) => {}
+    }
+
+    Ok(())
+  }
+
   #[must_use]
   pub fn layer_support(&self) -> Result<LayerSupport, Never> {
     Ok(match self.bound.subcompositor.as_ref() {
@@ -1397,19 +1534,83 @@ impl Surface {
     state: &mut State,
     paint: impl FnOnce(&mut State, &mut [u8], Size<u32>, Scale) -> Result<(), Never>,
   ) -> Result<Visible, SurfaceError> {
+    let drawn = self.draw_region_with(part, RegionPixels::Paint, state, paint)?;
+    let update = match drawn {
+      Some(update) => update,
+      None => return Ok(Visible::NotYet),
+    };
+    let Ok(()) = update.position.commit(&update.parent);
+    let _flushed = self.flush()?;
+
+    Ok(Visible::Yes)
+  }
+
+  #[doc = "Present a region and its transparent input backdrop in one flush."]
+  #[doc = "A region that cannot be drawn leaves the presentation request untouched."]
+  pub fn draw_layer_on_backdrop(
+    &mut self,
+    part: Part,
+    finished: &mut Option<DrawingSender>,
+    paint: impl FnOnce(&mut [u8], Size<u32>, Scale) -> Result<(), Never>,
+  ) -> Result<Visible, SurfaceError> {
+    let drawn = self.draw_region_with(
+      part,
+      RegionPixels::Paint,
+      &mut (),
+      |(), pixels, size, scale| paint(pixels, size, scale),
+    )?;
+    self.commit_backdrop(drawn, finished)
+  }
+
+  pub fn draw_prepared_layer<State>(
+    &mut self,
+    part: Part,
+    finished: &mut Option<DrawingSender>,
+    (prepared, state): (&mut Option<PreparedFrame>, &mut State),
+    paint: impl FnOnce(&mut State, &mut [u8], Size<u32>, Scale) -> Result<(), Never>,
+  ) -> Result<Visible, SurfaceError> {
+    let drawn = self.draw_region_with(part, RegionPixels::Prepare(prepared), state, paint)?;
+    self.commit_backdrop(drawn, finished)
+  }
+
+  fn commit_backdrop(
+    &mut self,
+    drawn: Option<RegionUpdate>,
+    finished: &mut Option<DrawingSender>,
+  ) -> Result<Visible, SurfaceError> {
+    let update = match drawn {
+      Some(update) => update,
+      None => return Ok(Visible::NotYet),
+    };
+
+    self.prepare_backdrop(finished.take())?;
+    update.parent.commit();
+    let Ok(()) = update.position.desync();
+    let _flushed = self.flush()?;
+
+    Ok(Visible::Yes)
+  }
+
+  fn draw_region_with<State>(
+    &mut self,
+    part: Part,
+    source: RegionPixels<'_>,
+    state: &mut State,
+    paint: impl FnOnce(&mut State, &mut [u8], Size<u32>, Scale) -> Result<(), Never>,
+  ) -> Result<Option<RegionUpdate>, SurfaceError> {
     let (manager, up, logical) = match (
       self.bound.subcompositor.as_ref(),
       self.bound.up.as_ref(),
       self.bound.logical,
     ) {
       (Some(manager), Some(up), Some(logical)) => (manager, up, logical),
-      (None, _, _) | (_, None, _) | (_, _, None) => return Ok(Visible::NotYet),
+      (None, _, _) | (_, None, _) | (_, _, None) => return Ok(None),
     };
     let Ok(fit) = region::fit(logical, part);
 
     match fit {
       Fit::Inside => {}
-      Fit::Outside => return Ok(Visible::NotYet),
+      Fit::Outside => return Ok(None),
     }
 
     let hand = self.queue.handle();
@@ -1427,13 +1628,16 @@ impl Surface {
       );
       layer
     });
-    let mut frame = free(&mut layer.spare, &self.bound.shm, &hand, device)?;
-    let pixels = frame.storage.pixels().map_err(SurfaceError::Memory)?;
-    let Ok(()) = paint(state, pixels, device, scale);
-    let buffer = frame
-      .storage
-      .painted_buffer()
-      .map_err(SurfaceError::Memory)?;
+    let mut frame = region_frame(
+      layer,
+      &self.bound.shm,
+      &hand,
+      (device, scale),
+      source,
+      state,
+      paint,
+    )?;
+    let Ok(buffer) = frame.storage.buffer();
     let Ok(wide) = fitted::<u32, i32>(device.width);
     let Ok(tall) = fitted::<u32, i32>(device.height);
     let Ok(across) = fitted::<u32, i32>(part.size.width);
@@ -1444,7 +1648,10 @@ impl Surface {
     layer.viewport.set_destination(across, down);
     layer.surface.damage_buffer(0, 0, wide, tall);
     let held = std::mem::replace(&mut frame.held, Buffer::Acquired);
-    layer.spare.extend(layer.shown.replace(frame));
+    let previous = layer.shown.replace(frame);
+    layer
+      .spare
+      .extend(previous.filter(|former| former.reuse == Reuse::Writable));
     let child = layer.surface.clone();
     let Ok(()) = record_frame(Timing {
       bound: &mut self.bound,
@@ -1454,11 +1661,8 @@ impl Surface {
       region: Some(&child),
     });
     child.commit();
-    let Ok(()) = position.commit(&parent);
 
-    let _flushed = self.flush()?;
-
-    Ok(Visible::Yes)
+    Ok(Some(RegionUpdate { parent, position }))
   }
 
   pub fn draw_notifying(
@@ -1466,6 +1670,33 @@ impl Surface {
     finished: DrawingSender,
     paint: impl FnOnce(&mut [u8], Size<u32>, Scale) -> Result<(), Never>,
   ) -> Result<(), SurfaceError> {
+    self.track_drawing(finished)?;
+
+    match self.draw(paint) {
+      Ok(()) => Ok(()),
+      Err(fault) => {
+        self.bound.drawing = None;
+
+        Err(fault)
+      }
+    }
+  }
+
+  pub fn drawing_status(&self) -> Result<DrawingStatus, Never> {
+    Ok(match self.bound.drawing.as_ref() {
+      Some(PendingDrawing {
+        reported_discard: false,
+        ..
+      }) => DrawingStatus::AwaitingFeedback,
+      None
+      | Some(PendingDrawing {
+        reported_discard: true,
+        ..
+      }) => DrawingStatus::Settled,
+    })
+  }
+
+  fn track_drawing(&mut self, finished: DrawingSender) -> Result<(), SurfaceError> {
     match (self.bound.logical, self.bound.up.as_ref()) {
       (Some(_), Some(_)) => {}
       (None, _) | (_, None) => {
@@ -1482,21 +1713,74 @@ impl Surface {
       None => {
         let Ok(()) = finished.notify(Drawing::Unavailable);
 
-        return self.draw(paint);
+        return Ok(());
       }
     };
     self.bound.drawing_id = id;
     let Ok(drawing) = PendingDrawing::new(DrawingId(id), finished);
     self.bound.drawing = Some(drawing);
 
-    match self.draw(paint) {
-      Ok(()) => Ok(()),
-      Err(fault) => {
-        self.bound.drawing = None;
+    Ok(())
+  }
 
-        Err(fault)
+  fn prepare_backdrop(&mut self, finished: Option<DrawingSender>) -> Result<(), SurfaceError> {
+    let logical = self
+      .bound
+      .logical
+      .ok_or(SurfaceError::Global("a configured surface"))?;
+    let hand = self.queue.handle();
+    let dot = Size {
+      width: 1,
+      height: 1,
+    };
+    let up = self
+      .bound
+      .up
+      .as_ref()
+      .ok_or(SurfaceError::Global("a surface for the backdrop"))?;
+
+    let attached = self
+      .bound
+      .shown
+      .as_ref()
+      .is_some_and(|shown| shown.size == dot);
+
+    match attached.then_some(()) {
+      Some(()) => {}
+      None => {
+        let frame = Frame::new(&self.bound.shm, &hand, dot)?;
+        let Ok(buffer) = frame.storage.buffer();
+        up.surface.attach(Some(buffer), 0, 0);
+        up.surface.damage_buffer(0, 0, 1, 1);
+        let Ok(()) = self.bound.present(Frame {
+          held: Buffer::Acquired,
+          ..frame
+        });
       }
     }
+
+    match finished {
+      Some(report) => self.track_drawing(report)?,
+      None => {}
+    }
+
+    let Ok(()) = record_frame(Timing {
+      bound: &mut self.bound,
+      painting: None,
+      held: Buffer::Acquired,
+      hand: &hand,
+      region: None,
+    });
+    let framed = self
+      .bound
+      .up
+      .as_ref()
+      .ok_or(SurfaceError::Global("a surface for the backdrop"))?;
+    let Ok(width) = fitted::<u32, i32>(logical.width);
+    let Ok(height) = fitted::<u32, i32>(logical.height);
+    framed.viewport.set_destination(width, height);
+
+    Ok(())
   }
 
   pub fn draw_with<State>(
@@ -1831,13 +2115,99 @@ fn edges(anchor: Anchor) -> Result<zwlr_layer_surface_v1::Anchor, Never> {
 
 #[cfg(test)]
 mod tests {
-  use super::{Damage, LayerSupport, Part, Surface, SurfaceError, Visible, Window};
+  use super::{
+    AnimationFrame, Damage, LayerSupport, Part, Surface, SurfaceError, Visible, Window,
+  };
   use console_core_never::Never;
   use console_core_number_conversion::indices;
   use std::time::{Duration, Instant};
 
   type TestFailure = Box<dyn std::error::Error>;
   const FRAME_GAP: Duration = Duration::from_millis(24);
+
+  #[test]
+  #[ignore = "requires a live Wayland compositor"]
+  fn a_prepared_region_is_repainted_only_when_its_size_changes() -> Result<(), TestFailure> {
+    let mut surface = Surface::connect()?;
+    surface.show_window_sized(
+      &Window {
+        app_id: "org.console.PreparedFrameCheck".to_string(),
+        title: "Console prepared frame check".to_string(),
+      },
+      Size {
+        width: 800,
+        height: 600,
+      },
+    )?;
+    let part = Part {
+      at: Point { x: 16, y: 20 },
+      size: Size {
+        width: 320,
+        height: 240,
+      },
+    };
+    let mut cache = None;
+    let mut finished = None;
+    let mut painted = 0_u32;
+
+    for size in [
+      part.size,
+      part.size,
+      Size {
+        width: 160,
+        height: 120,
+      },
+    ] {
+      let visible = surface.draw_prepared_layer(
+        Part { size, ..part },
+        &mut finished,
+        (&mut cache, &mut painted),
+        |count, pixels, _, _| {
+          pixels.fill(255);
+          *count = count.saturating_add(1);
+
+          Ok(())
+        },
+      )?;
+      assert_eq!(visible, Visible::Yes);
+    }
+
+    assert_eq!(painted, 2);
+    assert!(cache.is_some());
+
+    let started = Instant::now();
+
+    for _ in 0..12 {
+      let visible = surface.draw_prepared_layer(
+        part,
+        &mut finished,
+        (&mut cache, &mut ()),
+        |(), pixels, _, _| {
+          pixels.fill(127);
+
+          Ok(())
+        },
+      )?;
+      assert_eq!(visible, Visible::Yes);
+      surface.pace_animation()?;
+      assert_eq!(surface.animation_frame(), Ok(AnimationFrame::Waiting));
+
+      'feedback: for _ in 0..16 {
+        surface.wait(&[], Some(Duration::from_millis(100)))?;
+
+        match surface.animation_frame() {
+          Ok(AnimationFrame::Ready) => break 'feedback,
+          Ok(AnimationFrame::Waiting) => {}
+        }
+      }
+
+      assert_eq!(surface.animation_frame(), Ok(AnimationFrame::Ready));
+    }
+
+    println!("12 compositor frame callbacks in {:?}", started.elapsed());
+
+    Ok(())
+  }
 
   #[test]
   #[ignore = "requires a live Wayland compositor"]
@@ -2947,6 +3317,22 @@ impl Dispatch<zwp_text_input_v3::ZwpTextInputV3, ()> for Bound {
         let Ok(()) = input.done(serial);
       }
       _ => {}
+    }
+  }
+}
+
+impl Dispatch<wl_callback::WlCallback, AnimationCallback> for Bound {
+  fn event(
+    bound: &mut Self,
+    callback: &wl_callback::WlCallback,
+    _event: wl_callback::Event,
+    _animation: &AnimationCallback,
+    _connection: &Connection,
+    _hand: &QueueHandle<Self>,
+  ) {
+    match (bound.animation.as_ref() == Some(callback)).then_some(()) {
+      Some(()) => bound.animation = None,
+      None => {}
     }
   }
 }

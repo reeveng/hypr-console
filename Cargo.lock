@@ -682,7 +682,6 @@ dependencies = [
 name = "console-application-calculator"
 version = "0.1.0"
 dependencies = [
- "console-actor",
  "console-core-arguments",
  "console-core-finite-numbers",
  "console-core-never",
@@ -3087,6 +3086,7 @@ dependencies = [
  "console-core-atomic-writes",
  "console-core-external-programs",
  "console-core-internal-programs",
+ "console-core-logging",
  "console-core-never",
  "console-core-places",
  "console-core-state-machine",
@@ -3096,6 +3096,7 @@ dependencies = [
  "console-operating-system-linux",
  "console-panel",
  "console-program-contract",
+ "console-program-lifetime",
  "console-repository",
  "console-session",
  "rustix",
@@ -3117,6 +3118,7 @@ version = "0.1.0"
 dependencies = [
  "console-core-color",
  "console-core-curve-geometry",
+ "console-core-fonts",
  "console-core-geometry",
  "console-core-never",
  "console-core-number-conversion",
@@ -3303,6 +3305,7 @@ dependencies = [
  "console-input-language",
  "console-onscreen",
  "console-operating-system-linux",
+ "console-panel",
  "console-program-contract",
  "console-program-lifetime",
  "console-response-times",
@@ -4055,6 +4058,7 @@ dependencies = [
  "console-application-music",
  "console-application-task-manager",
  "console-calendar",
+ "console-concurrency",
  "console-core-arguments",
  "console-core-external-programs",
  "console-core-internal-programs",
@@ -4062,6 +4066,7 @@ dependencies = [
  "console-core-logging",
  "console-core-never",
  "console-core-temporary-directories",
+ "console-device",
  "console-forecast",
  "console-input-mapping",
  "console-launcher",
@@ -4079,6 +4084,7 @@ name = "console-paper"
 version = "0.1.0"
 dependencies = [
  "console-compositor",
+ "console-concurrency",
  "console-core-bounded-reads",
  "console-core-geometry",
  "console-core-iteration",

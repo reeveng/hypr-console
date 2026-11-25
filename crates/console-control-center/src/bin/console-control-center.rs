@@ -10,8 +10,8 @@ use console_control_center::selection::{
   self, CANCEL, CORNER_CONTROLS, Corners, Drag, Prompt, Purpose,
 };
 use console_control_center::{
-  CAPTURE_TEXT, CLOSE, EDGE, Labels, SCREENSHOT, SCREENSHOT_AREA, Sheet, Swipe, Tapped,
-  classify_swipe, hit_test, render, sheet,
+  CAPTURE_TEXT, CLOSE, EDGE, Labels, SCREENSHOT, SCREENSHOT_AREA, Sheet, Swipe, TASK_MANAGER,
+  Tapped, classify_swipe, hit_test, render, sheet,
 };
 use console_core_color::palette::Wearing;
 use console_core_fonts::TextStyle;
@@ -63,7 +63,7 @@ enum Next {
   TakeScreenshot,
   Select(Purpose),
   Capture(Purpose, Rectangle<i32>),
-  Close,
+  Launch(InternalProgram),
   Repaint,
 }
 
@@ -221,9 +221,9 @@ fn round(
       }
       Next::Select(purpose) => select(surface, wearing, purpose, SelectionStart::AwaitDrag)?,
       Next::Capture(purpose, region) => submit_capture(surface, capture, purpose, region)?,
-      Next::Close => {
+      Next::Launch(program) => {
         let put_away = edge(surface)?;
-        let Ok(()) = start(InternalProgram::PutAway);
+        let Ok(()) = start(program);
 
         put_away
       }
@@ -266,22 +266,30 @@ fn keyed(showing: &mut Showing, key: Keysym, room: Option<Size<u32>>) -> Result<
 
   let target = match key {
     Keysym::Left | Keysym::ISO_Left_Tab => match *focused {
-      Tapped::Screenshot | Tapped::Outside => Tapped::Close,
+      Tapped::Screenshot | Tapped::Outside => Tapped::TaskManager,
       Tapped::ScreenshotArea => Tapped::Screenshot,
       Tapped::CaptureText => Tapped::ScreenshotArea,
       Tapped::Close => Tapped::CaptureText,
+      Tapped::TaskManager => Tapped::Close,
     },
     Keysym::Right | Keysym::Tab => match *focused {
       Tapped::Screenshot => Tapped::ScreenshotArea,
       Tapped::ScreenshotArea => Tapped::CaptureText,
       Tapped::CaptureText => Tapped::Close,
-      Tapped::Outside | Tapped::Close => Tapped::Screenshot,
+      Tapped::Close => Tapped::TaskManager,
+      Tapped::Outside | Tapped::TaskManager => Tapped::Screenshot,
     },
-    Keysym::Up | Keysym::Down => match *focused {
-      Tapped::Screenshot | Tapped::Outside => Tapped::CaptureText,
-      Tapped::ScreenshotArea => Tapped::Close,
+    Keysym::Up => match *focused {
+      Tapped::Screenshot | Tapped::ScreenshotArea | Tapped::Outside => Tapped::TaskManager,
       Tapped::CaptureText => Tapped::Screenshot,
       Tapped::Close => Tapped::ScreenshotArea,
+      Tapped::TaskManager => Tapped::CaptureText,
+    },
+    Keysym::Down => match *focused {
+      Tapped::Screenshot | Tapped::Outside => Tapped::CaptureText,
+      Tapped::ScreenshotArea => Tapped::Close,
+      Tapped::CaptureText | Tapped::Close => Tapped::TaskManager,
+      Tapped::TaskManager => Tapped::Screenshot,
     },
     Keysym::Return | Keysym::KP_Enter | Keysym::space => {
       return activated(sheet, Activation::Focused, *focused);
@@ -360,7 +368,8 @@ fn activated(
     Some(Tapped::Screenshot) => Next::TakeScreenshot,
     Some(Tapped::ScreenshotArea) => Next::Select(Purpose::Screenshot),
     Some(Tapped::CaptureText) => Next::Select(Purpose::Text),
-    Some(Tapped::Close) => Next::Close,
+    Some(Tapped::Close) => Next::Launch(InternalProgram::PutAway),
+    Some(Tapped::TaskManager) => Next::Launch(InternalProgram::TaskManager),
     Some(Tapped::Outside) => Next::PutAway,
     None => Next::Stay,
   })
@@ -648,6 +657,7 @@ fn paint_sheet(
     Tapped::ScreenshotArea => laid.screenshot_area.edge = outline,
     Tapped::CaptureText => laid.capture_text.edge = outline,
     Tapped::Close => laid.close.edge = outline,
+    Tapped::TaskManager => laid.task_manager.edge = outline,
     Tapped::Outside => {}
   }
 
@@ -655,6 +665,7 @@ fn paint_sheet(
   let Ok(screenshot_area) = measure_label(SCREENSHOT_AREA, laid.screenshot_area.size.width);
   let Ok(capture_text) = measure_label(CAPTURE_TEXT, laid.capture_text.size.width);
   let Ok(close) = measure_label(CLOSE, laid.close.size.width);
+  let Ok(task_manager) = measure_label(TASK_MANAGER, laid.task_manager.size.width);
   let Ok(shapes) = render(
     &laid,
     Labels {
@@ -662,6 +673,7 @@ fn paint_sheet(
       screenshot_area,
       capture_text,
       close,
+      task_manager,
     },
     wearing,
   );
@@ -900,12 +912,16 @@ mod tests {
       (laid.screenshot, Next::TakeScreenshot),
       (laid.screenshot_area, Next::Select(Purpose::Screenshot)),
       (laid.capture_text, Next::Select(Purpose::Text)),
-      (laid.close, Next::Close),
+      (laid.close, Next::Launch(InternalProgram::PutAway)),
+      (
+        laid.task_manager,
+        Next::Launch(InternalProgram::TaskManager),
+      ),
     ];
     let mut showing = Showing::Sheet {
       sheet: Box::new(laid),
       at: None,
-      focused: Tapped::Close,
+      focused: Tapped::TaskManager,
     };
 
     for (panel, expected) in buttons {

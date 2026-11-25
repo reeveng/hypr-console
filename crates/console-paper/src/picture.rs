@@ -11,13 +11,13 @@ use console_core_never::Never;
 use console_core_webp_files::{Animation, Picture, Playback, measured};
 use console_paper::Motion;
 
-use crate::play::{Load, Timing};
+use crate::play::{Activation, Timing};
 
 const MOST_FILE_BYTES: u32 = 64 * 1024 * 1024;
 const MOST_PIXELS: u64 = 8 * 1024 * 1024;
 const MOST_SIDE: u32 = 8192;
 
-#[derive(PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 struct FileVersion {
   device: u64,
   inode: u64,
@@ -79,6 +79,24 @@ pub struct Drawing {
   pub content: u64,
 }
 
+pub struct Decode {
+  at: PathBuf,
+  motion: Motion,
+  ground: [u8; 3],
+  shown: Option<FileVersion>,
+}
+
+pub struct Ready {
+  named: Named,
+  size: Size<u32>,
+  bytes: Vec<u8>,
+}
+
+pub enum Prepared {
+  Reuse(Motion),
+  Ready(Ready),
+}
+
 impl Drawing {
   pub fn new(ground: [u8; 3]) -> Result<Self, Never> {
     let [red, green, blue] = ground;
@@ -110,93 +128,36 @@ impl Drawing {
     Ok(())
   }
 
-  pub fn load(&mut self, at: PathBuf, motion: Motion) -> Result<Load, Never> {
-    Ok(match self.open(at, motion) {
-      Ok(load) => load,
-      Err(fault) => Load::Refused(fault.to_string()),
+  pub fn decoding(&self, at: PathBuf, motion: Motion) -> Result<Decode, Never> {
+    let shown = self
+      .named
+      .as_ref()
+      .filter(|named| named.at == at)
+      .map(|named| named.version);
+
+    Ok(Decode {
+      at,
+      motion,
+      ground: self.ground,
+      shown,
     })
   }
 
-  fn open(&mut self, at: PathBuf, motion: Motion) -> io::Result<Load> {
-    let (file, version) = open(&at)?;
-
-    match self.named.as_mut() {
-      Some(named) => match (named.at == at, named.version == version) {
-        (true, true) => {
-          let Ok(updated) = change_motion(named, motion);
-          return Ok(updated);
-        }
-        _ => {}
+  pub fn install(&mut self, prepared: Prepared) -> Result<Activation, Never> {
+    match prepared {
+      Prepared::Reuse(motion) => match self.named.as_mut() {
+        Some(named) => change_motion(named, motion),
+        None => Ok(Activation::Unchanged),
       },
-      None => {}
-    }
+      Prepared::Ready(ready) => {
+        let Ok(timing) = ready.named.timing();
+        self.size = ready.size;
+        self.bytes = ready.bytes;
+        self.named = Some(ready.named);
+        self.revision = self.revision.wrapping_add(1);
+        self.content = self.content.wrapping_add(1);
 
-    let file_bytes = console_core_bounded_reads::bytes(&file, MOST_FILE_BYTES)?;
-    let size = measured(&file_bytes).map_err(io::Error::other)?;
-
-    match (size.width, size.height) {
-      (1..=MOST_SIDE, 1..=MOST_SIDE) => {}
-      _ => {
-        return Err(io::Error::other(
-          "wallpaper dimensions exceed the playback limit",
-        ));
-      }
-    }
-
-    let pixels = u64::from(size.width).saturating_mul(u64::from(size.height));
-
-    let metadata = file.metadata()?;
-    let Ok(after) = FileVersion::read(&metadata);
-
-    match (pixels, after == version) {
-      (1..=MOST_PIXELS, true) => {}
-      (1..=MOST_PIXELS, false) => {
-        return Err(io::Error::other("wallpaper changed during reading"));
-      }
-      _ => {
-        return Err(io::Error::other(
-          "wallpaper dimensions exceed the playback limit",
-        ));
-      }
-    }
-
-    let content = self.decode(file_bytes)?;
-    let named = Named {
-      at,
-      version,
-      motion,
-      content,
-    };
-    let Ok(timing) = named.timing();
-    self.named = Some(named);
-    self.revision = self.revision.wrapping_add(1);
-    self.content = self.content.wrapping_add(1);
-    Ok(Load::Ready(timing))
-  }
-
-  fn decode(&mut self, file: Vec<u8>) -> io::Result<Content> {
-    let playback = Playback::open(file, self.ground).map_err(io::Error::other)?;
-
-    match playback {
-      Playback::Still(picture) => {
-        self.size = picture.size;
-        let mut pixels = picture.bytes;
-
-        for rgba in pixels.as_chunks_mut::<4>().0 {
-          let [red, green, blue, alpha] = *rgba;
-          *rgba = [blue, green, red, alpha];
-        }
-
-        self.bytes = pixels;
-        Ok(Content::Still)
-      }
-      Playback::Animated(mut asset) => {
-        let delay = asset.advance().map_err(io::Error::other)?;
-        let Ok(picture) = asset.canvas();
-        let bytes = pixels_for(picture, Vec::new())?;
-        self.size = picture.size;
-        self.bytes = bytes;
-        Ok(Content::Animated { asset, delay })
+        Ok(Activation::Changed(timing))
       }
     }
   }
@@ -250,6 +211,76 @@ impl Drawing {
   }
 }
 
+impl Decode {
+  pub fn prepare(self) -> io::Result<Prepared> {
+    let (file, version) = open(&self.at)?;
+
+    match (self.shown == Some(version)).then_some(()) {
+      Some(()) => return Ok(Prepared::Reuse(self.motion)),
+      None => {}
+    }
+
+    let bytes = console_core_bounded_reads::bytes(&file, MOST_FILE_BYTES)?;
+    playback_size(&bytes)?;
+    let after = file.metadata()?;
+    let Ok(observed) = FileVersion::read(&after);
+
+    match (observed == version).then_some(()) {
+      Some(()) => {}
+      None => return Err(io::Error::other("wallpaper changed during reading")),
+    }
+
+    let (size, pixels, content) = decode(bytes, self.ground)?;
+
+    Ok(Prepared::Ready(Ready {
+      named: Named {
+        at: self.at,
+        version,
+        motion: self.motion,
+        content,
+      },
+      size,
+      bytes: pixels,
+    }))
+  }
+}
+
+fn playback_size(bytes: &[u8]) -> io::Result<()> {
+  let size = measured(bytes).map_err(io::Error::other)?;
+  let pixels = u64::from(size.width).saturating_mul(u64::from(size.height));
+
+  match (size.width, size.height, pixels) {
+    (1..=MOST_SIDE, 1..=MOST_SIDE, 1..=MOST_PIXELS) => Ok(()),
+    _ => Err(io::Error::other(
+      "wallpaper dimensions exceed the playback limit",
+    )),
+  }
+}
+
+fn decode(file: Vec<u8>, ground: [u8; 3]) -> io::Result<(Size<u32>, Vec<u8>, Content)> {
+  let playback = Playback::open(file, ground).map_err(io::Error::other)?;
+
+  match playback {
+    Playback::Still(picture) => {
+      let mut pixels = picture.bytes;
+
+      for rgba in pixels.as_chunks_mut::<4>().0 {
+        let [red, green, blue, alpha] = *rgba;
+        *rgba = [blue, green, red, alpha];
+      }
+
+      Ok((picture.size, pixels, Content::Still))
+    }
+    Playback::Animated(mut asset) => {
+      let delay = asset.advance().map_err(io::Error::other)?;
+      let Ok(picture) = asset.canvas();
+      let bytes = pixels_for(picture, Vec::new())?;
+
+      Ok((picture.size, bytes, Content::Animated { asset, delay }))
+    }
+  }
+}
+
 fn open(at: &Path) -> io::Result<(File, FileVersion)> {
   let flags = rustix::fs::OFlags::NONBLOCK.bits();
   let Ok(nonblocking) = console_core_number_conversion::fitted::<_, i32>(flags);
@@ -274,13 +305,13 @@ fn open(at: &Path) -> io::Result<(File, FileVersion)> {
   }
 }
 
-fn change_motion(named: &mut Named, motion: Motion) -> Result<Load, Never> {
+fn change_motion(named: &mut Named, motion: Motion) -> Result<Activation, Never> {
   match (named.motion, motion) {
-    (Motion::Play, Motion::Play) | (Motion::Freeze, Motion::Freeze) => Ok(Load::Unchanged),
+    (Motion::Play, Motion::Play) | (Motion::Freeze, Motion::Freeze) => Ok(Activation::Unchanged),
     (Motion::Play, Motion::Freeze) | (Motion::Freeze, Motion::Play) => {
       named.motion = motion;
       let Ok(timing) = named.timing();
-      Ok(Load::Ready(timing))
+      Ok(Activation::Changed(timing))
     }
   }
 }

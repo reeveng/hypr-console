@@ -909,6 +909,7 @@ pub(super) fn perform(
         ..
       })),
     ) => {
+      let Ok(()) = state.reveal_focus();
       state.at = Some(row);
       state.beside = Beside::No;
       state.pressing = None;

@@ -16,11 +16,12 @@ use std::marker::PhantomData;
 use console_core_path_rasterizer::{Color, ColorU8, Pixmap, PixmapPaint};
 
 use crate::raster::Canvas;
+use console_core_fonts::ICONS;
 use console_core_geometry::{Point, Size};
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index, narrow_f32, toward_zero_u32};
 use console_core_shapes::{Font, Weight};
-use console_core_text_layout::fontdb::Query;
+use console_core_text_layout::fontdb::{Database, Query};
 use console_core_text_layout::{
   Attrs, Buffer, CacheKey, Family, FontSystem, GlyphCache, GlyphContent, Hinting, Metrics,
   Shaping, Wrap,
@@ -30,6 +31,7 @@ use crate::Cannot;
 
 struct TextSystem {
   fonts: FontSystem,
+  icon_family: String,
   glyphs: GlyphCache,
   surfaces: HashMap<(CacheKey, [u8; 4]), Glyph>,
 }
@@ -120,9 +122,13 @@ pub fn styled_layout(
 
       system
     });
+    let family = match (font.family == ICONS).then_some(()) {
+      Some(()) => Family::Name(&system.icon_family),
+      None => Family::Name(&font.family),
+    };
     let Ok(database) = system.fonts.db();
     let face = database.query(&Query {
-      families: &[Family::Name(&font.family)],
+      families: &[family],
       weight: weight_2,
       style,
       ..Query::default()
@@ -151,9 +157,9 @@ pub fn styled_layout(
       height_2,
       console_core_text_layout::LineHeight(line_height.max(height_2)),
     );
-    let Ok(mut buffer) = Buffer::new(&mut system.fonts, metrics);
+    let Ok(mut buffer) = Buffer::new_empty(metrics);
     let Ok(attrs) = Attrs::new();
-    let Ok(attrs_2) = attrs.family(Family::Name(&font.family));
+    let Ok(attrs_2) = attrs.family(family);
     let Ok(attrs_3) = attrs_2.weight(weight_2);
     let Ok(attrs_4) = attrs_3.style(style);
 
@@ -303,6 +309,34 @@ impl Layout {
   }
 }
 
+fn icon_family(db: &Database) -> Result<String, Never> {
+  let Ok(faces) = db.faces();
+  let best = faces
+    .flat_map(|face| face.families.iter())
+    .filter_map(|(name, _language)| {
+      let priority = match name.as_str() {
+        ICONS => Some(0_u8),
+        "Symbols Nerd Font Mono" => Some(1),
+        other => match (
+          other.ends_with(" Nerd Font Mono"),
+          other.ends_with(" Nerd Font"),
+        ) {
+          (true, _) => Some(2),
+          (false, true) => Some(3),
+          (false, false) => None,
+        },
+      };
+
+      priority.map(|rank| (rank, name))
+    })
+    .min();
+
+  Ok(match best {
+    Some((_rank, family)) => family.clone(),
+    None => ICONS.to_owned(),
+  })
+}
+
 impl TextSystem {
   fn new() -> Result<Self, Never> {
     let Ok(fonts) = FontSystem::new();
@@ -312,9 +346,12 @@ impl TextSystem {
 
   fn with_fonts(fonts: FontSystem) -> Result<Self, Never> {
     let Ok(glyphs) = GlyphCache::new();
+    let Ok(db) = fonts.db();
+    let Ok(icon_family) = icon_family(db);
 
     Ok(Self {
       fonts,
+      icon_family,
       glyphs,
       surfaces: HashMap::new(),
     })

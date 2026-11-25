@@ -44,6 +44,15 @@ impl Shared {
     Ok(self.held.as_fd())
   }
 
+  pub(crate) fn duplicate(&self) -> io::Result<Self> {
+    let held = self.held.try_clone()?;
+
+    Ok(Self {
+      held,
+      length: self.length,
+    })
+  }
+
   pub(crate) fn allocate_pixels(&self) -> io::Result<Vec<u8>> {
     match self.length {
       0..=2_147_483_647 => {}

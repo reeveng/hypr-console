@@ -102,6 +102,7 @@ programs! {
     Ffmpeg, "ffmpeg", Origin::Package("ffmpeg");
     Ffprobe, "ffprobe", Origin::Package("ffmpeg");
     Flatpak, "flatpak", Origin::Optional;
+    FprintdEnroll, "fprintd-enroll", Origin::Optional;
     Gdbus, "gdbus", Origin::Package("glib2");
     Getent, "getent", Origin::Arch;
     Gio, "gio", Origin::Package("glib2");
@@ -132,6 +133,7 @@ programs! {
     NotifySend, "notify-send", Origin::Package("libnotify");
     Pacman, "pacman", Origin::Arch;
     Pactl, "pactl", Origin::Package("libpulse");
+    Passwd, "passwd", Origin::Arch;
     Pgrep, "pgrep", Origin::Arch;
     PkgConfig, "pkg-config", Origin::Developing;
     Pkexec, "pkexec", Origin::Handheld;

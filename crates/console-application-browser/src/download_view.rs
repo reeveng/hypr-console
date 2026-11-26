@@ -310,9 +310,14 @@ impl View {
 
     match (mods, key) {
       (0, Keysym::Escape) => {
-        return Ok(match self.menu.take() {
-          Some(_menu) => Action::Handled,
-          None => Action::Dismiss,
+        return Ok(match (self.menu.take(), self.focus) {
+          (Some(_menu), _) => Action::Handled,
+          (None, Focus::Search) => {
+            self.focus = Focus::Rows;
+            self.selection = Selection::Cursor;
+            Action::Handled
+          }
+          (None, _) => Action::Dismiss,
         });
       }
       (0, Keysym::F6 | Keysym::F18 | Keysym::XF86Launch9) | (CONTROL, Keysym::j | Keysym::w) => {
@@ -1331,4 +1336,21 @@ fn edge(
       Highlight::Normal => palette.edge,
     },
   })
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn escape_leaves_the_download_search_before_dismissing_the_view() {
+    let mut view = View::default();
+    let Ok(()) = view.open();
+    let Ok(query) = TextField::holding("report");
+    view.search = query;
+
+    assert!(matches!(view.key(Keysym::Escape, 0), Ok(Action::Handled)));
+    assert_eq!(view.search.text(), Ok("report"));
+    assert!(matches!(view.key(Keysym::Escape, 0), Ok(Action::Dismiss)));
+  }
 }

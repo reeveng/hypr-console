@@ -12,10 +12,10 @@
 //! the lock is let go, and a lock screen that falls leaves the session locked.
 //!
 //! It is started by `console-lock.service`, and systemd is told the start is
-//! done once the compositor says the session is locked. With no pattern chosen, or
-//! the lock turned off in the settings, that is said at once and nothing is
-//! locked. If the saved pattern cannot be read, the compositor still locks
-//! and the screen offers any other configured method.
+//! done once the compositor says the session is locked. When locking is off,
+//! that is said at once. When the requested lock has no usable credential,
+//! it fails before taking the compositor lock. An unreadable saved pattern
+//! still locks and the screen offers any other configured method.
 //!
 //! The bar over the ring is drawn on the same surface, because nothing else
 //! comes up over a held lock: the clock, the sound and the battery, read when
@@ -34,22 +34,26 @@ use console_core_size::Size;
 use console_core_state_machine::{Machine, Transition};
 use console_draw_painting::{Rendered, painter};
 use console_draw_surface::{Closed, Lock, Surface, SurfaceError, Unlocked};
-use console_lock_screen::{LockScreen, Method, PATTERN_UNAVAILABLE, Wanted, desired, respond};
+use console_lock_screen::{LockScreen, Method, PATTERN_UNAVAILABLE, respond};
 use console_login_greeter::bar;
 use console_login_greeter::greeting::{
   Greeter, GreeterEffect, GreeterEvent, GreeterState, Status,
 };
 use console_login_greeter::picture::{Worn, over_a_session};
 use console_login_greeter::session::{heard, press};
-use console_login_window::stored_pattern::{self, Hash, PatternAttempts};
+use console_login_window::Availability;
+use console_login_window::stored_pattern::{Hash, PatternAttempts, StoredPattern};
 use console_program_contract::{Effect, Event, Exit};
 use console_status_bar::clock::{self, Standing};
 use console_status_bar::showing;
 
 const WHO: &str = "lock-screen";
+const NO_UNLOCK_METHOD: u8 = 78;
 
 #[path = "lock-screen/idle_daemon/mod.rs"]
 mod idle_daemon;
+#[path = "lock-screen/preparation.rs"]
+mod preparation;
 #[path = "lock-screen/unlock.rs"]
 mod unlock;
 
@@ -58,7 +62,7 @@ use unlock::{Confirmation, InputDisposition, Unlock};
 const UNLOCK: &str = "Unlock";
 
 enum LockScreenError {
-  Homeless,
+  NoUnlockMethod,
   Denied,
   Palette(WearingError),
   Surface(SurfaceError),
@@ -68,7 +72,7 @@ enum LockScreenError {
 impl std::fmt::Display for LockScreenError {
   fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
-      LockScreenError::Homeless => write!(to, "there is no home to find a pattern in"),
+      LockScreenError::NoUnlockMethod => write!(to, "there is no available unlock method"),
       LockScreenError::Denied => write!(to, "the compositor did not hold the session lock"),
       LockScreenError::Palette(why) => write!(to, "{why}"),
       LockScreenError::Surface(why) => write!(to, "no lock to hold: {why}"),
@@ -125,39 +129,48 @@ fn show_lock() -> core::result::Result<ExitCode, Never> {
     Err(why) => {
       eprintln!("{WHO}: {why}");
 
-      ExitCode::FAILURE
+      match why {
+        LockScreenError::NoUnlockMethod => ExitCode::from(NO_UNLOCK_METHOD),
+        LockScreenError::Denied
+        | LockScreenError::Palette(_)
+        | LockScreenError::Surface(_)
+        | LockScreenError::Ready(_) => ExitCode::FAILURE,
+      }
     }
   })
 }
 
 fn ran() -> Result<Result<(), LockScreenError>, Never> {
-  let Ok(chosen) = console_lock_screen::current();
+  let Ok(stored) = console_lock_screen::session_pattern();
+  let Ok(preferred) = console_lock_screen::preferred();
+  let Ok(chosen) = console_lock_screen::for_method(&stored, preferred);
 
-  match { ::core::primitive::bool::then_some(chosen == LockScreen::Off, ()) } {
-    ::core::option::Option::Some(()) => {
+  match chosen {
+    LockScreen::Off => {
       return Ok(console_readiness::ready().map_err(LockScreenError::Ready));
     }
-    ::core::option::Option::None => {}
+    LockScreen::On => {}
   }
 
-  let Ok(home) = console_core_places::home();
-  let home_3 = match home {
-    Some(home_2) => home_2,
-    None => return Ok(Err(LockScreenError::Homeless)),
-  };
-  let stored = match stored_pattern::stored(&home_3) {
-    Ok(stored) => stored,
-    Err(why) => {
-      eprintln!("{WHO}: {why}");
-
-      return Ok(lock(None));
+  let (hash, opening, pattern) = match &stored {
+    Ok(StoredPattern::Hash(hash)) => (Some(hash), Status::Waiting, Availability::Available),
+    Ok(StoredPattern::Absent) => (None, Status::Waiting, Availability::Unavailable),
+    Err(fault) => {
+      eprintln!("{WHO}: {fault}");
+      (
+        None,
+        Status::Message(PATTERN_UNAVAILABLE.to_owned()),
+        Availability::Unavailable,
+      )
     }
   };
-  let Ok(wanted) = desired(stored, chosen);
+  let Ok(unlock) = Unlock::prepare(preferred, pattern);
+  let Ok(first) = unlock.first_method();
+  let pattern_absent = matches!(stored, Ok(StoredPattern::Absent));
 
-  Ok(match wanted {
-    Wanted::Lock(hash) => lock(Some(&hash)),
-    Wanted::Absent => console_readiness::ready().map_err(LockScreenError::Ready),
+  Ok(match (first, pattern_absent) {
+    (None, true) => Err(LockScreenError::NoUnlockMethod),
+    (Some(_), _) | (None, false) => lock(hash, opening, unlock),
   })
 }
 
@@ -169,7 +182,7 @@ fn worn() -> Result<(Wearing, showing::Wearing), WearingError> {
   Ok((ring, bar))
 }
 
-fn lock(hash: Option<&Hash>) -> Result<(), LockScreenError> {
+fn lock(hash: Option<&Hash>, opening: Status, unlock: Unlock) -> Result<(), LockScreenError> {
   let connected = Surface::connect();
   let mut surface = connected.map_err(LockScreenError::Surface)?;
   let locking = surface.lock(WHO);
@@ -185,13 +198,8 @@ fn lock(hash: Option<&Hash>) -> Result<(), LockScreenError> {
     ring: &ring,
     bar: &bar,
   };
-  let opening = match hash {
-    Some(_) => Status::Waiting,
-    None => Status::Message(PATTERN_UNAVAILABLE.to_owned()),
-  };
   let Ok(Transition { state, effects: _ }) = Greeter::initial_transition(&opening, None);
   let Ok(standing) = clock::current();
-  let Ok(preferred) = console_lock_screen::preferred();
   let Ok(read_out) = bar::read_all();
   let Ok(greeting) = answered(
     Answering {
@@ -217,10 +225,7 @@ fn lock(hash: Option<&Hash>) -> Result<(), LockScreenError> {
     rendered: Rendered::default(),
     bar: nothing_drawn,
     notified: Notified::No,
-    unlock: ({
-      let Ok(explicit_value) = Unlock::new(preferred);
-      explicit_value
-    }),
+    unlock,
   };
 
   let ended = iterate(locked, |locked_2| {

@@ -9,14 +9,11 @@
 //! login nothing else may read the hash; after one the hash is the person's
 //! own file, and the session that is locked is theirs.
 //!
-//! **No pattern is no lock.** A person who never chose one is never asked for
-//! one, at login or here -- a lock nobody can answer with a pad is the device
-//! that cannot be got into, which is the reason this desktop had no lock at
-//! all until the pattern existed.
+//! A saved pattern or a selected password or fingerprint method enables the
+//! lock by default. The lock checks which methods are ready before taking it.
 //!
 //! **A pattern can be kept for login alone.** [`LockScreen`] is the choice in
-//! the settings, and nothing chosen is `On`, because a person who chose a
-//! pattern chose it to keep somebody out. `Off` keeps the pattern at the way
+//! the settings. `Off` keeps the pattern at the way
 //! in and lets the desktop wake as it did before there was a lock. The word is
 //! spelled here and read by both ends -- the lock asks it before it locks, the
 //! settings before they draw the row -- so the two cannot disagree about
@@ -29,7 +26,9 @@
 use console_core_never::Never;
 use console_core_words::Words;
 use console_login_window::protocol::{FromGreeter, ToGreeter};
-use console_login_window::stored_pattern::{Hash, PatternAttempts, StoredPattern};
+use console_login_window::stored_pattern::{
+  self, Hash, PatternAttempts, PatternStoreError, StoredPattern,
+};
 
 pub mod idle;
 
@@ -37,12 +36,6 @@ pub const LOCK_SERVICE: &str = "console-lock.service";
 
 pub const PATTERN_UNAVAILABLE: &str =
   "The saved pattern cannot be read. Choose another unlock method.";
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Wanted {
-  Lock(Hash),
-  Absent,
-}
 
 pub const SETTING: &str = "lock-screen";
 const METHOD_SETTING: &str = "lock-screen-method";
@@ -118,9 +111,36 @@ fn read_switch(key: &str, setting: Option<&str>) -> Result<LockScreen, Never> {
 }
 
 pub fn current() -> Result<LockScreen, Never> {
-  let told = console_defaults::setting(SETTING)?;
+  let Ok(pattern) = session_pattern();
+  let Ok(method) = preferred();
+  for_method(&pattern, method)
+}
 
-  read(told.as_deref())
+pub fn session_pattern() -> Result<Result<StoredPattern, PatternStoreError>, Never> {
+  let Ok(home) = console_core_places::home();
+  Ok(match home {
+    Some(directory) => stored_pattern::stored(&directory),
+    None => Ok(StoredPattern::Absent),
+  })
+}
+
+pub fn for_method(
+  pattern: &Result<StoredPattern, PatternStoreError>,
+  method: Method,
+) -> Result<LockScreen, Never> {
+  let told = console_defaults::setting(SETTING)?;
+  configured(told.as_deref(), pattern, method)
+}
+
+fn configured(
+  setting: Option<&str>,
+  pattern: &Result<StoredPattern, PatternStoreError>,
+  method: Method,
+) -> Result<LockScreen, Never> {
+  match (setting, pattern, method) {
+    (None, Ok(StoredPattern::Absent), Method::Pattern) => Ok(LockScreen::Off),
+    (value, _, _) => read(value),
+  }
 }
 
 pub fn choose(chosen: LockScreen) -> Result<(), Never> {
@@ -131,14 +151,6 @@ fn set_switch(key: &str, chosen: LockScreen) -> Result<(), Never> {
   let Ok(value) = chosen.key();
 
   console_defaults::set(console_defaults::Setting { key, value })
-}
-
-pub fn desired(stored: StoredPattern, chosen: LockScreen) -> Result<Wanted, Never> {
-  Ok(match (stored, chosen) {
-    (StoredPattern::Hash(hash), LockScreen::On) => Wanted::Lock(hash),
-    (StoredPattern::Hash(_), LockScreen::Off)
-    | (StoredPattern::Absent, LockScreen::On | LockScreen::Off) => Wanted::Absent,
-  })
 }
 
 pub fn respond(
@@ -165,29 +177,39 @@ mod tests {
   use console_login_window::stored_pattern::{self, NOT_THE_PATTERN};
 
   #[test]
-  fn a_person_who_never_chose_a_pattern_is_never_locked() {
-    let Ok(wanted) = desired(StoredPattern::Absent, LockScreen::On);
-
-    assert_eq!(wanted, Wanted::Absent);
+  fn alternate_unlock_methods_can_enable_locking_without_a_pattern() {
+    let absent = Ok(StoredPattern::Absent);
+    assert_eq!(
+      configured(None, &absent, Method::Pattern),
+      Ok(LockScreen::Off)
+    );
+    assert_eq!(
+      configured(None, &absent, Method::Password),
+      Ok(LockScreen::On)
+    );
+    assert_eq!(
+      configured(None, &absent, Method::Fingerprint),
+      Ok(LockScreen::On)
+    );
+    assert_eq!(
+      configured(Some("off"), &absent, Method::Fingerprint),
+      Ok(LockScreen::Off)
+    );
   }
 
   #[test]
-  fn a_chosen_pattern_is_what_the_lock_is_answered_with() -> Result<(), Box<dyn std::error::Error>>
-  {
+  fn a_saved_pattern_enables_locking_unless_it_is_turned_off()
+  -> Result<(), Box<dyn std::error::Error>> {
     let chosen = stored_pattern::hashed("aec")?;
-    let Ok(wanted) = desired(StoredPattern::Hash(chosen.clone()), LockScreen::On);
-
-    assert_eq!(wanted, Wanted::Lock(chosen));
-
-    Ok(())
-  }
-
-  #[test]
-  fn a_pattern_kept_for_login_alone_does_not_lock() -> Result<(), Box<dyn std::error::Error>> {
-    let aec = stored_pattern::hashed("aec")?;
-    let Ok(wanted) = desired(StoredPattern::Hash(aec), LockScreen::Off);
-
-    assert_eq!(wanted, Wanted::Absent);
+    let pattern = Ok(StoredPattern::Hash(chosen));
+    assert_eq!(
+      configured(None, &pattern, Method::Pattern),
+      Ok(LockScreen::On)
+    );
+    assert_eq!(
+      configured(Some("off"), &pattern, Method::Pattern),
+      Ok(LockScreen::Off)
+    );
 
     Ok(())
   }

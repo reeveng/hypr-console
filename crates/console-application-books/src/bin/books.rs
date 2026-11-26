@@ -989,16 +989,12 @@ impl App {
       (Keysym::Return | Keysym::KP_Enter, _, _, _) => {
         return self.activate_cover(Activation::Focused);
       }
-      (Keysym::Escape, false, _, _) => {
-        self.library.search = TextField::default();
-        self.library.search_focus = SearchFocus::Covers;
-        return self.reset_selection();
-      }
-      (Keysym::Escape, true, true, _) => {
+      (Keysym::Escape, _, _, KeyPressKind::Repeated) => return Ok(Update::None),
+      (Keysym::Escape, _, true, KeyPressKind::Initial) => {
         self.library.search_focus = SearchFocus::Covers;
         return Ok(Update::Redraw);
       }
-      (Keysym::Escape, true, false, _) => return Ok(Update::Exit),
+      (Keysym::Escape, _, false, KeyPressKind::Initial) => return Ok(Update::Exit),
       (Keysym::BackSpace, true, false, KeyPressKind::Initial) => {
         return Ok(
           match (press.modifiers & KeyPress::CONTROL != 0).then_some(()) {
@@ -1139,6 +1135,11 @@ impl App {
   }
 
   fn reader_key_pressed(&mut self, press: KeyPress, room: Size<u32>) -> Result<Update, Never> {
+    match (press.key, press.kind) {
+      (Keysym::Escape, KeyPressKind::Repeated) => return Ok(Update::None),
+      _ => {}
+    }
+
     match self.annotations.writing {
       Some(_) => return self.write_key(press),
       None => {}
@@ -5471,6 +5472,37 @@ mod tests {
       View::Reader(reader) => Ok(reader),
       View::Library => Err(Error::NotFound("the book closed")),
     }
+  }
+
+  #[test]
+  fn escape_leaves_the_library_search_without_clearing_it() -> Result<(), Error> {
+    let (mut app, home) = reading("books-escape-search")?;
+    app.view = View::Library;
+    let Ok(query) = TextField::holding("story");
+    app.library.search = query;
+    app.library.search_focus = SearchFocus::Field(None);
+    let Ok(escape) = KeyPress::unmodified(Keysym::Escape);
+
+    assert!(matches!(
+      app.library_key_pressed(escape, ROOM),
+      Ok(Update::Redraw)
+    ));
+    assert!(matches!(app.library.search_focus, SearchFocus::Covers));
+    assert_eq!(app.library.search.text(), Ok("story"));
+    let repeated = KeyPress {
+      kind: KeyPressKind::Repeated,
+      ..escape
+    };
+    assert!(matches!(
+      app.library_key_pressed(repeated, ROOM),
+      Ok(Update::None)
+    ));
+    assert!(matches!(
+      app.library_key_pressed(escape, ROOM),
+      Ok(Update::Exit)
+    ));
+    std::fs::remove_dir_all(home)?;
+    Ok(())
   }
 
   fn letter_on_the_page(app: &App, word: &str) -> Result<Point<i32>, Error> {

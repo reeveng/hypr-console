@@ -57,7 +57,7 @@ use console_core_number_conversion::{fitted, toward_zero_i32, whole_u32};
 use console_input_text::area::row_at;
 use console_panel::keys::{Driving, Meaning, meaning};
 use console_panel::ui::canvas::{
-  Area, AreaLayout, Canvas, Interaction, ROW_RADIUS, RowTone, Style as CanvasStyle,
+  self, Area, AreaLayout, Canvas, Interaction, ROW_RADIUS, RowTone,
 };
 use console_panel::ui::field::{
   Editor, Row, TextArea, Typed, Way, area, clipboard, gesture, menu,
@@ -65,7 +65,7 @@ use console_panel::ui::field::{
 use console_panel::ui::painting::Run;
 use console_panel::ui::shapes::{Edge, Font, Panel, Picture, Pixels, Round, Shape, Text, Weight};
 use console_panel::ui::surface::standing::{Closed, PointerEvent, SurfaceError, Window};
-use console_panel::ui::surface::{Activation, KeyPress, Keysym, Surface};
+use console_panel::ui::surface::{Activation, KeyPress, KeyPressKind, Keysym, Surface};
 use console_panel::ui::{list, strip, theme};
 use console_panel::window::{self, Responder, Update, handle_input, merge};
 
@@ -176,7 +176,7 @@ struct OpenNote {
 }
 
 enum PageMode {
-  Writing,
+  Writing(area::Focus),
   Diagrams(Preview),
 }
 
@@ -490,11 +490,11 @@ impl App {
   fn editor_menu_place(&self, room: Size<u32>) -> Result<Option<(Point<i32>, Size<u32>)>, Never> {
     Ok(match &self.view {
       View::Page(note) => match &note.mode {
-        PageMode::Writing => {
+        PageMode::Writing(area::Focus::Editing) => {
           let Ok(edge) = fitted::<_, i32>(READING_EDGE);
           Some((Point { x: edge, y: edge }, room))
         }
-        PageMode::Diagrams(_) => None,
+        PageMode::Writing(area::Focus::Reading) | PageMode::Diagrams(_) => None,
       },
       View::List(_) => None,
     })
@@ -516,10 +516,13 @@ impl App {
     let Ok(reply) = self.clipboard.receive();
 
     match (&mut self.view, reply) {
-      (View::Page(note), Some(change)) => {
-        let Ok(typed) = Editor::Area(&mut note.area).change(change);
-        note.edited(typed, &self.folder)
-      }
+      (View::Page(note), Some(change)) => match note.mode {
+        PageMode::Writing(area::Focus::Editing) => {
+          let Ok(typed) = Editor::Area(&mut note.area).change(change);
+          note.edited(typed, &self.folder)
+        }
+        PageMode::Writing(area::Focus::Reading) | PageMode::Diagrams(_) => Ok(Update::None),
+      },
       _ => Ok(Update::None),
     }
   }
@@ -634,7 +637,7 @@ impl App {
             preview.selected = position.min(count.saturating_sub(1));
             let Ok(()) = preview.render();
           }
-          PageMode::Writing => {}
+          PageMode::Writing(_) => {}
         }
       }
       None => {}
@@ -725,7 +728,7 @@ impl App {
       PageMode::Diagrams(preview) => {
         arguments.extend([DIAGRAM.spelling.to_owned(), preview.selected.to_string()]);
       }
-      PageMode::Writing => {}
+      PageMode::Writing(_) => {}
     }
 
     Ok(Some(arguments))
@@ -791,7 +794,7 @@ impl App {
       at,
       known,
       area,
-      mode: PageMode::Writing,
+      mode: PageMode::Writing(area::Focus::Editing),
       list_position,
     }));
 
@@ -818,10 +821,10 @@ impl App {
         | clipboard::Shortcut::Repeat,
       ) => {
         match note.mode {
-          PageMode::Writing => {
+          PageMode::Writing(area::Focus::Editing) => {
             let Ok(()) = Editor::Area(&mut note.area).clipboard(shortcut, &mut self.clipboard);
           }
-          PageMode::Diagrams(_) => {}
+          PageMode::Writing(area::Focus::Reading) | PageMode::Diagrams(_) => {}
         }
 
         return Ok(Update::None);
@@ -838,9 +841,16 @@ impl App {
       _ => {}
     }
 
-    match (&self.view, key) {
-      (View::Page(writing), Keysym::Escape) => match writing.mode {
-        PageMode::Writing => {
+    match (&mut self.view, key, press.kind) {
+      (View::Page(writing), Keysym::Escape, KeyPressKind::Initial) => match writing.mode {
+        PageMode::Writing(area::Focus::Editing) => {
+          let Ok(()) = writing.focus(area::Focus::Reading);
+          let Ok(()) = self.clipboard.cancel();
+          let Ok(()) = self.selection.cancel();
+          let Ok(()) = hide_keyboard();
+          return Ok(Update::Redraw);
+        }
+        PageMode::Writing(area::Focus::Reading) => {
           return self.page_action(Activation::Focused, Some(PageAction::Back));
         }
         PageMode::Diagrams(_) => {
@@ -868,7 +878,14 @@ impl App {
 
         return self.page_action(Activation::Focused, action);
       }
-      PageMode::Writing => {}
+      PageMode::Writing(area::Focus::Editing) => {}
+      PageMode::Writing(area::Focus::Reading) => match key {
+        Keysym::Return | Keysym::KP_Enter | Keysym::Tab => {
+          let Ok(()) = writing.focus(area::Focus::Editing);
+          return Ok(Update::Redraw);
+        }
+        _ => return Ok(Update::None),
+      },
     }
 
     let Ok(rows) = rows_of(&writing.area, appearance, room);
@@ -920,7 +937,7 @@ impl App {
 
           return preview.step(step);
         }
-        PageMode::Writing => {}
+        PageMode::Writing(_) => {}
       },
       _ => {}
     }
@@ -974,7 +991,9 @@ impl App {
 
     match &mut writing.mode {
       PageMode::Diagrams(_) => return self.diagram_tap(at_2, room),
-      PageMode::Writing => {}
+      PageMode::Writing(_) => {
+        let Ok(()) = writing.focus(area::Focus::Editing);
+      }
     }
 
     let Ok(caret) = caret_at(&writing.area, at_2, appearance, room);
@@ -1028,7 +1047,7 @@ impl App {
       Some(PageAction::Step(by)) => match &mut self.view {
         View::Page(writing) => match &mut writing.mode {
           PageMode::Diagrams(preview) => preview.step(by),
-          PageMode::Writing => Ok(Update::None),
+          PageMode::Writing(_) => Ok(Update::None),
         },
         View::List(_) => Ok(Update::None),
       },
@@ -1107,6 +1126,11 @@ impl Responder for App {
     press: KeyPress,
     room: Size<u32>,
   ) -> Result<Update, Never> {
+    match (press.key, press.kind) {
+      (Keysym::Escape, KeyPressKind::Repeated) => return Ok(Update::None),
+      _ => {}
+    }
+
     let Ok(screen) = self.screen();
 
     match screen {
@@ -1126,6 +1150,15 @@ impl Responder for App {
 }
 
 impl OpenNote {
+  fn focus(&mut self, focus: area::Focus) -> Result<(), Never> {
+    match &mut self.mode {
+      PageMode::Writing(held) => *held = focus,
+      PageMode::Diagrams(_) => {}
+    }
+
+    Ok(())
+  }
+
   fn edited(&mut self, typed: Typed, folder: &Path) -> Result<Update, Never> {
     match typed {
       Typed::Edited => {
@@ -1139,7 +1172,7 @@ impl OpenNote {
 
   fn toggle_diagrams(&mut self) -> Result<Update, Never> {
     self.mode = match self.mode {
-      PageMode::Writing => {
+      PageMode::Writing(_) => {
         let Ok(text) = self.area.text();
         let Ok(preview) = Preview::of(text);
         let Ok(()) = hide_keyboard();
@@ -1149,7 +1182,7 @@ impl OpenNote {
       PageMode::Diagrams(_) => {
         let Ok(()) = show_keyboard();
 
-        PageMode::Writing
+        PageMode::Writing(area::Focus::Editing)
       }
     };
 
@@ -1429,7 +1462,8 @@ mod navigation_tests {
   use super::*;
 
   #[test]
-  fn back_from_a_note_restores_the_list_viewport() -> Result<(), Box<dyn std::error::Error>> {
+  fn escape_leaves_the_note_editor_before_restoring_the_list_viewport()
+  -> Result<(), Box<dyn std::error::Error>> {
     let folder = console_core_temporary_directories::fresh("notes-scroll")?;
 
     for row in 0_u32..8 {
@@ -1454,14 +1488,22 @@ mod navigation_tests {
         at: None,
         known: String::new(),
         area,
-        mode: PageMode::Writing,
+        mode: PageMode::Writing(area::Focus::Editing),
         list_position: ListPosition {
           first: 3,
           selected: 5,
         },
       })),
     };
-    let Ok(_) = app.back();
+    let room = Size {
+      width: 960,
+      height: 600,
+    };
+    let Ok(_) = app.key_pressed(Keysym::Escape, room);
+    assert!(
+      matches!(&app.view, View::Page(note) if matches!(note.mode, PageMode::Writing(area::Focus::Reading)))
+    );
+    let Ok(_) = app.key_pressed(Keysym::Escape, room);
     let list = match app.view {
       View::List(list) => list,
       View::Page(_) => {
@@ -1774,7 +1816,7 @@ fn list_shapes(list: &List, wearing: &Wearing, room: Size<u32>) -> Result<Vec<Sh
   };
   let Ok(mut canvas) = Canvas::new(
     root,
-    CanvasStyle::from(wearing),
+    canvas::Style::from(wearing),
     Interaction {
       focus: None,
       hover: None,
@@ -1858,10 +1900,10 @@ fn page_shapes(
   appearance: Appearance,
   room: Size<u32>,
 ) -> Result<Vec<Shape>, Never> {
-  match &writing.mode {
+  let focus = match &writing.mode {
     PageMode::Diagrams(preview) => return diagram_shapes(preview, wearing, appearance, room),
-    PageMode::Writing => {}
-  }
+    PageMode::Writing(focus) => *focus,
+  };
 
   let Ok(paper) = appearance.ground(wearing);
   let Ok(ink) = appearance.ink(wearing);
@@ -1893,6 +1935,7 @@ fn page_shapes(
       caret: wearing.pink,
       placeholder: wearing.soft,
     },
+    focus,
   );
 
   let Ok(count) = fitted::<_, u32>(layout.pages.len());

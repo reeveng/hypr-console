@@ -1702,9 +1702,12 @@ impl Browser {
       ::core::option::Option::Some(()) => {
         const CONTROL_SHIFT: u32 = crate::toolbar::CONTROL | crate::toolbar::SHIFT;
 
-        match (mods, press.key) {
-          (crate::toolbar::CONTROL, Keysym::l | Keysym::t | Keysym::Tab)
-          | (CONTROL_SHIFT, Keysym::Tab | Keysym::ISO_Left_Tab) => {
+        match (mods, press.key, press.kind) {
+          (0, Keysym::Escape, console_panel::ui::surface::KeyPressKind::Repeated) => {
+            return Ok(Closed::No);
+          }
+          (crate::toolbar::CONTROL, Keysym::l | Keysym::t | Keysym::Tab, _)
+          | (CONTROL_SHIFT, Keysym::Tab | Keysym::ISO_Left_Tab, _) => {
             let Ok(()) = self.close_downloads();
           }
           _ => {

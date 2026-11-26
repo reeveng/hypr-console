@@ -46,7 +46,6 @@ use std::path::Path;
 use std::process::{ChildStdin, ChildStdout, Command, ExitCode, Stdio};
 
 use console_core_arguments::{Flag, Operands, Presence, Reason, Takes, ValidationError, read};
-use console_core_external_programs::Program as ExternalProgram;
 use console_core_internal_programs::InternalProgram;
 use console_core_iteration::{Endless, Step, iterate};
 use console_core_never::Never;
@@ -332,7 +331,7 @@ fn turn(around: Turn<'_>, before: Before) -> Result<Step<Before, ()>, LoginWindo
       Ok(Step::Again(Before::Desktop(now)))
     }
     Choice::Terminal => {
-      let Ok(mut starting) = ExternalProgram::Systemctl.command();
+      let Ok(mut starting) = console_core_external_programs::Program::Systemctl.command();
 
       let started = starting.args(["--no-block", "start", TERMINAL]).status();
 

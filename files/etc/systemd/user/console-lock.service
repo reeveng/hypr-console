@@ -7,8 +7,7 @@ Description=Lock Screen
 
 [Service]
 # Ready means locked. `lock-screen` tells systemd once the compositor has said
-# the session is locked, so a `systemctl start` returns only then. With no
-# pattern chosen it reports readiness at once and exits. While locking before
+# the session is locked. When locking is off it exits immediately. Before
 # suspend, Console Idle waits for the compositor's lock notification.
 Type=notify
 NotifyAccess=main
@@ -20,6 +19,7 @@ ExecStopPost=-/usr/local/bin/console-report-crash %n
 # in hyprland.lua -- so a failure is started again rather than left as a screen
 # nobody can get past without another machine.
 Restart=on-failure
+RestartPreventExitStatus=78
 RestartSec=1
 LimitCORE=0
 

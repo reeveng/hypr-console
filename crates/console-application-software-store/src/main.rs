@@ -31,9 +31,9 @@ use console_panel::keys::{
 use console_panel::scrolling::{self, LogicalPixels};
 use console_panel::strip::{self, Stop};
 use console_panel::ui::surface::{
-  Closed, Composition, Hover, InputContent, KeyPress, KeyboardFocus, Keysym, PhysicalKeyPress,
-  PointerEvent, RepaintHover, Scale, Surface, Surrounding, TextInputChange, TextInputState,
-  Window,
+  Closed, Composition, Hover, InputContent, KeyPress, KeyPressKind, KeyboardFocus, Keysym,
+  PhysicalKeyPress, PointerEvent, RepaintHover, Scale, Surface, Surrounding, TextInputChange,
+  TextInputState, Window,
 };
 use console_program_lifetime::threads::let_go;
 use packages::{Local, sources};
@@ -1017,13 +1017,28 @@ impl Shop {
     press: PhysicalKeyPress,
     frame: &Frame,
   ) -> Result<WindowFlow, Infallible> {
-    let KeyPress { key, modifiers, .. } = press.translated;
+    let KeyPress {
+      key,
+      modifiers,
+      kind,
+    } = press.translated;
     let control = modifiers & KeyPress::CONTROL != 0;
     let driving = match (&self.overlay, self.focus) {
       (Some(Overlay::Remove(_)), _) => Driving::Sure,
       (None, Some(Action::Search)) => Driving::Search,
       (Some(Overlay::Package(_) | Overlay::Error { .. }), _) | (None, _) => Driving::Panel,
     };
+
+    match (key, kind, self.overlay.as_ref(), self.focus) {
+      (Keysym::Escape, KeyPressKind::Repeated, _, _) => return Ok(WindowFlow::Stay),
+      (Keysym::Escape, KeyPressKind::Initial, None, Some(Action::Search)) => {
+        self.focus = None;
+        self.preedit = None;
+        return Ok(WindowFlow::Stay);
+      }
+      (Keysym::Escape, KeyPressKind::Initial, None, _) => return self.action(Action::Close),
+      _ => {}
+    }
 
     match (key, self.overlay.as_ref(), control, driving) {
       (Keysym::k | Keysym::f, None, true, _) | (Keysym::slash, None, false, Driving::Panel) => {
@@ -1742,6 +1757,41 @@ mod tests {
       depressed_modifiers: 0,
       translated,
     })
+  }
+
+  #[test]
+  fn escape_leaves_the_store_search_before_closing_the_window()
+  -> Result<(), Box<dyn std::error::Error>> {
+    let mut shop = Shop::new()?;
+    let theme = Theme::new()?;
+    let Ok(frame) = view::draw(&shop, WINDOW, &theme);
+    let Ok(query) = TextField::holding("obs");
+    shop.query = query;
+    shop.focus = Some(Action::Search);
+    let Ok(escape) = key(Keysym::Escape);
+    let repeated = PhysicalKeyPress {
+      translated: KeyPress {
+        kind: KeyPressKind::Repeated,
+        ..escape.translated
+      },
+      ..escape
+    };
+
+    assert!(matches!(
+      shop.keyboard(escape, &frame),
+      Ok(WindowFlow::Stay)
+    ));
+    assert_eq!(shop.query(), Ok("obs"));
+    assert_eq!(shop.focus, None);
+    assert!(matches!(
+      shop.keyboard(repeated, &frame),
+      Ok(WindowFlow::Stay)
+    ));
+    assert!(matches!(
+      shop.keyboard(escape, &frame),
+      Ok(WindowFlow::Close)
+    ));
+    Ok(())
   }
 
   #[test]

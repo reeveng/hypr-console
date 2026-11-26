@@ -9,7 +9,7 @@ use console_lock_screen::Method;
 use console_login_greeter::greeting::PatternFocus;
 use console_login_greeter::picture::{FONT, from_the_room, in_the_room};
 use console_login_window::fingerprint::{Event, Verifier};
-use console_login_window::password::{self, Check, CheckError, Entry, Password};
+use console_login_window::password::{Check, CheckError, Entry, Password};
 use console_login_window::{Availability, Verification};
 
 const TABS_Y: i32 = 427;
@@ -103,6 +103,7 @@ pub struct Unlock {
   preferred: Method,
   interaction: Interaction,
   fingerprint: Option<Verifier>,
+  pattern_ready: Availability,
   password_ready: Availability,
   password: Password,
   check: Option<PasswordAttempt>,
@@ -113,31 +114,46 @@ pub struct Unlock {
 
 impl Unlock {
   #[must_use]
-  pub fn new(preferred: Method) -> core::result::Result<Self, console_core_never::Never> {
-    let Ok(password_ready) = password::enable_for_lock();
-    let method = match (preferred, password_ready) {
-      (Method::Password, Availability::Available) => Method::Password,
-      _ => Method::Pattern,
-    };
-
-    Ok(Self {
-      method,
+  fn new(
+    preferred: Method,
+    pattern_ready: Availability,
+    password_ready: Availability,
+    fingerprint: Option<Verifier>,
+  ) -> Result<Self, Never> {
+    let mut unlock = Self {
+      method: Method::Pattern,
       preferred,
       interaction: Interaction::Waiting,
-      fingerprint: None,
+      fingerprint,
+      pattern_ready,
       password_ready,
       password: Password::default(),
       check: None,
       keyboard: Keyboard::default(),
       fingerprint_feedback: FingerprintFeedback::Scan,
       verification_feedback: None,
-    })
+    };
+    let Ok(first) = unlock.first_method();
+    unlock.method = match unlock.availability(preferred) {
+      Ok(Availability::Available) => preferred,
+      Ok(Availability::Unavailable) => match first {
+        Some(available) => available,
+        None => Method::Pattern,
+      },
+    };
+    Ok(unlock)
+  }
+
+  pub fn prepare(preferred: Method, pattern: Availability) -> Result<Self, Never> {
+    let Ok((password, fingerprint)) = crate::preparation::check(pattern);
+    Self::new(preferred, pattern, password, fingerprint)
   }
 
   pub fn acquired(&mut self) -> Result<(), Never> {
-    let Ok(verifier) = Verifier::for_session();
-    self.fingerprint = Some(verifier);
-    Ok(())
+    match self.method {
+      Method::Fingerprint => self.scan(),
+      Method::Pattern | Method::Password => Ok(()),
+    }
   }
 
   #[must_use]
@@ -219,10 +235,15 @@ impl Unlock {
     )
   }
 
+  pub fn first_method(&self) -> Result<Option<Method>, Never> {
+    let Ok(mut methods) = self.methods();
+    Ok(methods.next())
+  }
+
   #[must_use]
   fn availability(&self, method: Method) -> Result<Availability, Never> {
     match method {
-      Method::Pattern => Ok(Availability::Available),
+      Method::Pattern => Ok(self.pattern_ready),
       Method::Fingerprint => match &self.fingerprint {
         Some(verifier) => verifier.availability(),
         None => Ok(Availability::Unavailable),
@@ -233,11 +254,13 @@ impl Unlock {
 
   fn cycle(&mut self) -> Result<(), Never> {
     let Ok(methods) = self.methods();
-    let next = match methods.skip_while(|method| *method != self.method).nth(1) {
-      ::core::option::Option::Some(present) => present,
-      ::core::option::Option::None => Method::Pattern,
-    };
-    self.select(next)
+    let next = methods.skip_while(|method| *method != self.method).nth(1);
+    let Ok(first) = self.first_method();
+
+    match next.or(first) {
+      Some(method) => self.select(method),
+      None => Ok(()),
+    }
   }
 
   fn select(&mut self, method: Method) -> Result<(), Never> {
@@ -296,7 +319,10 @@ impl Unlock {
       | (Method::Fingerprint | Method::Password, Keysym::Down, _)
       | (Method::Pattern, Keysym::Down, PatternFocus::Submit) => self.cycle(),
       (Method::Pattern, _, _) => return Ok(InputDisposition::ForwardToGreeter),
-      (_, Keysym::Escape, _) => self.select(Method::Pattern),
+      (_, Keysym::Escape, _) => match self.first_method() {
+        Ok(Some(method)) => self.select(method),
+        Ok(None) => Ok(()),
+      },
       (Method::Fingerprint, Keysym::Return | Keysym::KP_Enter | Keysym::space, _) => self.scan(),
       (Method::Fingerprint, _, _) => Ok(()),
       (Method::Password, Keysym::Return | Keysym::KP_Enter, _) => self.act(Action::Submit),
@@ -600,8 +626,12 @@ mod tests {
 
   #[test]
   fn method_tabs_appear_only_when_there_is_a_choice() {
-    let Ok(mut screen) = Unlock::new(Method::Pattern);
-    screen.password_ready = Availability::Unavailable;
+    let Ok(mut screen) = Unlock::new(
+      Method::Pattern,
+      Availability::Available,
+      Availability::Unavailable,
+      None,
+    );
     let Ok(pattern_buttons) = screen.buttons();
     assert!(pattern_buttons.is_empty());
 
@@ -624,7 +654,12 @@ mod tests {
 
   #[test]
   fn an_unavailable_fingerprint_preference_starts_on_pattern() {
-    let Ok(screen) = Unlock::new(Method::Fingerprint);
+    let Ok(screen) = Unlock::new(
+      Method::Fingerprint,
+      Availability::Available,
+      Availability::Unavailable,
+      None,
+    );
     assert_eq!(
       ({
         let Ok(explicit_value) = screen.method();
@@ -638,10 +673,14 @@ mod tests {
 
   #[test]
   fn switching_methods_clears_the_pending_password() {
-    let Ok(mut screen) = Unlock::new(Method::Pattern);
+    let Ok(mut screen) = Unlock::new(
+      Method::Pattern,
+      Availability::Available,
+      Availability::Available,
+      None,
+    );
     let Ok(tab) = KeyPress::unmodified(Keysym::Tab);
     let Ok(letter) = KeyPress::unmodified(Keysym::a);
-    screen.password_ready = Availability::Available;
     assert_eq!(
       screen.key(tab, PatternFocus::Dot),
       Ok(InputDisposition::Handled)
@@ -675,6 +714,28 @@ mod tests {
       Ok(InputDisposition::Handled)
     );
     assert_eq!(screen.password.entry(), Ok(Entry::Empty));
+  }
+
+  #[test]
+  fn a_password_can_be_the_only_available_method() {
+    let Ok(mut screen) = Unlock::new(
+      Method::Fingerprint,
+      Availability::Unavailable,
+      Availability::Available,
+      None,
+    );
+    assert_eq!(screen.method(), Ok(Method::Password));
+    let Ok(tab) = KeyPress::unmodified(Keysym::Tab);
+    let Ok(escape) = KeyPress::unmodified(Keysym::Escape);
+    assert_eq!(
+      screen.key(tab, PatternFocus::Dot),
+      Ok(InputDisposition::Handled)
+    );
+    assert_eq!(
+      screen.key(escape, PatternFocus::Dot),
+      Ok(InputDisposition::Handled)
+    );
+    assert_eq!(screen.method(), Ok(Method::Password));
   }
 }
 

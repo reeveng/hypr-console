@@ -32,6 +32,12 @@ pub struct View<'a> {
   pub hint: &'a str,
 }
 
+#[derive(Clone, Copy)]
+pub enum Focus {
+  Editing,
+  Reading,
+}
+
 impl View<'_> {
   pub fn caret_at(&self, at: Point<i32>) -> Result<u32, Never> {
     let nearest = self.lines.iter().min_by_key(|line| {
@@ -54,15 +60,26 @@ impl View<'_> {
     Ok(line.row.start.saturating_add(local))
   }
 
-  pub fn paint(&self, shapes: &mut Vec<Shape>, colors: Colors) -> Result<(), Never> {
+  pub fn paint(
+    &self,
+    shapes: &mut Vec<Shape>,
+    colors: Colors,
+    focus: Focus,
+  ) -> Result<(), Never> {
     let Ok(text) = self.area.text();
     let Ok(caret) = self.area.caret();
-    let Ok(selection) = self.area.selection();
-    let caret_row = self
-      .lines
-      .iter()
-      .rev()
-      .find(|line| line.row.start <= caret && caret <= line.row.end);
+    let (selection, caret_row) = match focus {
+      Focus::Editing => {
+        let Ok(selection) = self.area.selection();
+        let caret_row = self
+          .lines
+          .iter()
+          .rev()
+          .find(|line| line.row.start <= caret && caret <= line.row.end);
+        (selection, caret_row)
+      }
+      Focus::Reading => (None, None),
+    };
     let Ok(fill) = colors
       .background
       .at(colors.background.lightness * 0.8 + colors.text.lightness * 0.2);

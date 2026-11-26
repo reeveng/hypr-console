@@ -53,7 +53,7 @@ enum Kind {
   PkgConfig,
 }
 
-use Kind::{Executable, Path as Resource, PkgConfig};
+use Kind::{Executable, PkgConfig};
 
 const DESKTOP: &[(Kind, &str)] = &[
   (Executable, "/usr/bin/chgrp"),
@@ -64,13 +64,13 @@ const DESKTOP: &[(Kind, &str)] = &[
   (Executable, "/usr/bin/systemctl"),
   (Executable, "/usr/lib/polkit-kde-authentication-agent-1"),
   (Executable, "inputplumber"),
-  (Resource, "/dev/uinput"),
-  (Resource, "/usr/share/X11/xkb/rules/evdev"),
-  (Resource, "/usr/share/i18n/SUPPORTED"),
-  (Resource, "/usr/share/iso-codes/json/iso_3166-1.json"),
-  (Resource, "/usr/share/iso-codes/json/iso_639-3.json"),
-  (Resource, "/usr/share/mime/globs2"),
-  (Resource, "/usr/share/zoneinfo/zone1970.tab"),
+  (Kind::Path, "/dev/uinput"),
+  (Kind::Path, "/usr/share/X11/xkb/rules/evdev"),
+  (Kind::Path, "/usr/share/i18n/SUPPORTED"),
+  (Kind::Path, "/usr/share/iso-codes/json/iso_3166-1.json"),
+  (Kind::Path, "/usr/share/iso-codes/json/iso_639-3.json"),
+  (Kind::Path, "/usr/share/mime/globs2"),
+  (Kind::Path, "/usr/share/zoneinfo/zone1970.tab"),
 ];
 
 const HANDHELD: &[(Kind, &str)] = &[
@@ -80,9 +80,9 @@ const HANDHELD: &[(Kind, &str)] = &[
   (Executable, "/usr/bin/sh"),
   (Executable, "/usr/bin/sudo"),
   (Executable, "/usr/bin/systemd-sysusers"),
-  (Resource, "/usr/lib/systemd/user/gamescope-session.target"),
+  (Kind::Path, "/usr/lib/systemd/user/gamescope-session.target"),
   (
-    Resource,
+    Kind::Path,
     "/usr/share/wayland-sessions/gamescope-session.desktop",
   ),
 ];
@@ -115,7 +115,7 @@ const DEVELOPMENT: &[(Kind, &str)] = &[
   (PkgConfig, "pam"),
   (PkgConfig, "vulkan"),
   (PkgConfig, "wayland-client"),
-  (Resource, "/usr/share/edk2/x64/OVMF.4m.fd"),
+  (Kind::Path, "/usr/share/edk2/x64/OVMF.4m.fd"),
 ];
 
 const OPTIONAL: &[(Kind, &str)] = &[
@@ -123,7 +123,7 @@ const OPTIONAL: &[(Kind, &str)] = &[
   (PkgConfig, "wpe-webkit-2.0 >= 2.54"),
   (PkgConfig, "wpe-platform-headless-2.0"),
   (
-    Resource,
+    Kind::Path,
     "/usr/share/dbus-1/system-services/net.reactivated.Fprint.service",
   ),
 ];
@@ -231,7 +231,7 @@ pub fn run(
     [command, names @ ..] => {
       let kind = match command.to_str() {
         Some("executable") => Executable,
-        Some("path") => Resource,
+        Some("path") => Kind::Path,
         Some("pkg-config") => PkgConfig,
         Some(_) | None => return usage_error(invocation, errors),
       };
@@ -313,7 +313,7 @@ fn report<'a>(
     };
     let label = match kind {
       Executable => "executable",
-      Resource => "path",
+      Kind::Path => "path",
       PkgConfig => "pkg-config",
     };
     let name_for_display = match name.to_str() {
@@ -364,7 +364,7 @@ fn report<'a>(
 fn check(kind: Kind, name: &OsStr) -> io::Result<Installed> {
   match kind {
     Executable => presence(provide(name)),
-    Resource => presence(std::fs::metadata(Path::new(name))),
+    Kind::Path => presence(std::fs::metadata(Path::new(name))),
     PkgConfig => {
       let mut command = Program::PkgConfig.provide()?;
       let status = command

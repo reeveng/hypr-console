@@ -1,4 +1,6 @@
 //! Password checks for an already logged-in account.
+//! The bundled backend can disclose password status without reading a secret.
+//! An administrator-installed alternative owns its account policy.
 
 use std::fs::File;
 use std::io::{self, Seek, Write};
@@ -394,6 +396,41 @@ pub fn enable_for_lock() -> Result<Availability, Never> {
       }
     }
     None => Availability::Unavailable,
+  })
+}
+
+pub fn configured_for_session() -> Result<Availability, Never> {
+  let Ok(configured) = rules();
+
+  Ok(match configured {
+    Some((PamService::LongPassword, _)) => Availability::Available,
+    Some((PamService::Password, _)) => match account_password_status() {
+      Ok(availability) => availability,
+      Err(fault) => {
+        console_core_logging::debug!("cannot check account password status: {fault}");
+        Availability::Unavailable
+      }
+    },
+    Some((PamService::Fingerprint, _)) | None => Availability::Unavailable,
+  })
+}
+
+fn account_password_status() -> io::Result<Availability> {
+  let mut command = Program::Passwd.provide()?;
+  let output = command
+    .env_clear()
+    .env("LC_ALL", "C")
+    .arg("--status")
+    .output()?;
+  let field = output
+    .stdout
+    .split(|byte| byte.is_ascii_whitespace())
+    .filter(|part| !part.is_empty())
+    .nth(1);
+
+  Ok(match (output.status.success(), field) {
+    (true, Some(b"P" | b"PS")) => Availability::Available,
+    (true, Some(_) | None) | (false, _) => Availability::Unavailable,
   })
 }
 

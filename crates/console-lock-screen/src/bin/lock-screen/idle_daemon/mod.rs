@@ -17,7 +17,6 @@ use console_lock_screen::idle::policy::{
   Effect, Idle, Input, Request, Session, Sleep, State, Timer,
 };
 use console_lock_screen::idle::{self, Action, Profile};
-use console_login_window::stored_pattern::{self, StoredPattern};
 use console_program_contract::EventGroup;
 
 mod actions;
@@ -79,7 +78,7 @@ impl Configuration {
   fn read() -> core::result::Result<Self, Never> {
     let mut timers = Vec::new();
 
-    let Ok(available) = lock_available();
+    let Ok(available) = console_lock_screen::current();
 
     for profile in Profile::ALL {
       'action: for action in Action::ALL {
@@ -108,23 +107,6 @@ impl Configuration {
       suspend_lock,
     })
   }
-}
-
-fn lock_available() -> core::result::Result<LockScreen, Never> {
-  let Ok(enabled) = console_lock_screen::current();
-  let Ok(home) = console_core_places::home();
-
-  Ok(match (enabled, home) {
-    (LockScreen::On, Some(directory)) => match stored_pattern::stored(&directory) {
-      Ok(StoredPattern::Hash(_)) => LockScreen::On,
-      Ok(StoredPattern::Absent) => LockScreen::Off,
-      Err(fault) => {
-        console_core_logging::warn!("Reading the login pattern for automatic locking: {fault}");
-        LockScreen::On
-      }
-    },
-    (LockScreen::Off, _) | (LockScreen::On, None) => LockScreen::Off,
-  })
 }
 
 struct Driver {

@@ -15,7 +15,7 @@ use console_default_applications::engines;
 use console_home_screen::shape::Shape;
 use console_lock_screen::idle::{self, Delay};
 use console_lock_screen::{LockScreen, Method};
-use console_login_window::stored_pattern::StoredPattern;
+use console_login_window::stored_pattern::{PatternStoreError, StoredPattern};
 
 use crate::words::Word;
 use console_application_books::appearance::{
@@ -1381,48 +1381,21 @@ pub fn power_rows() -> Result<Vec<Row>, Never> {
   let Ok(shut_down) = power::row(Request::ShutDown);
   let Ok(sign_out) = power::row(Request::LogOut);
   let mut rows = vec![sleep, restart, shut_down, sign_out];
-  let Ok(locks) = locking();
+  let Ok(locks) = console_lock_screen::current();
 
   match locks {
-    Locks::Yes => {
+    LockScreen::On => {
       let Ok(lock) = power::row(Request::Lock);
 
       rows.push(lock);
     }
-    Locks::No => {}
+    LockScreen::Off => {}
   }
 
   Ok(rows)
 }
 
 const LOCK_SCREEN: &str = "Lock Screen";
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Locks {
-  Yes,
-  No,
-}
-
-fn locking() -> Result<Locks, Never> {
-  let Ok(home) = console_core_places::home();
-  let stored = home
-    .as_deref()
-    .map(console_login_window::stored_pattern::stored);
-  let Ok(chosen) = console_lock_screen::current();
-
-  Ok(match stored {
-    Some(Ok(stored_2)) => {
-      let Ok(wanted) = console_lock_screen::desired(stored_2, chosen);
-
-      match wanted {
-        console_lock_screen::Wanted::Lock(_) => Locks::Yes,
-        console_lock_screen::Wanted::Absent => Locks::No,
-      }
-    }
-    Some(Err(_unreadable)) => Locks::No,
-    None => Locks::No,
-  })
-}
 
 pub fn lock_screen(chosen: LockScreen) -> Result<Row, Never> {
   lock_switch(LOCK_SCREEN, chosen, console_lock_screen::choose)
@@ -1586,18 +1559,6 @@ fn save_idle_delay(
 }
 
 pub(crate) fn inactivity_rows(power: console_battery::PowerSource) -> Result<Vec<Row>, Never> {
-  let Ok(home) = console_core_places::home();
-  let lock = match home
-    .as_deref()
-    .map(console_login_window::stored_pattern::stored)
-  {
-    Some(Ok(StoredPattern::Hash(_))) => Locks::Yes,
-    Some(Ok(StoredPattern::Absent)) | None => Locks::No,
-    Some(Err(fault)) => {
-      console_core_logging::warn!("Reading login pattern for inactivity settings: {fault}");
-      Locks::No
-    }
-  };
   let profiles: &[(idle::Profile, &str)] = match power {
     console_battery::PowerSource::WithoutBattery => &[(idle::Profile::General, "Inactivity")],
     console_battery::PowerSource::OnBattery | console_battery::PowerSource::PluggedIn => &[
@@ -1605,21 +1566,13 @@ pub(crate) fn inactivity_rows(power: console_battery::PowerSource) -> Result<Vec
       (idle::Profile::PluggedIn, "Plugged In"),
     ],
   };
-  let mut rows = Vec::new();
-
-  match lock {
-    Locks::Yes => {
-      let Ok(on_suspend) = idle::on_suspend();
-      let Ok(suspend_lock) =
-        lock_switch("Lock Before Suspend", on_suspend, idle::choose_on_suspend);
-      rows.push(suspend_lock);
-    }
-    Locks::No => {}
-  }
+  let Ok(on_suspend) = idle::on_suspend();
+  let Ok(suspend_lock) = lock_switch("Lock Before Suspend", on_suspend, idle::choose_on_suspend);
+  let mut rows = vec![suspend_lock];
 
   for &(profile, title) in profiles {
     let Ok(heading) = Row::naming(title, Aside(""));
-    let Ok(controls) = inactivity_profile_rows(profile, lock);
+    let Ok(controls) = inactivity_profile_rows(profile);
     rows.push(heading);
     rows.extend(controls);
   }
@@ -1627,16 +1580,15 @@ pub(crate) fn inactivity_rows(power: console_battery::PowerSource) -> Result<Vec
   Ok(rows)
 }
 
-fn inactivity_profile_rows(profile: idle::Profile, lock: Locks) -> Result<Vec<Row>, Never> {
+fn inactivity_profile_rows(profile: idle::Profile) -> Result<Vec<Row>, Never> {
   let mut rows = Vec::new();
 
   for action in idle::Action::ALL {
-    let label = match (action, lock) {
-      (idle::Action::Dim, _) => "Dim Displays After Inactivity",
-      (idle::Action::Blank, _) => "Turn Displays Off After Inactivity",
-      (idle::Action::Lock, Locks::Yes) => "Lock After Inactivity",
-      (idle::Action::Lock, Locks::No) => continue,
-      (idle::Action::Suspend, _) => "Suspend After Inactivity",
+    let label = match action {
+      idle::Action::Dim => "Dim Displays After Inactivity",
+      idle::Action::Blank => "Turn Displays Off After Inactivity",
+      idle::Action::Lock => "Lock After Inactivity",
+      idle::Action::Suspend => "Suspend After Inactivity",
     };
     let Ok(delay) = action.delay(profile);
     let Ok(controls) = idle_delay_rows(label, DelayTarget { action, profile }, delay);
@@ -1646,8 +1598,7 @@ fn inactivity_profile_rows(profile: idle::Profile, lock: Locks) -> Result<Vec<Ro
   Ok(rows)
 }
 
-fn unlock_method() -> Result<Row, Never> {
-  let Ok(preferred) = console_lock_screen::preferred();
+fn unlock_method(preferred: Method) -> Result<Row, Never> {
   let Ok(chosen) = console_core_number_conversion::fitted::<_, u32>(
     match Method::ALL.iter().position(|method| *method == preferred) {
       ::core::option::Option::Some(present) => present,
@@ -1668,7 +1619,7 @@ fn unlock_method() -> Result<Row, Never> {
       match Method::ALL.get(index) {
         Some(method) => {
           let Ok(()) = console_lock_screen::prefer(*method);
-          showing.refresh();
+          let Ok(()) = apply_lock_timing(showing);
         }
         ::core::option::Option::None => {}
       };
@@ -1688,37 +1639,69 @@ const LOGIN_PATTERN: &str = "Login Pattern";
 
 const TURN_OFF_LOGIN_PATTERN: &str = "Turn Off Login Pattern";
 
-pub fn login_rows() -> Result<Vec<Row>, Never> {
-  let Ok(home) = console_core_places::home();
-  let stored = home
-    .as_deref()
-    .map(console_login_window::stored_pattern::stored);
+fn login_rows(stored: Result<StoredPattern, PatternStoreError>) -> Result<Vec<Row>, Never> {
   let Ok(setter) = InternalProgram::SettingsLoginPattern.name();
   let Ok(chooses) = Handler::run(&[setter]);
   let Ok(forgets) = Handler::run(&[setter, "off"]);
 
   match stored {
-    Some(Ok(StoredPattern::Hash(_))) => {
+    Ok(StoredPattern::Hash(_)) => {
       let Ok(change) = Row::new(LOGIN_PATTERN, Aside(ON), chooses);
-      let Ok(chosen) = console_lock_screen::current();
-      let Ok(lock) = lock_screen(chosen);
-      let Ok(method) = unlock_method();
       let Ok(off) = Row::new(TURN_OFF_LOGIN_PATTERN, Aside(""), forgets);
 
-      Ok(vec![change, lock, method, off])
+      Ok(vec![change, off])
     }
-    Some(Ok(StoredPattern::Absent)) => {
+    Ok(StoredPattern::Absent) => {
       let Ok(set) = Row::new(LOGIN_PATTERN, Aside(OFF), chooses);
-      let Ok(lock) = Row::text(LOCK_SCREEN, Aside("Set a login pattern to enable"));
 
-      Ok(vec![set, lock])
+      Ok(vec![set])
     }
-    Some(Err(why)) => {
+    Err(why) => {
       let Ok(unread) = Row::new(LOGIN_PATTERN, Aside(&why.to_string()), chooses);
 
       Ok(vec![unread])
     }
-    None => Ok(Vec::new()),
+  }
+}
+
+enum Credential {
+  Fingerprint,
+  Password,
+}
+
+fn credential_row(credential: Credential) -> Result<Row, Never> {
+  let (label, program, unavailable) = match credential {
+    Credential::Fingerprint => (
+      "Enroll Fingerprint",
+      Program::FprintdEnroll,
+      "Requires fprintd",
+    ),
+    Credential::Password => (
+      "Change Account Password",
+      Program::Passwd,
+      "Password tool unavailable",
+    ),
+  };
+  let Ok(name) = program.name();
+  let Ok(terminal) = Program::Alacritty.name();
+
+  match (
+    console_core_external_programs::installed(name),
+    console_core_external_programs::installed(terminal),
+  ) {
+    (
+      Ok(console_core_external_programs::Installed::Yes),
+      Ok(console_core_external_programs::Installed::Yes),
+    ) => {
+      let Ok(run) = Handler::run(&[terminal, "--hold", "-e", name]);
+      Row::new(label, Aside(""), run)
+    }
+    (Ok(console_core_external_programs::Installed::No), _) => {
+      Row::text(label, Aside(unavailable))
+    }
+    (_, Ok(console_core_external_programs::Installed::No)) => {
+      Row::text(label, Aside("Terminal unavailable"))
+    }
   }
 }
 
@@ -1740,11 +1723,20 @@ pub fn measurements(measuring: Measuring) -> Result<Row, Never> {
 }
 
 pub fn security_rows() -> Result<Vec<Row>, Never> {
-  let Ok(mut rows) = login_rows();
+  let Ok(pattern) = console_lock_screen::session_pattern();
+  let Ok(preferred) = console_lock_screen::preferred();
+  let Ok(chosen) = console_lock_screen::for_method(&pattern, preferred);
+  let Ok(lock) = lock_screen(chosen);
+  let Ok(method) = unlock_method(preferred);
+  let Ok(pattern_rows) = login_rows(pattern);
+  let Ok(fingerprint) = credential_row(Credential::Fingerprint);
+  let Ok(password) = credential_row(Credential::Password);
   let Ok(measuring) = measuring::current();
   let Ok(switch) = measurements(measuring);
 
-  rows.push(switch);
+  let mut rows = vec![lock, method];
+  rows.extend(pattern_rows);
+  rows.extend([fingerprint, password, switch]);
 
   Ok(rows)
 }
@@ -2574,7 +2566,9 @@ mod tests {
   #[test]
   fn the_three_speeds_are_one_row_with_the_least_of_them_first() -> Result<(), Failure> {
     let Ok(rows) = battery();
-    let named = at(&rows, 4)?;
+    let Ok(actions) = power_rows();
+    let Ok(controls) = console_core_number_conversion::fitted::<_, u32>(actions.len());
+    let named = at(&rows, controls)?;
     let (speeds, chosen) = offered(&rows, &Word::PowerMode.english())?;
     let automatic = Word::Automatic.english();
 

@@ -12,14 +12,14 @@ use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_location::timezone::CachedLocation;
 use console_operating_system_linux::program_runtime::{self, Clock, Interpreter};
-use console_paper::{self as paper, Motion, Request};
+use console_paper::{Motion, Request};
 use console_program_contract::{Answer, Event, ExitStatus};
 use console_wallpaper::choose::{Selection, Set, Wanted};
 use console_wallpaper::keeping::{
   self, Chosen, Going, Input, Observation, Rendered, Sun, WallpaperEffect, WallpaperEvent,
 };
 use console_wallpaper::{covered, place, rules, scene};
-use console_weather::conditions::{self as weather, Weather};
+use console_weather::conditions::{self, Weather};
 
 fn main() -> ExitCode {
   let words: Vec<String> = std::env::args().skip(1).collect();
@@ -110,7 +110,7 @@ struct Desktop {
   going: Going,
   location: CachedLocation,
   compositor: covered::Notified,
-  forecast: weather::Notified,
+  forecast: conditions::Notified,
   scene: Option<PathBuf>,
 }
 
@@ -182,7 +182,7 @@ impl Desktop {
       going,
       location: CachedLocation::default(),
       compositor: covered::Notified::default(),
-      forecast: weather::Notified::default(),
+      forecast: conditions::Notified::default(),
       scene: None,
     })
   }
@@ -245,9 +245,12 @@ impl Desktop {
 
   fn read_weather(&mut self, answer: &Answer) -> Result<Option<Weather>, Never> {
     let said = match answer.status {
-      ExitStatus::Success => weather::read(&answer.output)?,
+      ExitStatus::Success => conditions::read(&answer.output)?,
       ExitStatus::Failure(_) | ExitStatus::Interrupt => {
-        match ::core::primitive::bool::then_some(self.forecast == weather::Notified::NotYet, ()) {
+        match ::core::primitive::bool::then_some(
+          self.forecast == conditions::Notified::NotYet,
+          (),
+        ) {
           ::core::option::Option::Some(()) => {
             console_core_logging::warn!(
               "console-wallpaper: Open-Meteo request failed ({:?}) {}",
@@ -262,8 +265,8 @@ impl Desktop {
       }
     };
     self.forecast = match said {
-      Some(_) => weather::Notified::NotYet,
-      None => weather::Notified::Already,
+      Some(_) => conditions::Notified::NotYet,
+      None => conditions::Notified::Already,
     };
 
     Ok(said)
@@ -296,8 +299,8 @@ fn read_table() -> Result<Set, Untabled> {
 
 #[must_use]
 fn paint(picture: &Path, motion: Motion) -> Result<WallpaperEvent, Never> {
-  let result =
-    std::path::absolute(picture).and_then(|path| paper::ask(&Request::Show(path, motion)));
+  let result = std::path::absolute(picture)
+    .and_then(|path| console_paper::ask(&Request::Show(path, motion)));
 
   let went = match result {
     Ok(_) => Rendered::Yes,

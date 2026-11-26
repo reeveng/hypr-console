@@ -7,18 +7,18 @@
 //! is wrong in both directions rather than badly wrong in one.
 
 use console_core_never::Never;
-use console_how_far::{self as how_far, Progress};
+use console_how_far::Progress;
 
 const FETCHING: f64 = 0.5;
 
 pub fn fetched(far: Progress) -> Result<f64, Never> {
-  let Ok(part) = how_far::fraction(far);
+  let Ok(part) = console_how_far::fraction(far);
 
   Ok(part * FETCHING)
 }
 
 pub fn overall_fraction(far: Progress) -> Result<f64, Never> {
-  let Ok(part) = how_far::fraction(far);
+  let Ok(part) = console_how_far::fraction(far);
 
   Ok(FETCHING + part * (1.0 - FETCHING))
 }

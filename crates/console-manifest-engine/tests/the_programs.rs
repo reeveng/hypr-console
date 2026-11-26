@@ -36,7 +36,6 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use console_core_external_programs::{EVERY, Origin};
-use console_core_internal_programs::EVERY as EVERY_INTERNAL;
 use console_manifest_engine::machines;
 use console_repository::sources::{Spelled, Word, of_every_crate, spells};
 use reading::{Failure, Section, read, root, section};
@@ -100,7 +99,7 @@ fn every_program_of_ours_that_is_run_is_in_the_manifest() -> Result<(), Failure>
   let named = section(&held, Section::Build)?;
   let machine_builds = section(&every_machine, Section::Build)?;
   let built: BTreeSet<String> = named.into_iter().chain(machine_builds).collect();
-  let missing: Vec<&str> = EVERY_INTERNAL
+  let missing: Vec<&str> = console_core_internal_programs::EVERY
     .iter()
     .map(|ours| {
       let Ok(name) = ours.name();
@@ -145,7 +144,7 @@ const SPELLED: [&str; 2] = ["Program", "ExternalProgram"];
 #[test]
 fn nothing_of_ours_named_here_has_stopped_being_run() -> Result<(), Failure> {
   let said = all_said()?;
-  let gone: Vec<&str> = EVERY_INTERNAL
+  let gone: Vec<&str> = console_core_internal_programs::EVERY
     .iter()
     .filter(|ours| {
       spells(&said, Word(&format!("{}::{ours:?}", "InternalProgram"))) == Ok(Spelled::No)

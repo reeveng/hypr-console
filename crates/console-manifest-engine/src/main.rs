@@ -33,6 +33,7 @@ mod program_staging;
 mod pruning;
 mod room;
 mod screen;
+mod service_startup;
 mod snapshot;
 mod units;
 mod up_to_date;
@@ -51,13 +52,16 @@ use console_core_arguments::{
 use console_core_atomic_writes::Stored;
 use console_core_external_programs::Program;
 use console_core_external_programs::dependencies::{self, Invocation};
+use console_core_internal_programs::InternalProgram;
 use console_core_iteration::Step;
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
+use console_core_state_machine::SingleEffectMachine;
 use console_core_words::Words;
 use console_how_far::Progress;
 use console_manifest_migrations::done::Outstanding;
 use console_manifest_migrations::sweeping::Timing;
+use console_operating_system_linux::program_runtime::{Cores, for_each};
 use console_package_manager::system::{self, InstallOutput};
 use laying::{Deploy, Put};
 use machine::Ran;
@@ -1412,36 +1416,14 @@ fn install_generation(
 
   swapped?;
 
-  let Ok(()) = told_the_rest(going, manifest);
-
-  match ::core::primitive::bool::then_some(
-    written.iter().any(|path| path.contains("/systemd/")),
-    (),
-  ) {
-    ::core::option::Option::Some(()) => {
-      let Ok(_) = machine::user_systemctl(&["daemon-reload"]);
-    }
-    ::core::option::Option::None => {}
-  }
-
-  let Ok(()) = buttons::wear_again();
+  let Ok(()) = told_the_rest(going, manifest, root);
 
   let Ok(services) = manifest.of(Section::Services);
   let started = Started {
     source: &source,
     written: &written,
   };
-  let Ok(asked_to_run) = services_running(going, services, started);
-  let Ok(fell) = fallen(&asked_to_run);
-
-  match ::core::primitive::bool::then_some(!fell.is_empty(), ()) {
-    ::core::option::Option::Some(()) => {
-      let Ok(()) = undone(&mut laying, &written, &asked_to_run, &fell);
-
-      return Err(Unapplied::Restore(fell.clone()));
-    }
-    ::core::option::Option::None => {}
-  }
+  started_services(going, &mut laying, services, &started)?;
 
   let Ok(()) = going.through_handed(going::RELEASE, &mut laying, |laying_5| {
     let Ok(()) = laying_5.deploy.settle(&mut laying_5.onto);
@@ -1804,7 +1786,11 @@ fn packages_held(
   Ok(())
 }
 
-fn told_the_rest(going: &mut going::Going, manifest: &Manifest) -> Result<(), Never> {
+fn told_the_rest(
+  going: &mut going::Going,
+  manifest: &Manifest,
+  root: &Path,
+) -> Result<(), Never> {
   let Ok(()) = going.through(going::ADD_ON, || {
     let Ok(()) = packed_the_add_on();
   });
@@ -1841,7 +1827,7 @@ fn told_the_rest(going: &mut going::Going, manifest: &Manifest) -> Result<(), Ne
     }
   });
   let Ok(()) = going.through(going::WALLPAPERS, || {
-    let Ok(()) = pressed_the_wallpapers();
+    let Ok(()) = pressed_the_wallpapers(root);
   });
 
   Ok(())
@@ -1852,10 +1838,58 @@ struct Started<'a> {
   written: &'a [String],
 }
 
+fn started_services(
+  going: &mut going::Going,
+  laying: &mut Laying,
+  services: &[String],
+  started: &Started<'_>,
+) -> Result<(), Unapplied> {
+  use service_startup::{Checked, Effect, Report, Startup, State};
+
+  const MAX_EFFECTS_WITH_RESTORE: u32 = 4;
+  let Ok(cores) = Cores::counted();
+  let Ok(first) = Startup::initialize(&(), None);
+  let outcome = Startup::run_effects(
+    first,
+    MAX_EFFECTS_WITH_RESTORE,
+    &mut (going, laying),
+    |(going_2, laying_2), effect| match effect {
+      Effect::Reload => {
+        let Ok(_) = machine::user_systemctl(&["daemon-reload"]);
+
+        Report::ReloadAttempted
+      }
+      Effect::Start => {
+        let Ok(()) = buttons::wear_again();
+        let Ok(attempted) = services_running(going_2, services, started);
+
+        Report::Started(attempted)
+      }
+      Effect::Check(attempted) => {
+        let Ok(failed) = fallen(cores, &attempted);
+
+        Report::Checked(Checked { attempted, failed })
+      }
+      Effect::Restore(Checked { attempted, failed }) => {
+        let Ok(()) = undone(laying_2, started.written, &attempted, &failed);
+
+        Report::Restored(failed)
+      }
+    },
+  );
+
+  match outcome {
+    Ok(State::Finished(result)) => result,
+    Ok(State::Reloading | State::Starting | State::Checking | State::Restoring) | Err(_) => {
+      Err(Unapplied::ServiceStartupStopped)
+    }
+  }
+}
+
 fn services_running<'a>(
   going: &mut going::Going,
   services: &'a [String],
-  started: Started<'_>,
+  started: &Started<'_>,
 ) -> Result<Vec<&'a String>, Never> {
   let Started { source, written } = started;
   let mut asked_to_run: Vec<&String> = Vec::new();
@@ -2027,10 +2061,11 @@ fn packed_the_add_on() -> Result<(), Never> {
   Ok(())
 }
 
-fn pressed_the_wallpapers() -> Result<(), Never> {
+fn pressed_the_wallpapers(root: &Path) -> Result<(), Never> {
   println!("{YELLOW}pressing{OFF} the wallpapers the table names and this has not");
 
-  let Ok(_) = machine::run_seen(&["wallpaper-render"]);
+  let Ok(renderer) = InternalProgram::WallpaperRender.path();
+  let Ok(_) = machine::see(std::process::Command::new(renderer).current_dir(root));
 
   Ok(())
 }
@@ -2119,16 +2154,25 @@ fn restarted_by(source: &Path, unit: &str, written: &[String]) -> Result<Restart
   })
 }
 
-fn fallen(units: &[&String]) -> Result<Vec<String>, Never> {
-  Ok(
-    units
-      .iter()
-      .filter(|unit| {
-        let Ok((_, active)) = machine::unit_state(unit);
+fn fallen(cores: Cores, units: &[&String]) -> Result<Vec<String>, Never> {
+  let check = |unit: &&String| {
+    let Ok(active) = machine::user_systemctl(&["is-active", unit]);
 
-        active == "failed"
-      })
-      .map(|unit| unit.to_string())
+    Ok::<_, Never>((active.out == "failed").then(|| unit.to_string()))
+  };
+  let checked = match for_each(cores, units, check) {
+    Ok(checked) => checked,
+    Err(fault) => {
+      eprintln!("console: checking services sequentially after a worker failed: {fault}");
+
+      units.iter().map(check).collect()
+    }
+  };
+
+  Ok(
+    checked
+      .into_iter()
+      .filter_map(|Ok(failed)| failed)
       .collect(),
   )
 }

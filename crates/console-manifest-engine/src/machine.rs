@@ -111,9 +111,17 @@ pub fn run_seen(arguments: &[&str]) -> Result<Ran, Never> {
     None => return Ok(Ran::Badly),
   };
 
-  let done = match Command::new(program).args(rest).status() {
+  see(Command::new(program).args(rest))
+}
+
+pub fn see(command: &mut Command) -> Result<Ran, Never> {
+  let done = match command.status() {
     Ok(done) => done.success(),
-    Err(_would_not_start) => false,
+    Err(fault) => {
+      eprintln!("console: starting {:?}: {fault}", command.get_program());
+
+      false
+    }
   };
 
   Ok(match ::core::primitive::bool::then_some(done, ()) {
@@ -141,12 +149,22 @@ pub fn whoever() -> Result<&'static str, Never> {
 
   Ok(KNOWN.get_or_init(|| {
     let Ok(one) = the_one_home();
-    let Ok(already) = the_home_it_is_already_in();
-    let Ok(numbered) = the_account_numbered_1000();
+    let desktop = one.or_else(|| {
+      let Ok(already) = the_home_it_is_already_in();
 
-    match one.or(already).or(numbered) {
+      already
+    });
+
+    match desktop {
       Some(whose) => whose,
-      None => USER.to_string(),
+      None => {
+        let Ok(numbered) = the_account_numbered_1000();
+
+        match numbered {
+          Some(whose) => whose,
+          None => USER.to_string(),
+        }
+      }
     }
   }))
 }
@@ -215,10 +233,7 @@ fn the_account_numbered_1000() -> Result<Option<String>, Never> {
     ::core::option::Option::None => {}
   }
 
-  println!(
-    "no desktop in anyone's home yet, so this is being installed for {said}, who is the \
-         account numbered 1000"
-  );
+  println!("using the account numbered 1000 for the Console desktop: {said}");
 
   Ok(Some(said))
 }

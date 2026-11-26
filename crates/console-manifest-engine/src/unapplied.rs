@@ -27,6 +27,7 @@ pub enum Unapplied {
   WentBack(Box<Unapplied>),
   Staging(String, &'static str, std::io::Error),
   ProgramStagingStopped,
+  ServiceStartupStopped,
   NoUserFor(String, String),
   NothingBeside(String, &'static str),
   Unwritten(String, console_core_atomic_writes::Unwritten),
@@ -94,6 +95,7 @@ impl fmt::Display for Unapplied {
           "programs: advancing the build: program staging did not request its next effect"
         )
       }
+      Unapplied::ServiceStartupStopped => write!(to, "service startup did not finish"),
       Unapplied::NoUserFor(live, owner) => {
         write!(to, "{live}: no user called {owner}")
       }

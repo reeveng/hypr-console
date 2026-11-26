@@ -4,7 +4,6 @@ use std::collections::BTreeMap;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use console_core_atomic_writes as writes;
 use console_core_never::Never;
 use console_core_places::Base;
 use console_weather::conditions::Weather;
@@ -188,7 +187,7 @@ fn path(name: &str) -> io::Result<PathBuf> {
 const MAX_RULE_BYTES: u32 = 16 * 1024;
 
 fn parse(at: &Path) -> io::Result<Rule> {
-  let bytes = writes::read_prefix(at, MAX_RULE_BYTES.saturating_add(1))?;
+  let bytes = console_core_atomic_writes::read_prefix(at, MAX_RULE_BYTES.saturating_add(1))?;
   let Ok(length) = console_core_number_conversion::fitted::<_, u32>(bytes.len());
 
   match length.cmp(&MAX_RULE_BYTES) {
@@ -232,7 +231,8 @@ pub fn save(name: &str, rule: &Rule) -> io::Result<()> {
   let at = path(name)?;
   let written = toml::to_string(rule).map_err(io::Error::other)?;
 
-  writes::whole_with_folders(&at, written.as_bytes()).map_err(io::Error::other)
+  console_core_atomic_writes::whole_with_folders(&at, written.as_bytes())
+    .map_err(io::Error::other)
 }
 
 pub fn reset(name: &str) -> io::Result<()> {

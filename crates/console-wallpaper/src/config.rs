@@ -4,7 +4,7 @@ use std::fmt;
 use std::marker::PhantomData;
 
 use console_core_never::Never;
-use serde::de::{self, Error as _, IgnoredAny, SeqAccess, Visitor};
+use serde::de::{self, Error, IgnoredAny, SeqAccess, Visitor};
 use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize};
 

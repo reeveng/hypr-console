@@ -17,7 +17,6 @@ use console_core_places::Base;
 use console_repository::NotFound;
 
 pub const CAME_WITH: &str = "/usr/share/backgrounds/console";
-pub const TREE: &str = console_repository::DEVICE_ROOT;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct InvalidName;
@@ -66,25 +65,19 @@ pub fn file_status(path: &Path) -> Result<FileStatus, Never> {
 }
 
 pub fn tree() -> Result<PathBuf, Never> {
-  let configuration = Path::new(TREE);
-  let observed = std::fs::metadata(configuration.join("theme/sky.toml"));
-  let fallback = match observed
-    .is_ok_and(|settings| settings.is_file())
-    .then_some(())
-  {
-    Some(()) => configuration,
-    None => {
-      let Ok(installed) = console_repository::installed_root();
-      installed
-    }
+  let installed = || {
+    let Ok(root) = console_repository::installed_root();
+
+    root.to_path_buf()
   };
+
   Ok(match console_repository::root() {
     Ok(root) => root,
-    Err(NotFound::Outside(_this_is_not_a_checkout)) => fallback.to_path_buf(),
+    Err(NotFound::Outside(_)) => installed(),
     Err(fault @ NotFound::Nowhere(_)) => {
       console_core_logging::warn!("{fault}");
 
-      fallback.to_path_buf()
+      installed()
     }
   })
 }

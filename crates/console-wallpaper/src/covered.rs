@@ -51,6 +51,13 @@ pub enum Notified {
   Already,
 }
 
+#[cfg_attr(
+  dylint_lib = "explicit106_no_import_alias",
+  expect(
+    explicit106_no_import_alias,
+    reason = "BEHIND is the public wallpaper name for the shared system surfaces and is checked by the home screen contract"
+  )
+)]
 pub use console_onscreen::SYSTEM_SURFACES as BEHIND;
 
 pub fn holds_a_window(front: Option<&console_compositor::Workspace>) -> Result<Covered, Never> {

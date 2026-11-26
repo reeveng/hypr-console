@@ -37,10 +37,10 @@ use console_core_never::Never;
 use console_core_state_machine::{EffectDependencies, Machine, Queue, Service};
 use console_location::Coordinates;
 use console_program_contract::{
-  Answer, Change, Command as Invocation, Effect, Elapsed, Event, EventGroup, Exit, Fork, JobId,
-  JobOwner, Subscription, Task, Timer,
+  Answer, Change, Effect, Elapsed, Event, EventGroup, Exit, Fork, JobId, JobOwner, Subscription,
+  Task, Timer,
 };
-use console_weather::conditions::{self as forecast, Weather};
+use console_weather::conditions::{self, Weather};
 
 use crate::choose::{self, Outside, Picture, Selection, Turn, Wanted};
 use crate::covered::{self, Covered, Worth};
@@ -460,9 +460,9 @@ fn ask_weather(
     id: JobId(state.weather_attempt),
   };
   state.weather_job = Some(job);
-  let Ok(url) = forecast::request_url(at);
-  let Ok(arguments) = forecast::request_arguments(&url);
-  let Ok(command) = Invocation::external(Program::Curl, &arguments);
+  let Ok(url) = conditions::request_url(at);
+  let Ok(arguments) = conditions::request_arguments(&url);
+  let Ok(command) = console_program_contract::Command::external(Program::Curl, &arguments);
 
   effects.offer(Effect::Fork(Fork { job, command }))
 }

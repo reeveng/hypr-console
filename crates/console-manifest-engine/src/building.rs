@@ -9,7 +9,7 @@
 //!
 //! Cargo says what it is doing as it does it -- a line per crate it starts --
 //! so the apply reads those as they go past and moves the strip on each one.
-//! The line is read through `how_far::plain`, because cargo is asked for color
+//! The line is read through `console_how_far::plain`, because cargo is asked for color
 //! when a person is watching and the word it is being read for arrives wrapped
 //! in escapes on exactly the runs where someone is looking at the bar.
 //!
@@ -30,8 +30,6 @@
 
 use console_core_never::Never;
 
-use console_how_far as how_far;
-
 pub const TICK: std::time::Duration = std::time::Duration::from_secs(2);
 
 pub const A_TICK: f64 = 1.0 / 6.0;
@@ -39,7 +37,7 @@ pub const A_TICK: f64 = 1.0 / 6.0;
 pub const PACE: f64 = 20.0;
 
 pub fn names_a_crate(line: &str) -> Result<Names, Never> {
-  let Ok(plain) = how_far::plain(line);
+  let Ok(plain) = console_how_far::plain(line);
 
   let rest = match plain.trim_start().strip_prefix("Compiling ") {
     Some(rest) => rest,

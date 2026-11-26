@@ -53,7 +53,10 @@ impl<'a> Cursor<'a> {
   }
 
   pub(crate) fn bytes(&mut self, count: u64) -> Result<&'a [u8], Error> {
-    self.bytes.take(count).map_err(|_| Error::Truncated(self.part))
+    self
+      .bytes
+      .take(count)
+      .map_err(|_| Error::Truncated(self.part))
   }
 
   pub(crate) fn skip(&mut self, count: u64) -> Result<(), Error> {

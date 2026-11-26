@@ -127,15 +127,26 @@ fn sidebar_items_fit_and_use_their_drawn_hit_regions_on_both_edges() -> Result<(
   for placement in [Placement::Left, Placement::Right] {
     let Ok(drawn) = showing::sidebar(&bar, &applets, &wearing, room, placement);
     assert_eq!(drawn.room, room);
-    assert_eq!(room.width, 48);
+    assert_eq!(room.width, 40);
 
-    for part in ["12:59", "pm"] {
-      assert!(
-        drawn
-          .shapes
-          .iter()
-          .any(|shape| matches!(shape, Shape::Text(text) if text.said == part))
-      );
+    let mut clock_rows = drawn.shapes.iter().filter_map(|shape| match shape {
+      Shape::Text(text) => match text.said.as_str() {
+        "12" | "59" | "pm" => Some(text),
+        _ => None,
+      },
+      Shape::Panel(_)
+      | Shape::Picture(_)
+      | Shape::Cropped(_)
+      | Shape::Line(_)
+      | Shape::Clip(_) => None,
+    });
+    let mut previous_y = i32::MIN;
+
+    for part in ["12", "59", "pm"] {
+      let row = clock_rows.next().ok_or("missing sidebar clock row")?;
+      assert_eq!(row.said, part);
+      assert!(row.at.y > previous_y);
+      previous_y = row.at.y;
     }
 
     assert!(
@@ -262,13 +273,18 @@ fn sidebar_fixture() -> Result<(Bar, Vec<Measured>, Fitting, Size<u32>), Never> 
   let Ok(()) = preferences.toggle_settings(SettingsTab::Display);
   let Ok(layout) = state.configured(&preferences, Filling::At(250));
   let Ok(fitting) = Fitting::of_em();
-  let Ok(bar) = measuring::sized(&layout, fitting);
+  let Ok(mut bar) = measuring::sized(&layout, fitting);
   let Ok(width) = fitting.sidebar_width();
   let room = Size {
     width,
     height: SCREEN.height,
   };
   let Ok(text_width) = fitting.sidebar_content_width(width);
+
+  for group in [&mut bar.left, &mut bar.middle, &mut bar.right] {
+    let Ok(()) = measuring::compact(group, fitting, text_width);
+  }
+
   let Ok(mut slots) = state.settings_applets(&preferences);
   slots.push(Slot {
     spans: vec![Span {

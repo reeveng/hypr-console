@@ -233,11 +233,14 @@ fn dedicated_laptop_keys_run_their_actions_once_per_press() -> Result<(), Failur
 #[test]
 fn tiled_windows_use_physical_keys_for_swapping_resizing_and_stacking() -> Result<(), Failure> {
   let Ok(every) = unmoved();
-  let swap = on(&every, &["super", "alt"], "j")?;
+  let swap = on(&every, &["super", "shift"], "j")?;
   let resize = on(&every, &["super", "ctrl"], "k")?;
-  let stack = on(&every, &["super", "alt", "shift"], "u")?;
-  let root = on(&every, &["super", "alt", "shift"], "space")?;
-  let split = on(&every, &["super", "alt"], "space")?;
+  let above_left = on(&every, &["super", "shift"], "u")?;
+  let above_right = on(&every, &["super", "shift"], "i")?;
+  let below_left = on(&every, &["super", "shift"], "n")?;
+  let below_right = on(&every, &["super", "shift"], "m")?;
+  let root = on(&every, &["super", "shift"], "backspace")?;
+  let split = on(&every, &["super", "shift"], "enter")?;
 
   for (bind, dispatched, repeating) in [
     (
@@ -250,7 +253,10 @@ fn tiled_windows_use_physical_keys_for_swapping_resizing_and_stacking() -> Resul
       "window.resize({ x = 0, y = -32, relative = true })",
       RepeatMode::WhileHeld,
     ),
-    (stack, ")('left', 'u')", RepeatMode::Once),
+    (above_left, ")('left', 'u')", RepeatMode::Once),
+    (above_right, ")('right', 'u')", RepeatMode::Once),
+    (below_left, ")('left', 'd')", RepeatMode::Once),
+    (below_right, ")('right', 'd')", RepeatMode::Once),
     (root, "layout('movetoroot')", RepeatMode::Once),
     (split, "layout('togglesplit')", RepeatMode::Once),
   ] {
@@ -260,6 +266,19 @@ fn tiled_windows_use_physical_keys_for_swapping_resizing_and_stacking() -> Resul
     assert_eq!(bind.repeats, repeating);
   }
 
+  Ok(())
+}
+
+#[test]
+fn quick_workspace_only_has_user_assigned_shortcuts() -> Result<(), Failure> {
+  let Ok(defaults) = Table::ours();
+  let Ok(default_bindings) = defaults.bindings("quick-workspace");
+  assert!(default_bindings.is_empty());
+  let tasks =
+    Tasks::read("[jobs]\nquick-workspace = [\"keyboard: super + alt + q\", \"pad: l2 + y\"]\n")?;
+  let Ok(custom) = Table::of(&tasks);
+  let Ok(custom_bindings) = custom.bindings("quick-workspace");
+  assert_eq!(custom_bindings.len(), 2);
   Ok(())
 }
 
@@ -347,13 +366,15 @@ fn the_windows_are_reached_on_the_arrows_and_on_hjkl() -> Result<(), Failure> {
     );
   }
 
-  for (arrow, letter) in [("left", "h"), ("right", "l")] {
+  for (arrow, letter, direction) in [("left", "h", "left"), ("right", "l", "right")] {
     let by_arrow = on(&every, &["super", "shift"], arrow)?;
     let by_letter = on(&every, &["super", "shift"], letter)?;
-
-    assert_eq!(
-      by_arrow.action, by_letter.action,
-      "Shift and {letter} does not carry the window where Shift and {arrow} carries it"
+    let Ok(swap) = by_letter.bind_command();
+    assert!(by_arrow.about.starts_with("carry-"));
+    assert!(
+      swap
+        .to_string()
+        .contains(&format!("window.swap({{ direction = '{direction}' }})"))
     );
   }
 

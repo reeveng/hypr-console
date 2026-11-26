@@ -146,6 +146,17 @@ pub fn left_running(arguments: &[String]) -> Result<(), Never> {
   Ok(())
 }
 
+pub fn start_in_background(command: &Command) -> std::io::Result<()> {
+  let Ok(mut platform) = Linux::new(Timing::Pressed);
+
+  console_program_runtime::commands::spawn(
+    &mut platform,
+    command,
+    Streams::QUIET,
+    Launch::Background,
+  )
+}
+
 pub const PATIENCE: Duration = Duration::from_secs(45);
 
 pub const SETTLING: Duration = Duration::from_millis(250);

@@ -12,7 +12,6 @@ use crate::{flac, utf8_with_replacement};
 
 const PICTURE_KEY: &str = "metadata_block_picture";
 
-
 const KEYS: &[(&str, StandardTagKey)] = &[
   ("album artist", StandardTagKey::AlbumArtist),
   ("album", StandardTagKey::Album),
@@ -194,14 +193,16 @@ pub fn read_comment_no_framing<B: ReadBytes>(
 fn base64_decode(encoded: &str) -> Result<Option<Vec<u8>>, Never> {
   let unpadded = encoded.trim_end_matches('=');
 
-  Ok(match console_core_bytes::base64::decode_unpadded(unpadded.as_bytes()) {
-    Ok(bytes) => {
-      let Ok(decoded) = bytes.into_vec();
+  Ok(
+    match console_core_bytes::base64::decode_unpadded(unpadded.as_bytes()) {
+      Ok(bytes) => {
+        let Ok(decoded) = bytes.into_vec();
 
-      Some(decoded)
-    }
-    Err(_not_base64) => None,
-  })
+        Some(decoded)
+      }
+      Err(_not_base64) => None,
+    },
+  )
 }
 
 #[cfg(test)]

@@ -391,15 +391,23 @@ impl BarState {
 }
 
 fn clock_spans(clock: &str, face: Face) -> Result<Vec<Span>, Never> {
-  let (time, suffix) = match (face, clock.split_once(' ')) {
-    (Face::SideClock, Some((time, suffix))) => (time, Some(suffix)),
-    (Face::Icon | Face::Clock | Face::Reading | Face::Small, _) | (Face::SideClock, None) => {
-      (clock, None)
+  let (hours, minutes, suffix) = match face {
+    Face::SideClock => {
+      let (time, suffix) = clock
+        .split_once(' ')
+        .map_or((clock, None), |(time, suffix)| (time, Some(suffix)));
+      let (hours, minutes) = time
+        .split_once(':')
+        .map_or((time, None), |(hours, minutes)| (hours, Some(minutes)));
+
+      (hours, minutes, suffix)
     }
+    Face::Icon | Face::Clock | Face::Reading | Face::Small => (clock, None, None),
   };
 
   Ok(
-    std::iter::once(time)
+    std::iter::once(hours)
+      .chain(minutes)
       .chain(suffix)
       .map(|part| Span {
         text: part.to_owned(),

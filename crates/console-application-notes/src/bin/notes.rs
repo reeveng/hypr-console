@@ -50,15 +50,17 @@ use console_core_color::Oklch;
 use console_core_color::palette::{Wearing, WearingError};
 use console_core_fonts::{EM, LETTERS};
 use console_core_geometry::{Point, Size};
-use console_core_internal_programs::InternalProgram;
+use console_core_internal_programs::{InternalProgram, KEYBOARD_AUTOMATIC_SHOW};
 use console_core_iteration::{Endless, Step, iterate};
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, toward_zero_i32, whole_u32};
 use console_input_text::area::row_at;
-use console_input_text::{Row, TextArea, Typed, Way, between};
 use console_panel::keys::{Driving, Meaning, meaning};
 use console_panel::ui::canvas::{
   Area, AreaLayout, Canvas, Interaction, ROW_RADIUS, RowTone, Style as CanvasStyle,
+};
+use console_panel::ui::field::{
+  Editor, Row, TextArea, Typed, Way, area, clipboard, gesture, menu,
 };
 use console_panel::ui::painting::Run;
 use console_panel::ui::shapes::{Edge, Font, Panel, Picture, Pixels, Round, Shape, Text, Weight};
@@ -86,8 +88,6 @@ const WORDS: u32 = EM.unsigned_abs();
 const SMALL: u32 = (EM * 5 / 6).unsigned_abs();
 
 const INSIDE: u32 = (EM * 2 / 3).unsigned_abs();
-
-const CARET: u32 = 2;
 
 const MEASURING: u32 = 4096;
 
@@ -246,6 +246,9 @@ struct App {
   wearing: Wearing,
   appearance: Appearance,
   view: View,
+  clipboard: clipboard::Clipboard,
+  edit_menu: menu::Menu,
+  selection: gesture::Gesture,
 }
 
 #[derive(Debug)]
@@ -287,6 +290,9 @@ fn run(arguments: &[String]) -> Result<(), NotesError> {
     wearing,
     appearance,
     view: View::List(list),
+    clipboard: clipboard::Clipboard::default(),
+    edit_menu: menu::Menu::default(),
+    selection: gesture::Gesture::default(),
   };
 
   match read(&COMMAND, arguments) {
@@ -297,6 +303,7 @@ fn run(arguments: &[String]) -> Result<(), NotesError> {
   }
 
   let mut surface = Surface::connect().map_err(NotesError::Surface)?;
+  let Ok(()) = surface.accept_context_presses();
   let Ok(named) = InternalProgram::Notes.name();
   let window = Window {
     app_id: named.to_string(),
@@ -367,7 +374,9 @@ fn event_loop(app: &mut App, surface: &mut Surface) -> Result<(), NotesError> {
         Update::Exit => return Ok(Step::Halt(Ok(()))),
       };
 
-      match surface_2.wait(&[], None) {
+      let Ok(clipboard) = app_2.clipboard.descriptor();
+
+      match surface_2.wait(clipboard.as_slice(), None) {
         Ok(()) => {}
         Err(fault) => return Ok(Step::Halt(Err(NotesError::Surface(fault)))),
       }
@@ -381,13 +390,18 @@ fn event_loop(app: &mut App, surface: &mut Surface) -> Result<(), NotesError> {
 
       let Ok(room) = logical_size(surface_2);
       let Ok(input) = handle_input(app_2, surface_2, room);
+      let Ok(context) = app_2.context_presses(surface_2, room);
+      let Ok(with_context) = merge(input, context);
+      let Ok(focus) = surface_2.keyboard_focus();
+      let Ok(pasted) = app_2.clipboard_replied(focus);
+      let Ok(with_clipboard) = merge(with_context, pasted);
 
       let resized = match ::core::primitive::bool::then_some(drawn_at_2 == Some(room), ()) {
         ::core::option::Option::Some(()) => Update::None,
         ::core::option::Option::None => Update::Redraw,
       };
 
-      let Ok(update_2) = merge(input, resized);
+      let Ok(update_2) = merge(with_clipboard, resized);
 
       Ok(Step::Again((
         app_2, surface_2, update_2, drawn_at_2, reported,
@@ -423,7 +437,9 @@ fn point_of(at: (f64, f64)) -> Result<Point<i32>, Never> {
 fn show_keyboard() -> Result<(), Never> {
   let Ok(mut command) = InternalProgram::KeyboardShow.command();
 
-  command.stdout(std::process::Stdio::null());
+  command
+    .arg(KEYBOARD_AUTOMATIC_SHOW.spelling)
+    .stdout(std::process::Stdio::null());
 
   match console_program_lifetime::let_go(&mut command) {
     Ok(_let_go) => {}
@@ -450,6 +466,64 @@ fn hide_keyboard() -> Result<(), Never> {
 }
 
 impl App {
+  fn context_presses(&mut self, surface: &mut Surface, room: Size<u32>) -> Result<Update, Never> {
+    let Ok(presses) = surface.context_presses();
+    let at = match presses.last().copied() {
+      Some(at) => at,
+      None => return Ok(Update::None),
+    };
+    let Ok(point) = point_of(at);
+    let Ok(place) = self.editor_menu_place(room);
+
+    match place {
+      Some((where_, _)) => match (point.y >= where_.y).then_some(()) {
+        Some(()) => {
+          let Ok(()) = self.edit_menu.open(point, room);
+          Ok(Update::Redraw)
+        }
+        None => Ok(Update::None),
+      },
+      None => Ok(Update::None),
+    }
+  }
+
+  fn editor_menu_place(&self, room: Size<u32>) -> Result<Option<(Point<i32>, Size<u32>)>, Never> {
+    Ok(match &self.view {
+      View::Page(note) => match &note.mode {
+        PageMode::Writing => {
+          let Ok(edge) = fitted::<_, i32>(READING_EDGE);
+          Some((Point { x: edge, y: edge }, room))
+        }
+        PageMode::Diagrams(_) => None,
+      },
+      View::List(_) => None,
+    })
+  }
+
+  fn clipboard_replied(
+    &mut self,
+    focus: console_panel::ui::surface::KeyboardFocus,
+  ) -> Result<Update, Never> {
+    use console_panel::ui::surface::KeyboardFocus;
+
+    match focus {
+      KeyboardFocus::Elsewhere => {
+        let Ok(()) = self.clipboard.cancel();
+      }
+      KeyboardFocus::Here => {}
+    }
+
+    let Ok(reply) = self.clipboard.receive();
+
+    match (&mut self.view, reply) {
+      (View::Page(note), Some(change)) => {
+        let Ok(typed) = Editor::Area(&mut note.area).change(change);
+        note.edited(typed, &self.folder)
+      }
+      _ => Ok(Update::None),
+    }
+  }
+
   fn screen(&self) -> Result<Screen, Never> {
     Ok(match self.view {
       View::List(_) => Screen::List,
@@ -724,8 +798,38 @@ impl App {
     show_keyboard()
   }
 
-  fn page_key(&mut self, press: KeyPress, room: Size<u32>) -> Result<Update, Never> {
+  fn page_key(&mut self, original: KeyPress, room: Size<u32>) -> Result<Update, Never> {
+    let Ok(()) = self.selection.cancel();
+    let Ok(place) = self.editor_menu_place(room);
+    let Ok(input) = self.edit_menu.key(original, place);
+    let press = match input {
+      menu::Input::Continue(press) | menu::Input::Action(press) => press,
+      menu::Input::Consumed => return Ok(Update::Redraw),
+    };
     let key = press.key;
+    let Ok(shortcut) = clipboard::shortcut(press);
+
+    match (&mut self.view, shortcut) {
+      (
+        View::Page(note),
+        clipboard::Shortcut::Copy
+        | clipboard::Shortcut::Cut
+        | clipboard::Shortcut::Paste
+        | clipboard::Shortcut::Repeat,
+      ) => {
+        match note.mode {
+          PageMode::Writing => {
+            let Ok(()) = Editor::Area(&mut note.area).clipboard(shortcut, &mut self.clipboard);
+          }
+          PageMode::Diagrams(_) => {}
+        }
+
+        return Ok(Update::None);
+      }
+      _ => {
+        let Ok(()) = self.clipboard.cancel();
+      }
+    }
 
     match key {
       Keysym::F5 | Keysym::F18 | Keysym::XF86Launch9 => {
@@ -783,18 +887,32 @@ impl App {
       _ => writing.area.typed_press(press, &rows),
     };
 
-    match typed {
-      Typed::Edited => {
-        let Ok(()) = writing.kept(&self.folder);
-
-        Ok(Update::Redraw)
-      }
-      Typed::Moved => Ok(Update::Redraw),
-      Typed::None => Ok(Update::None),
-    }
+    writing.edited(typed, &self.folder)
   }
 
   fn page_pointer(&mut self, event: PointerEvent, room: Size<u32>) -> Result<Update, Never> {
+    match event {
+      PointerEvent::Moved { at } => return self.drag_text(at, room),
+      PointerEvent::Up => {
+        let Ok(held) = self.selection.release_now();
+
+        match held {
+          Some(point) => {
+            let Ok(()) = self.edit_menu.open(point, room);
+            return Ok(Update::Redraw);
+          }
+          None => return Ok(Update::None),
+        }
+      }
+      PointerEvent::Left => {
+        let Ok(()) = self.selection.cancel();
+        return Ok(Update::None);
+      }
+      PointerEvent::Down { .. }
+      | PointerEvent::Scrolled { .. }
+      | PointerEvent::Pinched { .. } => {}
+    }
+
     match (&mut self.view, event) {
       (View::Page(writing), PointerEvent::Scrolled { by }) => match &mut writing.mode {
         PageMode::Diagrams(preview) => {
@@ -817,10 +935,23 @@ impl App {
     };
 
     let Ok(at_2) = point_of(at);
+    let Ok(menu) = self.edit_menu.click(at_2);
+
+    match menu {
+      Some(menu::Input::Action(press)) => {
+        let Ok(update) = self.page_key(press, room);
+        return merge(update, Update::Redraw);
+      }
+      Some(menu::Input::Continue(_) | menu::Input::Consumed) => return Ok(Update::Redraw),
+      None => {}
+    }
+
+    let Ok(()) = self.clipboard.cancel();
     let Ok(edge) = fitted::<u32, i32>(READING_EDGE);
 
     match ::core::primitive::bool::then_some(at_2.y < edge, ()) {
       ::core::option::Option::Some(()) => {
+        let Ok(()) = self.selection.cancel();
         let Ok(across) = fitted::<i32, u32>(at_2.x.max(0));
 
         let action =
@@ -847,10 +978,23 @@ impl App {
     }
 
     let Ok(caret) = caret_at(&writing.area, at_2, appearance, room);
-    let Ok(_moved) = writing.area.placed(caret);
+    let Ok(select) = self.selection.press_now(at_2);
+    let Ok(_moved) = Editor::Area(&mut writing.area).select(caret, select);
     let Ok(()) = show_keyboard();
 
     Ok(Update::Redraw)
+  }
+
+  fn drag_text(&mut self, at: (f64, f64), room: Size<u32>) -> Result<Update, Never> {
+    let Ok(point) = point_of(at);
+    let Ok(gesture) = self.selection.moved(point);
+    let (writing, select) = match (&mut self.view, gesture) {
+      (View::Page(writing), Some(select)) => (writing, select),
+      _ => return Ok(Update::None),
+    };
+    let Ok(caret) = caret_at(&writing.area, point, self.appearance, room);
+    let Ok(typed) = Editor::Area(&mut writing.area).select(caret, select);
+    writing.edited(typed, &self.folder)
   }
 
   fn diagram_tap(&mut self, at: Point<i32>, room: Size<u32>) -> Result<Update, Never> {
@@ -982,6 +1126,17 @@ impl Responder for App {
 }
 
 impl OpenNote {
+  fn edited(&mut self, typed: Typed, folder: &Path) -> Result<Update, Never> {
+    match typed {
+      Typed::Edited => {
+        let Ok(()) = self.kept(folder);
+        Ok(Update::Redraw)
+      }
+      Typed::Moved => Ok(Update::Redraw),
+      Typed::None => Ok(Update::None),
+    }
+  }
+
   fn toggle_diagrams(&mut self) -> Result<Update, Never> {
     self.mode = match self.mode {
       PageMode::Writing => {
@@ -1292,6 +1447,9 @@ mod navigation_tests {
       folder,
       wearing,
       appearance,
+      clipboard: clipboard::Clipboard::default(),
+      edit_menu: menu::Menu::default(),
+      selection: gesture::Gesture::default(),
       view: View::Page(Box::new(OpenNote {
         at: None,
         known: String::new(),
@@ -1483,20 +1641,6 @@ fn placed(layout: &Layout, rows: &[Row]) -> Result<Vec<Placement>, Never> {
   Ok(found)
 }
 
-fn width_of(said: &str, style: Style, appearance: Appearance) -> Result<u32, Never> {
-  let Ok((font, weight)) = appearance.styled(style);
-  let Ok(measured) = console_panel::ui::painting::measure_text(
-    Run {
-      said,
-      weight,
-      width: MEASURING,
-    },
-    &font,
-  );
-
-  Ok(measured.width)
-}
-
 fn small_width(said: &str) -> Result<u32, Never> {
   let font = Font {
     family: LETTERS.to_string(),
@@ -1522,46 +1666,55 @@ fn caret_at(
 ) -> Result<u32, Never> {
   let Ok(rows) = rows_of(area, appearance, room);
   let Ok(layout) = layout(area, &rows, appearance, room);
-  let Ok(on_the_page) = placed(&layout, &rows);
-  let Ok(down) = fitted::<i32, u32>(at.y.max(0));
+  let Ok(lines) = editor_lines(&layout, &rows, appearance, room);
+  area::View {
+    area,
+    lines: &lines,
+    hint: PLACEHOLDER,
+  }
+  .caret_at(at)
+}
 
-  let nearest = on_the_page.iter().min_by_key(|placed| {
-    let middle = placed.top.saturating_add(placed.tall.saturating_div(2));
-
-    middle.abs_diff(down)
-  });
-
-  let placed = match nearest {
-    Some(placed) => placed,
-    None => return area.caret(),
-  };
-
+fn editor_lines(
+  layout: &Layout,
+  rows: &[Row],
+  appearance: Appearance,
+  room: Size<u32>,
+) -> Result<Vec<area::Line>, Never> {
   let Ok(column) = appearance::column(room);
-  let Ok(across) = fitted::<i32, u32>(at.x.max(0));
-  let across_2 = across.saturating_sub(column.left);
-  let Ok(text) = area.text();
-  let Ok(style) = style_of(placed.row.paragraph);
+  let Ok(left) = fitted::<u32, i32>(column.left);
+  let Ok(visible) = placed(layout, rows);
 
-  let fits = (placed.row.start..=placed.row.end).take_while(|end| {
-    let Ok(before) = between(text, placed.row.start..*end);
-    let Ok(wide) = width_of(before, style, appearance);
-
-    wide <= across_2
-  });
-
-  Ok(match fits.last() {
-    Some(end) => end,
-    None => placed.row.start,
-  })
+  Ok(
+    visible
+      .into_iter()
+      .map(|line| {
+        let Ok(style) = style_of(line.row.paragraph);
+        let Ok((font, weight)) = appearance.styled(style);
+        let Ok(y) = fitted::<u32, i32>(line.top);
+        area::Line {
+          row: line.row,
+          at: Point { x: left, y },
+          size: Size {
+            width: column.width.saturating_add(READING_EDGE),
+            height: line.tall,
+          },
+          font,
+          weight,
+        }
+      })
+      .collect(),
+  )
 }
 
 fn draw(app: &App, surface: &mut Surface) -> Result<(), Never> {
   let Ok(room) = logical_size(surface);
 
-  let Ok(shapes) = match &app.view {
+  let Ok(mut shapes) = match &app.view {
     View::List(list) => list_shapes(list, &app.wearing, room),
     View::Page(writing) => page_shapes(writing, &app.wearing, app.appearance, room),
   };
+  let Ok(()) = app.edit_menu.paint(&mut shapes, &app.wearing);
 
   let Ok(painting) = console_panel::ui::painting::painter(room, &shapes, "notes");
 
@@ -1641,7 +1794,10 @@ fn list_shapes(list: &List, wearing: &Wearing, room: Size<u32>) -> Result<Vec<Sh
     let Ok(y) = fitted::<u32, i32>(top);
     let area = Area {
       origin: Point { y, ..header.origin },
-      size: Size { height: ROW.saturating_sub(strip::GAP.unsigned_abs()).cast_signed(), ..header.size },
+      size: Size {
+        height: ROW.saturating_sub(strip::GAP.unsigned_abs()).cast_signed(),
+        ..header.size
+      },
     };
     let Ok(()) = note_row(&mut canvas, list, row, area, wearing);
   }
@@ -1717,63 +1873,27 @@ fn page_shapes(
     (MEASURING, ink),
   );
   let mut shapes = vec![ground, back];
-  let Ok(button) = diagram_button("Diagrams · F5 / Y", ink, room);
+  let Ok(button) = diagram_button("Diagrams", ink, room);
 
   shapes.push(button);
 
-  let Ok(text) = writing.area.text();
-  let Ok(caret) = writing.area.caret();
   let Ok(rows) = rows_of(&writing.area, appearance, room);
   let Ok(layout) = layout(&writing.area, &rows, appearance, room);
-  let Ok(on_the_page) = placed(&layout, &rows);
-  let Ok(column) = appearance::column(room);
-  let Ok(left) = fitted::<u32, i32>(column.left);
-  let Ok(standing) = row_at(&rows, caret);
-
-  for placed in &on_the_page {
-    let Ok(style) = style_of(placed.row.paragraph);
-    let Ok((font, weight)) = appearance.styled(style);
-    let Ok(said) = between(text, placed.row.start..placed.row.end);
-    let Ok(down) = fitted::<u32, i32>(placed.top);
-
-    let (said_2, color) = match (text.is_empty(), placed.row.paragraph) {
-      (true, 0) => (PLACEHOLDER, wearing.soft),
-      (true, _) | (false, _) => (said, ink),
-    };
-
-    shapes.push(Shape::Text(Text {
-      at: Point { x: left, y: down },
-      width: column.width.saturating_add(READING_EDGE),
-      said: said_2.to_string(),
-      weight,
-      font,
-      ink: color,
-    }));
-
-    match ::core::primitive::bool::then_some(standing.map(|(_, row)| row) == Some(placed.row), ())
-    {
-      ::core::option::Option::Some(()) => {
-        let Ok(before) = between(text, placed.row.start..caret);
-        let Ok(across) = width_of(before, style, appearance);
-        let Ok(across_2) = fitted::<u32, i32>(column.left.saturating_add(across));
-
-        shapes.push(Shape::Panel(Panel {
-          at: Point {
-            x: across_2,
-            y: down,
-          },
-          size: Size {
-            width: CARET,
-            height: placed.tall,
-          },
-          round: Round(0),
-          fill: wearing.pink,
-          edge: Edge::None,
-        }));
-      }
-      ::core::option::Option::None => {}
-    }
-  }
+  let Ok(lines) = editor_lines(&layout, &rows, appearance, room);
+  let editor = area::View {
+    area: &writing.area,
+    lines: &lines,
+    hint: PLACEHOLDER,
+  };
+  let Ok(()) = editor.paint(
+    &mut shapes,
+    area::Colors {
+      text: ink,
+      background: paper,
+      caret: wearing.pink,
+      placeholder: wearing.soft,
+    },
+  );
 
   let Ok(count) = fitted::<_, u32>(layout.pages.len());
 
@@ -1835,7 +1955,7 @@ fn diagram_shapes(
     (SMALL, Weight::Plain),
     (MEASURING, ink),
   );
-  let Ok(edit) = diagram_button("Edit · F5 / Y", ink, room);
+  let Ok(edit) = diagram_button("Back to note", ink, room);
   let mut shapes = vec![ground, back, edit];
   let Ok(column) = appearance::column(room);
   let available = room

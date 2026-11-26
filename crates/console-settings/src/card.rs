@@ -837,7 +837,8 @@ fn shaped(effect: &Effect<SettingsEffect>) -> Result<Option<&shape::Shape>, Neve
       SettingsEffect::Replace(_)
       | SettingsEffect::DisplaySelected
       | SettingsEffect::NetworkShown
-      | SettingsEffect::NetworkHidden,
+      | SettingsEffect::NetworkHidden
+      | SettingsEffect::SaveWorkspaceApp(_),
     )
     | Effect::Run(_)
     | Effect::Stream(_)
@@ -1027,7 +1028,8 @@ fn bluetooth_at(
     | Destination::Zone(_)
     | Destination::Clock
     | Destination::Wallpaper(_)
-    | Destination::QuickWorkspace => None,
+    | Destination::QuickWorkspace
+    | Destination::QuickWorkspaceApps(_) => None,
   };
 
   match standing {
@@ -1250,6 +1252,7 @@ fn wallpaper_tab(
     | Destination::Dictation
     | Destination::Kind(_)
     | Destination::QuickWorkspace
+    | Destination::QuickWorkspaceApps(_)
     | Destination::Meeting(_)
     | Destination::Languages
     | Destination::Language(_)
@@ -1621,6 +1624,10 @@ fn press(held: &ActorAddress, heard: SettingsEvent, showing: &dyn Showing) -> Re
 
         showing.replace(row_2)
       }
+      Effect::Custom(SettingsEffect::SaveWorkspaceApp(assignment)) => {
+        let Ok(()) = crate::quick_workspace::save(&assignment);
+        showing.refresh();
+      }
       Effect::Custom(SettingsEffect::HomeScreen(shape)) => {
         let Ok(()) = home_set(shape);
       }
@@ -1682,7 +1689,18 @@ fn defaults_tab(looking: &ActorAddress) -> Result<Vec<console_panel::page::Row>,
     Destination::QuickWorkspace => {
       let Ok(back) = back_up(looking);
 
-      crate::quick_workspace::rows(back)
+      crate::quick_workspace::rows(back, |workspace| {
+        open(looking, Destination::QuickWorkspaceApps(workspace))
+      })
+    }
+    Destination::QuickWorkspaceApps(workspace) => {
+      let Ok(back) = back_up(looking);
+      crate::quick_workspace::app_rows(&workspace.name, back, |assignment| {
+        let address = looking.clone();
+        Handler::and_stay(move |showing| {
+          let Ok(()) = press(&address, SettingsEvent::SetWorkspaceApp(assignment.clone()), showing);
+        })
+      })
     }
     Destination::Search => {
       let Ok(back) = back_up(looking);
@@ -1780,7 +1798,8 @@ fn defaults_meanwhile(looking: &ActorAddress) -> Result<Vec<console_panel::page:
     | Destination::Zones
     | Destination::Zone(_)
     | Destination::Clock
-    | Destination::QuickWorkspace => Ok(Vec::new()),
+    | Destination::QuickWorkspace
+    | Destination::QuickWorkspaceApps(_) => Ok(Vec::new()),
   }
 }
 
@@ -2007,7 +2026,8 @@ fn language_tab(looking: &ActorAddress) -> Result<Vec<console_panel::page::Row>,
     | Destination::Zone(_)
     | Destination::Clock
     | Destination::Wallpaper(_)
-    | Destination::QuickWorkspace => language_top(looking),
+    | Destination::QuickWorkspace
+    | Destination::QuickWorkspaceApps(_) => language_top(looking),
   }
 }
 
@@ -2233,7 +2253,8 @@ fn bluetooth_page(title: &str, looking: &ActorAddress) -> Result<Page, Never> {
       | Destination::Zone(_)
       | Destination::Clock
       | Destination::Wallpaper(_)
-      | Destination::QuickWorkspace => ActionOutcome::Close,
+      | Destination::QuickWorkspace
+      | Destination::QuickWorkspaceApps(_) => ActionOutcome::Close,
     }
   })
 }
@@ -2356,6 +2377,7 @@ fn wallpaper_page(title: &str, looking: &ActorAddress) -> Result<Page, Never> {
       | Destination::Dictation
       | Destination::Kind(_)
       | Destination::QuickWorkspace
+      | Destination::QuickWorkspaceApps(_)
       | Destination::Meeting(_)
       | Destination::Languages
       | Destination::Language(_)

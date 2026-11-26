@@ -204,6 +204,18 @@ pub const CLIPBOARD_COPY_TEXT: Flag = Flag {
   about: "copy UTF-8 text from standard input to the clipboard",
 };
 
+pub const CLIPBOARD_READ_TEXT: Flag = Flag {
+  spelling: "--read-text",
+  takes: Takes::None,
+  about: "print the active plain-text clipboard selection",
+};
+
+pub const KEYBOARD_AUTOMATIC_SHOW: Flag = Flag {
+  spelling: "--automatic",
+  takes: Takes::None,
+  about: "raise the keyboard only when automatic opening is enabled",
+};
+
 pub const CLIPBOARD_COPY_PNG: Flag = Flag {
   spelling: "--copy-png",
   takes: Takes::None,

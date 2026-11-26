@@ -1233,7 +1233,10 @@ impl App {
           View::Library => {}
         },
         AnnotationEffect::ShowKeyboard => {
-          let Ok(()) = spawn_detached(InternalProgram::KeyboardShow, &[]);
+          let Ok(()) = spawn_detached(
+            InternalProgram::KeyboardShow,
+            &[console_core_internal_programs::KEYBOARD_AUTOMATIC_SHOW.spelling],
+          );
         }
         AnnotationEffect::Back => {
           let Ok(closed) = self.put_book_away();

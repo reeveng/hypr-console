@@ -77,10 +77,7 @@ pub fn applications(
 }
 
 #[must_use]
-fn application(
-  line: &str,
-  installation: Installation,
-) -> Result<Option<Application>, Never> {
+fn application(line: &str, installation: Installation) -> Result<Option<Application>, Never> {
   let mut columns = line.split('\t').map(str::trim);
   let (id, branch, title, version, remote) = match (
     columns.next(),

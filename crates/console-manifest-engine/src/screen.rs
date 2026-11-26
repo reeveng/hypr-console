@@ -50,7 +50,10 @@ pub fn refresh_backlight() -> Result<(), Never> {
   match triggered.ran {
     machine::Ran::Fine => {}
     machine::Ran::Badly => {
-      console_core_logging::warn!("could not refresh backlight permissions: {}", triggered.said);
+      console_core_logging::warn!(
+        "could not refresh backlight permissions: {}",
+        triggered.said
+      );
     }
   }
 

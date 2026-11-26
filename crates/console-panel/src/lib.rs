@@ -27,7 +27,6 @@ pub mod door {
 
 pub mod completion;
 pub mod description;
-pub mod field;
 pub mod fitting;
 pub mod frames;
 pub mod handoff;
@@ -49,6 +48,7 @@ pub mod surface;
 pub mod tab;
 pub mod tasks;
 pub mod ui;
+pub use ui::field;
 pub mod whose;
 pub mod window;
 pub mod zoom;

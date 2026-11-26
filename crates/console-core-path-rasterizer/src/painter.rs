@@ -542,7 +542,8 @@ impl PixmapMut<'_> {
 
     match direct.then_some(()) {
       Some(()) => {
-        let Ok(drawn) = crate::nearest_pixmap::draw(self, pixmap, rect, [patt_transform, transform]);
+        let Ok(drawn) =
+          crate::nearest_pixmap::draw(self, pixmap, rect, [patt_transform, transform]);
 
         match drawn {
           crate::nearest_pixmap::Drawing::Drawn => return Ok(()),

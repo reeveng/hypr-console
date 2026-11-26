@@ -33,6 +33,8 @@ use console_login_window::stored_pattern::{Hash, PatternAttempts, StoredPattern}
 
 pub mod idle;
 
+pub const LOCK_SERVICE: &str = "console-lock.service";
+
 pub const PATTERN_UNAVAILABLE: &str =
   "The saved pattern cannot be read. Choose another unlock method.";
 

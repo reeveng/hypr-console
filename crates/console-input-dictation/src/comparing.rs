@@ -45,8 +45,8 @@
 
 use std::path::{Path, PathBuf};
 
-use console_core_external_programs::Program as ExternalProgram;
 use console_core_bytes::Bytes;
+use console_core_external_programs::Program as ExternalProgram;
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index};
 

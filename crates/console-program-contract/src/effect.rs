@@ -51,9 +51,9 @@
 
 use std::path::PathBuf;
 
+use console_core_bytes::Bytes;
 use console_core_external_programs::Program;
 use console_core_internal_programs::InternalProgram;
-use console_core_bytes::Bytes;
 use console_core_never::Never;
 use console_core_state_machine::{EffectDependencies, Service};
 

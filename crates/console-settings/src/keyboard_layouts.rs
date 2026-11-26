@@ -1,7 +1,9 @@
 use std::fmt;
 
+use console_core_controls::Switch;
 use console_core_localization::text;
 use console_core_never::Never;
+use console_default_applications::keyboard::{self, Automatic};
 use console_input_alphabets::Alphabet;
 use console_panel::page::{Aside, Handler, NOW, Row, Showing};
 
@@ -43,11 +45,14 @@ pub fn rows(
 
       match menu {
         KeyboardMenu::Open => {
-          let Ok(available) = installed_rows(installed, active, open);
+          let Ok(available) = installed_rows(installed, active, open.clone());
           rows.extend(available);
         }
         KeyboardMenu::Closed | KeyboardMenu::Install | KeyboardMenu::Remove => {}
       }
+
+      let Ok(automatic) = automatic_keyboard(menu, open);
+      rows.push(automatic);
     }
     KeyboardMenu::Install | KeyboardMenu::Remove => {
       for alphabet in &console_input_alphabets::EVERY {
@@ -72,6 +77,27 @@ pub fn rows(
   }
 
   Ok(rows)
+}
+
+fn automatic_keyboard(
+  menu: KeyboardMenu,
+  open: impl Fn(KeyboardMenu, &dyn Showing) + Clone + Send + Sync + 'static,
+) -> Result<Row, Never> {
+  let Ok(automatic) = keyboard::automatic();
+  let (state, next) = match automatic {
+    Automatic::On => (Switch::On, Automatic::Off),
+    Automatic::Off => (Switch::Off, Automatic::On),
+  };
+  let Ok(change) = Handler::and_stay(move |showing| {
+    let Ok(()) = keyboard::choose(next);
+    open(menu, showing);
+  });
+  let Ok(row) = Row::new(
+    "Open the on-screen keyboard automatically",
+    Aside(""),
+    change,
+  );
+  row.switched(state)
 }
 
 fn installed_rows(
@@ -253,7 +279,13 @@ mod tests {
 
     assert_eq!(
       rendered(KeyboardMenu::Closed),
-      [(String::from("Keyboard Layout"), String::from("Latin ▾"))]
+      [
+        (String::from("Keyboard Layout"), String::from("Latin ▾")),
+        (
+          String::from("Open the on-screen keyboard automatically"),
+          String::new()
+        ),
+      ]
     );
     let open = rendered(KeyboardMenu::Open);
     assert!(open.contains(&(String::from("Latin"), String::from(NOW))));

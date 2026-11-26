@@ -311,7 +311,8 @@ mod tests {
     symbol: Keysym,
     depressed_modifiers: u32,
   ) -> Result<PhysicalKeyPress, Never> {
-    let Ok(translated) = console_draw_surface::KeyPress::with_modifiers(symbol, depressed_modifiers);
+    let Ok(translated) =
+      console_draw_surface::KeyPress::with_modifiers(symbol, depressed_modifiers);
 
     Ok(PhysicalKeyPress {
       code: u32::from(code.0),

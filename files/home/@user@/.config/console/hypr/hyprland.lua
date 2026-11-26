@@ -324,32 +324,14 @@ if input_preference("new-window-workspace") == "new" then
     end)
 end
 
--- Settings stores the desktop entry ID followed by its window classes.
--- Register the rule after the default so selected apps open over the active workspace.
-local config_home = os.getenv("XDG_CONFIG_HOME")
-if not config_home or config_home:sub(1, 1) ~= "/" then
-    local home = os.getenv("HOME")
-    config_home = home and home .. "/.config"
-end
-local quick_apps = config_home and io.open(config_home .. "/console/quick-workspace", "r")
-if quick_apps then
-    local classes = {}
-    for line in quick_apps:lines() do
-        local _, rest = line:match("^([^\t]+)\t(.+)$")
-        if rest then
-            for class in rest:gmatch("[^\t]+") do
-                local escaped = class:gsub("([\\.^$|?*+()%[%]{}])", "\\%1")
-                table.insert(classes, escaped)
-            end
-        end
-    end
-    quick_apps:close()
-    if #classes > 0 then
-        hl.window_rule({
-            name = "open apps in Quick Workspace",
-            match = { initial_class = table.concat(classes, "|") },
-            workspace = "special:console-quick",
-        })
+-- Register the saved Quick Workspace rules after default window placement.
+do
+    local rules = io.popen("exec '/usr/local/bin/console-compositor' quick-workspace-rules", "r")
+    if rules then
+        local source = rules:read("*a") or ""
+        rules:close()
+        local apply = assert(load(source, "Quick Workspace rules"))
+        apply()
     end
 end
 

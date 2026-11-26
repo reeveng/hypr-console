@@ -103,6 +103,7 @@ pub enum Destination {
   Dictation,
   Kind(u32),
   QuickWorkspace,
+  QuickWorkspaceApps(Deeper),
   Meeting(Meeting),
   Languages,
   Language(Deeper),
@@ -116,6 +117,7 @@ pub enum Destination {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SettingsEvent {
   Opened(Destination),
+  SetWorkspaceApp(console_compositor::quick_workspace::Assignment),
   Back,
   SelectDisplay(String),
   ShowNetwork(crate::wifi::Network),
@@ -125,9 +127,10 @@ pub enum SettingsEvent {
   Sized { shape: Shape, step: i32 },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SettingsEffect {
   Replace(u32),
+  SaveWorkspaceApp(console_compositor::quick_workspace::Assignment),
   HomeScreen(Shape),
   DisplaySelected,
   NetworkShown,
@@ -139,6 +142,7 @@ impl EffectDependencies for SettingsEffect {
     Ok(match self {
       Self::Replace(_) => &[Service::Panels],
       Self::HomeScreen(_) => &[Service::Panels],
+      Self::SaveWorkspaceApp(_) => &[Service::Panels],
       Self::DisplaySelected | Self::NetworkShown | Self::NetworkHidden => &[],
     })
   }
@@ -197,6 +201,10 @@ impl Machine for Settings {
         state.destination = onto;
         Ok(state)
       }
+      Event::Custom(SettingsEvent::SetWorkspaceApp(assignment)) => {
+        let Ok(()) = effects.offer(Effect::Custom(SettingsEffect::SaveWorkspaceApp(assignment)));
+        Ok(state)
+      }
 
       Event::Custom(SettingsEvent::Back) => {
         let (destination, row) = match state.destination {
@@ -208,6 +216,9 @@ impl Machine for Settings {
           }
           Destination::Wallpaper(WallpaperView::Picture(ref picture)) => {
             (Destination::Wallpaper(WallpaperView::Pictures), picture.at)
+          }
+          Destination::QuickWorkspaceApps(ref workspace) => {
+            (Destination::QuickWorkspace, workspace.at)
           }
           Destination::Settings
           | Destination::Search
@@ -306,6 +317,7 @@ pub fn row_of(onto: &Destination) -> Result<u32, Never> {
     Destination::Dictation => Ok(DICTATION),
     Destination::Kind(at) => Ok(FIRST_KIND.saturating_add(*at)),
     Destination::QuickWorkspace => Ok(QUICK_WORKSPACE),
+    Destination::QuickWorkspaceApps(workspace) => Ok(workspace.at),
     Destination::Meeting(meeting) => Ok(meeting.at),
     Destination::Languages => Ok(SAYS),
     Destination::Alphabets(_) => Ok(TYPES),
@@ -326,6 +338,7 @@ fn standing_on(onto: &Destination) -> Result<u32, Never> {
     | Destination::Dictation
     | Destination::Kind(_)
     | Destination::QuickWorkspace
+    | Destination::QuickWorkspaceApps(_)
     | Destination::Languages
     | Destination::Language(_)
     | Destination::Alphabets(_)
@@ -343,6 +356,7 @@ pub fn closes(onto: &Destination) -> Result<Closes, Never> {
     | Destination::Dictation
     | Destination::Kind(_)
     | Destination::QuickWorkspace
+    | Destination::QuickWorkspaceApps(_)
     | Destination::Meeting(_)
     | Destination::Languages
     | Destination::Language(_)
@@ -365,6 +379,7 @@ pub fn under(onto: &Destination) -> Result<Under, Never> {
     | Destination::Search
     | Destination::Kind(_)
     | Destination::QuickWorkspace
+    | Destination::QuickWorkspaceApps(_)
     | Destination::Meeting(_)
     | Destination::Zones
     | Destination::Zone(_)
@@ -468,6 +483,36 @@ mod tests {
     assert_eq!(
       dictation.last(),
       Some(&Effect::Custom(SettingsEffect::Replace(DICTATION)))
+    );
+  }
+
+  #[test]
+  fn workspace_apps_emit_a_save_and_return_to_the_workspace_row() {
+    let assignment = console_compositor::quick_workspace::Assignment {
+      workspace: "Notes".to_owned(),
+      id: "notes.desktop".to_owned(),
+      classes: vec!["notes".to_owned()],
+      selection: console_compositor::quick_workspace::AppSelection::Include,
+    };
+    let Ok((state, effects)) = ran(&[
+      SettingsEvent::Opened(Destination::QuickWorkspace),
+      SettingsEvent::Opened(Destination::QuickWorkspaceApps(Deeper {
+        name: assignment.workspace.clone(),
+        at: 4,
+      })),
+      SettingsEvent::SetWorkspaceApp(assignment.clone()),
+      SettingsEvent::Back,
+    ]);
+
+    assert_eq!(state, Destination::QuickWorkspace);
+    assert!(
+      effects.contains(&Effect::Custom(SettingsEffect::SaveWorkspaceApp(
+        assignment
+      )))
+    );
+    assert_eq!(
+      effects.last(),
+      Some(&Effect::Custom(SettingsEffect::Replace(4)))
     );
   }
 

@@ -4,7 +4,9 @@ use std::time::Duration;
 use console_compositor::{ActiveWindow, DispatchResult, Layers};
 use console_core_arguments::{Command, Flag, Operands, Takes};
 use console_core_controls::switch::Switch;
-use console_core_internal_programs::{CLIPBOARD_COPY_PNG, CLIPBOARD_COPY_TEXT};
+use console_core_internal_programs::{
+  CLIPBOARD_COPY_PNG, CLIPBOARD_COPY_TEXT, CLIPBOARD_READ_TEXT,
+};
 use console_core_never::Never;
 use console_panel::card::{Card, Door};
 use console_panel::page::{ActionOutcome, Aside, Handler, Page, Row, Rows, Subject};
@@ -25,11 +27,7 @@ pub const WATCH: Flag = Flag {
   takes: Takes::None,
   about: "run the clipboard history service for this session",
 };
-pub const READ_TEXT: Flag = Flag {
-  spelling: "--read-text",
-  takes: Takes::None,
-  about: "print the active plain-text clipboard selection",
-};
+pub const READ_TEXT: Flag = CLIPBOARD_READ_TEXT;
 pub const COMMAND: Command = Command {
   name: env!("CARGO_PKG_NAME"),
   about: "choose an item from the system clipboard history",

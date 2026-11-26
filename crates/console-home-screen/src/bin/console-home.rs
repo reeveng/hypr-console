@@ -162,7 +162,8 @@ use console_core_number_conversion::{fitted, index, toward_zero_i32};
 use console_core_shapes::{Edge, Font, Panel, Picture, Pixels, Round, Shape, Text, Weight};
 use console_draw_painting::{Rendered, Run, painter};
 use console_draw_surface::{
-  Activation, Anchor, Closed, Keyboard, Margin, PointerCursor, PointerEvent, Room, Surface, Under, Wanted,
+  Activation, Anchor, Closed, Keyboard, Margin, PointerCursor, PointerEvent, Room, Surface,
+  Under, Wanted,
 };
 use console_events::again::Worth;
 use console_home_screen::shape::{self, Layout};
@@ -1892,10 +1893,18 @@ fn redraw(
   Ok(())
 }
 
-fn show_pointer(surface: &mut Surface, screen: &Screen, drawing: &mut Drawing, wears: &Wears) -> Result<(), Never> {
+fn show_pointer(
+  surface: &mut Surface,
+  screen: &Screen,
+  drawing: &mut Drawing,
+  wears: &Wears,
+) -> Result<(), Never> {
   let Ok(pointer) = surface.pointer_pixel();
   let target = pointer.and_then(|at| {
-    drawing.touching.iter().find(|(_, panel)| panel.covers(at) == Ok(console_core_shapes::Covers::Yes))
+    drawing
+      .touching
+      .iter()
+      .find(|(_, panel)| panel.covers(at) == Ok(console_core_shapes::Covers::Yes))
   });
   let clickable = target.filter(|(spot, _)| {
     let Ok(name) = screen.name_at(*spot);
@@ -1904,7 +1913,8 @@ fn show_pointer(surface: &mut Surface, screen: &Screen, drawing: &mut Drawing, w
   });
   let cursor = match clickable {
     Some((_, panel)) => {
-      let Ok(indicator) = console_core_shapes::hover_indicator(panel.at, panel.size, (wears.here, wears.plate));
+      let Ok(indicator) =
+        console_core_shapes::hover_indicator(panel.at, panel.size, (wears.here, wears.plate));
       drawing.shapes.extend(indicator);
 
       PointerCursor::Hand

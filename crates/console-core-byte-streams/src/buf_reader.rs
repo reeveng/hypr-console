@@ -15,7 +15,10 @@ use super::{FiniteStream, ReadBytes, ahead, copied};
 fn stream_read<T>(outcome: Result<T, Truncated>) -> io::Result<T> {
   match outcome {
     Ok(value) => Ok(value),
-    Err(Truncated) => Err(io::Error::new(io::ErrorKind::UnexpectedEof, "buffer underrun")),
+    Err(Truncated) => Err(io::Error::new(
+      io::ErrorKind::UnexpectedEof,
+      "buffer underrun",
+    )),
   }
 }
 

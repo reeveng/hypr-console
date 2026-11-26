@@ -7,8 +7,8 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
-use console_core_external_programs::Program as ExternalProgram;
 use console_core_bytes::Bytes;
+use console_core_external_programs::Program as ExternalProgram;
 use console_core_never::Never;
 use console_core_state_machine::{EffectDependencies, Machine, Queue, Service, Transition};
 use console_program_contract::{

@@ -71,10 +71,12 @@ impl ClipMask {
     let Ok(end_x) = opaque.right();
     let Ok(end_y) = opaque.bottom();
 
-    Ok(match (near.x >= x && near.y >= y && far.x <= end_x && far.y <= end_y).then_some(()) {
-      Some(()) => None,
-      None => Some(&self.mask),
-    })
+    Ok(
+      match (near.x >= x && near.y >= y && far.x <= end_x && far.y <= end_y).then_some(()) {
+        Some(()) => None,
+        None => Some(&self.mask),
+      },
+    )
   }
 }
 
@@ -140,14 +142,11 @@ impl<'a> Canvas<'a> {
     rule: FillRule,
   ) -> Result<(), Never> {
     let Ok(bounds) = path.bounds();
-    let mask = self
-      .clip
-      .as_ref()
-      .and_then(|clip| {
-        let Ok(mask) = clip.mask_for(bounds, self.transform);
+    let mask = self.clip.as_ref().and_then(|clip| {
+      let Ok(mask) = clip.mask_for(bounds, self.transform);
 
-        mask
-      });
+      mask
+    });
 
     self
       .pixels

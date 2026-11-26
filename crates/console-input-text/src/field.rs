@@ -11,9 +11,11 @@
 //! A deletion that splits a UTF-8 character is skipped. Committed characters
 //! can still be inserted at a valid caret.
 
+use std::collections::VecDeque;
+
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, fixed_index, index, indices};
-use console_core_text_boundaries::previous_word_start;
+use console_core_text_boundaries::{next_word_end, previous_word_start};
 use console_draw_surface::{KeyPress, Keysym};
 
 use crate::boundaries;
@@ -23,6 +25,49 @@ use crate::input_range::{DeletionError, InputDeletion, deletion};
 pub struct TextField {
   text: String,
   caret: u32,
+  anchor: Option<u32>,
+  history: History,
+}
+
+const HISTORY_LIMIT: u32 = 64;
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct History {
+  undo: VecDeque<Edit>,
+  redo: Vec<Edit>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Edit {
+  start: u64,
+  removed: String,
+  inserted: String,
+  before: (u32, Option<u32>),
+  after: u32,
+}
+
+#[derive(Clone, Copy)]
+enum HistoryDirection {
+  Undo,
+  Redo,
+}
+
+const SHIFT: u32 = 1;
+const COMMAND: u32 = KeyPress::CONTROL | (1 << 3) | (1 << 6);
+
+#[derive(Clone, Copy)]
+pub(crate) enum Movement {
+  Place,
+  Extend,
+}
+
+impl Movement {
+  pub(crate) fn from_press(press: KeyPress) -> Result<Self, Never> {
+    Ok(match (press.modifiers & SHIFT != 0).then_some(()) {
+      Some(()) => Self::Extend,
+      None => Self::Place,
+    })
+  }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,6 +84,8 @@ impl TextField {
     Ok(TextField {
       text: text.to_string(),
       caret,
+      anchor: None,
+      history: History::default(),
     })
   }
 
@@ -64,8 +111,46 @@ impl TextField {
     })
   }
 
+  pub fn selection(&self) -> Result<Option<std::ops::Range<u32>>, Never> {
+    Ok(
+      self
+        .anchor
+        .map(|anchor| anchor.min(self.caret)..anchor.max(self.caret)),
+    )
+  }
+
+  pub fn selected_text(&self) -> Result<Option<&str>, Never> {
+    let Ok(selection) = self.selection_bytes();
+
+    Ok(match selection {
+      Some(range) => {
+        let Ok(native) = indices(range);
+        self.text.get(native)
+      }
+      None => None,
+    })
+  }
+
+  fn selection_bytes(&self) -> Result<Option<std::ops::Range<u64>>, Never> {
+    let Ok(selection) = self.selection();
+
+    Ok(selection.map(|range| {
+      let Ok(from) = boundaries::byte(&self.text, range.start);
+      let Ok(through) = boundaries::byte(&self.text, range.end);
+      u64::from(from)..u64::from(through)
+    }))
+  }
+
   pub fn typed(&mut self, key: Keysym) -> Result<Typed, Never> {
     let Ok(last) = self.letters();
+    let Ok(selection) = self.selection();
+
+    match (key, selection) {
+      (Keysym::BackSpace | Keysym::Delete, Some(range)) => return self.remove(range),
+      (Keysym::Left, Some(range)) => return self.moved_to(range.start),
+      (Keysym::Right, Some(range)) => return self.moved_to(range.end),
+      _ => {}
+    }
 
     match key {
       Keysym::BackSpace => {
@@ -112,14 +197,71 @@ impl TextField {
   pub fn typed_press(&mut self, press: KeyPress) -> Result<Typed, Never> {
     match (
       press.key,
-      (press.modifiers & KeyPress::CONTROL != 0).then_some(()),
+      press.modifiers & COMMAND,
+      press.modifiers & SHIFT,
     ) {
-      (Keysym::BackSpace, Some(())) => self.delete_previous_word(),
-      (key, _) => self.typed(key),
+      (Keysym::a | Keysym::A, KeyPress::CONTROL, 0) => self.select_all(),
+      (Keysym::z | Keysym::Z, KeyPress::CONTROL, 0) => self.replay(HistoryDirection::Undo),
+      (Keysym::z | Keysym::Z, KeyPress::CONTROL, SHIFT)
+      | (Keysym::y | Keysym::Y, KeyPress::CONTROL, 0) => self.replay(HistoryDirection::Redo),
+      (Keysym::BackSpace, KeyPress::CONTROL, _) => self.delete_previous_word(),
+      (Keysym::Left | Keysym::Right, KeyPress::CONTROL, _) => self.move_word(press),
+      (Keysym::Left, 0, SHIFT) => self.move_caret(self.caret.saturating_sub(1), Movement::Extend),
+      (Keysym::Right, 0, SHIFT) => {
+        self.move_caret(self.caret.saturating_add(1), Movement::Extend)
+      }
+      (Keysym::Home, 0, SHIFT) => self.move_caret(0, Movement::Extend),
+      (Keysym::End, 0, SHIFT) => {
+        let Ok(last) = self.letters();
+        self.move_caret(last, Movement::Extend)
+      }
+      (key, 0, _) => self.typed(key),
+      (_, _, _) => Ok(Typed::None),
+    }
+  }
+
+  fn select_all(&mut self) -> Result<Typed, Never> {
+    let Ok(end) = self.letters();
+    self.set_caret(end, Some(0))
+  }
+
+  fn move_word(&mut self, press: KeyPress) -> Result<Typed, Never> {
+    let Ok(before) = self.before_caret();
+    let Ok(at) = fixed_index(before.len());
+    let Ok(byte) = match press.key {
+      Keysym::Left => previous_word_start(before),
+      _ => {
+        let remaining = match self.text.get(before.len()..) {
+          Some(remaining) => remaining,
+          None => return Ok(Typed::None),
+        };
+        let Ok(offset) = next_word_end(remaining);
+        Ok(at.saturating_add(offset))
+      }
+    };
+    let Ok(edge) = fitted(byte);
+    let Ok(caret) = boundaries::at_or_after(&self.text, edge);
+    let Ok(movement) = Movement::from_press(press);
+    self.move_caret(caret, movement)
+  }
+
+  pub fn delete_selection(&mut self) -> Result<Typed, Never> {
+    let Ok(selection) = self.selection();
+
+    match selection {
+      Some(range) => self.remove(range),
+      None => Ok(Typed::None),
     }
   }
 
   fn delete_previous_word(&mut self) -> Result<Typed, Never> {
+    let Ok(selection) = self.selection();
+
+    match selection {
+      Some(range) => return self.remove(range),
+      None => {}
+    }
+
     match self.caret {
       0 => Ok(Typed::None),
       _ => {
@@ -128,58 +270,118 @@ impl TextField {
         let Ok(start) = fitted(start_byte);
         let Ok(end) = fitted(before.len());
 
-        self.remove_bytes(start..end)
+        self.replace_bytes(start..end, "")
       }
     }
   }
 
   pub fn insert(&mut self, letter: char) -> Result<Typed, Never> {
-    let Ok(at) = boundaries::byte(&self.text, self.caret);
-    let Ok(at_2) = index(at);
+    self.insert_text(letter.encode_utf8(&mut [0; 4]))
+  }
 
-    self.text.insert(at_2, letter);
-    let Ok(after) = fitted(at_2.saturating_add(letter.len_utf8()));
-    let Ok(caret) = boundaries::at_or_after(&self.text, after);
-    self.caret = caret;
+  pub(crate) fn insert_text(&mut self, text: &str) -> Result<Typed, Never> {
+    match text {
+      "" => return Ok(Typed::None),
+      _ => {}
+    }
 
-    Ok(Typed::Edited)
+    let Ok(selection) = self.selection_bytes();
+    let range = match selection {
+      Some(range) => range,
+      None => {
+        let Ok(at) = boundaries::byte(&self.text, self.caret);
+        let byte = u64::from(at);
+        byte..byte
+      }
+    };
+
+    self.replace_bytes(range, text)
+  }
+
+  pub fn paste(&mut self, text: &str) -> Result<Typed, Never> {
+    let first = match text.split(['\r', '\n']).next() {
+      Some(line) => line,
+      None => return Ok(Typed::None),
+    };
+
+    self.apply_input(
+      InputDeletion {
+        before: 0,
+        after: 0,
+      },
+      first,
+    )
   }
 
   pub fn apply_input(&mut self, bytes: InputDeletion, committed: &str) -> Result<Typed, Never> {
     let Ok(at) = boundaries::byte(&self.text, self.caret);
     let cursor = u64::from(at);
-    let range = match deletion(&self.text, cursor, bytes) {
+    let deletion = match deletion(&self.text, cursor, bytes) {
       Ok(removed) => removed,
       Err(DeletionError::Span) => cursor..cursor,
       Err(DeletionError::Caret) => return Ok(Typed::None),
     };
     let mut inserted = String::new();
     inserted.extend(committed.chars().filter(|letter| !letter.is_control()));
+    let Ok(selection) = self.selection_bytes();
+    let range = match (selection, inserted.is_empty(), deletion.is_empty()) {
+      (Some(selected), false, _) | (Some(selected), _, false) => {
+        deletion.start.min(selected.start)..deletion.end.max(selected.end)
+      }
+      _ => deletion,
+    };
 
     match bool::then_some(range.is_empty() && inserted.is_empty(), ()) {
       Some(()) => return Ok(Typed::None),
       None => {}
     }
 
-    let Ok(inserted_bytes) = fixed_index(inserted.len());
-    let Ok(edit_end) = fitted(range.start.saturating_add(inserted_bytes));
-    let Ok(native_range) = indices(range);
-    self.text.replace_range(native_range, &inserted);
-    let Ok(caret) = boundaries::at_or_after(&self.text, edit_end);
-    self.caret = caret;
-
-    Ok(Typed::Edited)
+    self.replace_bytes(range, &inserted)
   }
 
   pub fn moved_to(&mut self, caret: u32) -> Result<Typed, Never> {
+    self.move_caret(caret, Movement::Place)
+  }
+
+  pub fn extended_to(&mut self, caret: u32) -> Result<Typed, Never> {
+    self.move_caret(caret, Movement::Extend)
+  }
+
+  pub fn select_word(&mut self, caret: u32) -> Result<Typed, Never> {
+    let Ok(at) = boundaries::byte(&self.text, caret);
+    let Ok(word) = console_core_text_boundaries::word_at(&self.text, u64::from(at));
+    let Ok(start) = fitted(word.start);
+    let Ok(end) = fitted(word.end);
+    let Ok(anchor) = boundaries::at_or_after(&self.text, start);
+    let Ok(through) = boundaries::at_or_after(&self.text, end);
+    self.set_caret(through, Some(anchor))
+  }
+
+  pub(crate) fn move_caret(&mut self, caret: u32, movement: Movement) -> Result<Typed, Never> {
     let Ok(last) = self.letters();
-    let caret_2 = caret.min(last);
+    let anchor = match movement {
+      Movement::Place => None,
+      Movement::Extend => Some(match self.anchor {
+        Some(anchor) => anchor,
+        None => self.caret,
+      }),
+    };
+
+    self.set_caret(caret.min(last), anchor)
+  }
+
+  fn set_caret(&mut self, caret: u32, anchor: Option<u32>) -> Result<Typed, Never> {
+    let selection_start = anchor.filter(|from| *from != caret);
 
     Ok(
-      match ::core::primitive::bool::then_some(caret_2 == self.caret, ()) {
+      match ::core::primitive::bool::then_some(
+        (caret, selection_start) == (self.caret, self.anchor),
+        (),
+      ) {
         ::core::option::Option::Some(()) => Typed::None,
         ::core::option::Option::None => {
-          self.caret = caret_2;
+          self.caret = caret;
+          self.anchor = selection_start;
 
           Typed::Moved
         }
@@ -191,23 +393,123 @@ impl TextField {
     let Ok(from) = boundaries::byte(&self.text, range.start);
     let Ok(through) = boundaries::byte(&self.text, range.end);
 
-    self.remove_bytes(from..through)
+    self.replace_bytes(u64::from(from)..u64::from(through), "")
   }
 
-  fn remove_bytes(&mut self, range: std::ops::Range<u32>) -> Result<Typed, Never> {
-    let from = range.start;
+  fn replace_bytes(
+    &mut self,
+    range: std::ops::Range<u64>,
+    inserted: &str,
+  ) -> Result<Typed, Never> {
+    let Ok(inserted_bytes) = fixed_index(inserted.len());
+    let Ok(end) = fitted(range.start.saturating_add(inserted_bytes));
+    let start = range.start;
+    let before = (self.caret, self.anchor);
     let Ok(native_range) = indices(range);
-    self.text.replace_range(native_range, "");
-    let Ok(caret) = boundaries::at_or_after(&self.text, from);
+    let removed = match self.text.get(native_range.clone()) {
+      Some(removed) => removed.to_owned(),
+      None => return Ok(Typed::None),
+    };
+    self.text.replace_range(native_range, inserted);
+    let Ok(caret) = boundaries::at_or_after(&self.text, end);
     self.caret = caret;
+    self.anchor = None;
+    let Ok(()) = self.history.record(Edit {
+      start,
+      removed,
+      inserted: inserted.to_owned(),
+      before,
+      after: caret,
+    });
 
     Ok(Typed::Edited)
+  }
+
+  fn replay(&mut self, direction: HistoryDirection) -> Result<Typed, Never> {
+    let pending = match direction {
+      HistoryDirection::Undo => self.history.undo.pop_back(),
+      HistoryDirection::Redo => self.history.redo.pop(),
+    };
+    let edit = match pending {
+      Some(edit) => edit,
+      None => return Ok(Typed::None),
+    };
+    let (current, replacement, (caret, anchor)) = match direction {
+      HistoryDirection::Undo => (&edit.inserted, &edit.removed, edit.before),
+      HistoryDirection::Redo => (&edit.removed, &edit.inserted, (edit.after, None)),
+    };
+    let Ok(bytes) = fixed_index(current.len());
+    let Ok(range) = indices(edit.start..edit.start.saturating_add(bytes));
+    self.text.replace_range(range, replacement);
+    self.caret = caret;
+    self.anchor = anchor;
+
+    match direction {
+      HistoryDirection::Undo => self.history.redo.push(edit),
+      HistoryDirection::Redo => self.history.undo.push_back(edit),
+    }
+
+    Ok(Typed::Edited)
+  }
+}
+
+impl History {
+  fn record(&mut self, edit: Edit) -> Result<(), Never> {
+    self.redo.clear();
+    let Ok(limit) = index(HISTORY_LIMIT);
+
+    match (self.undo.len() == limit).then_some(()) {
+      Some(()) => {
+        let _discarded = self.undo.pop_front();
+      }
+      None => {}
+    }
+
+    self.undo.push_back(edit);
+    Ok(())
   }
 }
 
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn shortcuts_select_graphemes_and_typing_replaces_the_selection() {
+    let Ok(mut field) = TextField::holding("Cafe\u{301} 👩‍👩‍👧‍👦");
+    let Ok(select) = KeyPress::with_modifiers(Keysym::a, KeyPress::CONTROL);
+    let Ok(extend) = KeyPress::with_modifiers(Keysym::Left, SHIFT);
+    let Ok(copy) = KeyPress::with_modifiers(Keysym::c, KeyPress::CONTROL);
+
+    assert_eq!(field.typed_press(extend), Ok(Typed::Moved));
+    assert_eq!(field.selected_text(), Ok(Some("👩‍👩‍👧‍👦")));
+    assert_eq!(field.typed_press(copy), Ok(Typed::None));
+    assert_eq!(field.typed_press(select), Ok(Typed::Moved));
+    assert_eq!(field.selected_text(), Ok(Some("Cafe\u{301} 👩‍👩‍👧‍👦")));
+    assert_eq!(field.typed(Keysym::x), Ok(Typed::Edited));
+    assert_eq!(field.text(), Ok("x"));
+    assert_eq!(field.selection(), Ok(None));
+  }
+
+  #[test]
+  fn word_selection_and_undo_restore_the_edited_range() {
+    let Ok(mut field) = TextField::holding("one cafe\u{301}");
+    let Ok(select_word) = KeyPress::with_modifiers(Keysym::Left, KeyPress::CONTROL | SHIFT);
+    let Ok(move_word) = KeyPress::with_modifiers(Keysym::Right, KeyPress::CONTROL);
+    let Ok(undo) = KeyPress::with_modifiers(Keysym::z, KeyPress::CONTROL);
+    let Ok(redo) = KeyPress::with_modifiers(Keysym::z, KeyPress::CONTROL | SHIFT);
+
+    assert_eq!(field.typed_press(select_word), Ok(Typed::Moved));
+    assert_eq!(field.selected_text(), Ok(Some("cafe\u{301}")));
+    assert_eq!(field.paste("tea\r\nother line"), Ok(Typed::Edited));
+    assert_eq!(field.text(), Ok("one tea"));
+    assert_eq!(field.typed_press(undo), Ok(Typed::Edited));
+    assert_eq!(field.selected_text(), Ok(Some("cafe\u{301}")));
+    assert_eq!(field.typed_press(move_word), Ok(Typed::Moved));
+    assert_eq!(field.selection(), Ok(None));
+    assert_eq!(field.typed_press(redo), Ok(Typed::Edited));
+    assert_eq!(field.text(), Ok("one tea"));
+  }
 
   #[test]
   fn control_backspace_erases_the_previous_word_and_trailing_space() {

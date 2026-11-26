@@ -17,10 +17,16 @@ pub const IDENTIFY: Flag = Flag {
   about: "press a button and be told which one it is",
 };
 
+pub const KEYBOARD: Flag = Flag {
+  spelling: "--keyboard",
+  takes: Takes::None,
+  about: "list configured Console keyboard shortcuts and editor keys",
+};
+
 pub const COMMAND: Command = Command {
   name: "console-buttons",
   about: "print what every button does",
-  flags: &[IDENTIFY],
+  flags: &[IDENTIFY, KEYBOARD],
   operands: Operands::None,
 };
 
@@ -69,7 +75,7 @@ pub fn guide(sections: &[Section], ink: Ansi) -> Result<String, Never> {
 
     for line in &section.lines {
       said.push_str(&format!(
-        "  {}{:<column$}{}{}\n",
+        "  {}{:<column$}{} {}\n",
         ink.bold, line.button, ink.off, line.does
       ));
     }
@@ -111,7 +117,7 @@ mod tests {
   fn every_line_is_the_button_and_what_it_does() {
     let Ok(said) = plain_guide();
 
-    assert!(said.contains("  Touchpad              move the pointer"));
+    assert!(said.contains("  Touchpad               move the pointer"));
   }
 
   #[test]

@@ -27,7 +27,7 @@ use console_core_number_conversion::fitted;
 use console_draw_surface::{KeyPress, Keysym};
 
 use crate::boundaries;
-use crate::field::{TextField, Typed};
+use crate::field::{Movement, TextField, Typed};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TextArea {
@@ -64,8 +64,38 @@ impl TextArea {
     self.field.caret()
   }
 
+  pub fn selection(&self) -> Result<Option<Range<u32>>, Never> {
+    self.field.selection()
+  }
+
+  pub fn selected_text(&self) -> Result<Option<&str>, Never> {
+    self.field.selected_text()
+  }
+
+  pub fn delete_selection(&mut self) -> Result<Typed, Never> {
+    self.field.delete_selection()
+  }
+
   pub fn placed(&mut self, caret: u32) -> Result<Typed, Never> {
     self.field.moved_to(caret)
+  }
+
+  pub fn extended_to(&mut self, caret: u32) -> Result<Typed, Never> {
+    self.field.extended_to(caret)
+  }
+
+  pub fn select_word(&mut self, caret: u32) -> Result<Typed, Never> {
+    self.field.select_word(caret)
+  }
+
+  pub fn paste(&mut self, text: &str) -> Result<Typed, Never> {
+    let lines = text.replace("\r\n", "\n").replace('\r', "\n");
+    let inserted: String = lines
+      .chars()
+      .filter(|letter| !letter.is_control() || matches!(letter, '\n' | '\t'))
+      .collect();
+
+    self.field.insert_text(&inserted)
   }
 
   pub fn typed(&mut self, key: Keysym, rows: &[Row]) -> Result<Typed, Never> {
@@ -75,32 +105,42 @@ impl TextArea {
   }
 
   pub fn typed_press(&mut self, press: KeyPress, rows: &[Row]) -> Result<Typed, Never> {
+    let Ok(movement) = Movement::from_press(press);
+
     match press.key {
       Keysym::Return | Keysym::KP_Enter => self.field.insert('\n'),
-      Keysym::Up => self.stepped(rows, Way::Up, 1),
-      Keysym::Down => self.stepped(rows, Way::Down, 1),
+      Keysym::Up => self.step_caret(rows, Way::Up, 1, movement),
+      Keysym::Down => self.step_caret(rows, Way::Down, 1, movement),
       Keysym::Home => {
         let Ok(row) = self.row(rows);
 
-        self.field.moved_to(match row {
-          Some(row_2) => row_2.start,
-          None => 0,
-        })
+        self
+          .field
+          .move_caret(row.map_or(0, |current| current.start), movement)
       }
       Keysym::End => {
         let Ok(row) = self.row(rows);
         let Ok(last) = self.field.letters();
 
-        self.field.moved_to(match row {
-          Some(row_3) => row_3.end,
-          None => last,
-        })
+        self
+          .field
+          .move_caret(row.map_or(last, |current| current.end), movement)
       }
       _ => self.field.typed_press(press),
     }
   }
 
   pub fn stepped(&mut self, rows: &[Row], way: Way, by: u32) -> Result<Typed, Never> {
+    self.step_caret(rows, way, by, Movement::Place)
+  }
+
+  fn step_caret(
+    &mut self,
+    rows: &[Row],
+    way: Way,
+    by: u32,
+    movement: Movement,
+  ) -> Result<Typed, Never> {
     let Ok(caret) = self.field.caret();
     let Ok(at) = row_at(rows, caret);
 
@@ -121,10 +161,11 @@ impl TextArea {
     let Ok(landing_3) = console_core_number_conversion::index(match landing {
       Some(landing_2) => landing_2,
       None => {
-        return self.field.moved_to(match way {
+        let edge = match way {
           Way::Up => 0,
           Way::Down => last,
-        });
+        };
+        return self.field.move_caret(edge, movement);
       }
     });
 
@@ -135,7 +176,7 @@ impl TextArea {
 
     self
       .field
-      .moved_to(to.start.saturating_add(into).min(to.end))
+      .move_caret(to.start.saturating_add(into).min(to.end), movement)
   }
 
   pub fn row(&self, rows: &[Row]) -> Result<Option<Row>, Never> {

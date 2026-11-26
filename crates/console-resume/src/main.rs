@@ -130,6 +130,7 @@ struct Arguments {
   mode: Mode,
   name: String,
   ending: Option<Action>,
+  progress: ending::Progress,
   save_interval: Duration,
   adjusting_for: Duration,
   really: Really,
@@ -154,10 +155,22 @@ const ADJUST_CLIENTS_ONLY: Flag = Flag {
   about: "move what is open to where it was, and start nothing",
 };
 
+const SHOW_PROGRESS: Flag = Flag {
+  spelling: "--show-progress",
+  takes: Takes::None,
+  about: "show desktop notifications while saving and finishing the session",
+};
+
 const COMMAND: Command = Command {
   name: "console-resume",
   about: "put back what was open, and keep saving what is on the screen",
-  flags: &[SAVE_EVERY, LOAD_TIME, SIMULATE, ADJUST_CLIENTS_ONLY],
+  flags: &[
+    SAVE_EVERY,
+    LOAD_TIME,
+    SIMULATE,
+    ADJUST_CLIENTS_ONLY,
+    SHOW_PROGRESS,
+  ],
   operands: Operands::Optional("NAME|logout|reboot|poweroff"),
 };
 
@@ -215,6 +228,7 @@ fn parse_arguments(words: &[String]) -> Result<Arguments, ValidationError> {
   let adjusting_for = seconds(&line, LOAD_TIME, ADJUSTING_FOR)?;
   let Ok(simulate) = line.presence(SIMULATE);
   let Ok(adjust) = line.presence(ADJUST_CLIENTS_ONLY);
+  let Ok(progress) = line.presence(SHOW_PROGRESS);
 
   match ::core::primitive::bool::then_some(save_interval.is_zero(), ()) {
     ::core::option::Option::Some(()) => {
@@ -263,6 +277,10 @@ fn parse_arguments(words: &[String]) -> Result<Arguments, ValidationError> {
 
   Ok(Arguments {
     ending,
+    progress: match progress {
+      Presence::Present => ending::Progress::Notify,
+      Presence::Absent => ending::Progress::Quiet,
+    },
     mode: match said {
       Some(mode) => mode,
       None => Mode::Default,
@@ -362,7 +380,8 @@ fn run(asked: Arguments) -> Result<(), Unstarted> {
 
   match asked.ending {
     Some(action) => {
-      return ending::run(&sessions, &asked.name, action).map_err(Unstarted::Resuming);
+      return ending::run(&sessions, &asked.name, action, asked.progress)
+        .map_err(Unstarted::Resuming);
     }
     ::core::option::Option::None => {}
   }

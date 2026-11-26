@@ -8,6 +8,7 @@ use console_core_number_conversion::{fitted, index};
 use console_core_shapes::{Clip, Edge, Panel, Round, Shape, Text, Weight};
 use console_draw_painting::{Run, measure_text};
 use console_draw_surface::{Composition, Part};
+pub use console_input_text::{Row, TextArea, TextField, Typed, Way};
 
 use crate::{
   canvas::{Area, AreaLayout},
@@ -27,10 +28,88 @@ pub enum Content<'a> {
 pub enum Editing {
   Inactive,
   Selected,
+  Range {
+    caret: u32,
+    start: u32,
+    end: u32,
+  },
   Active {
     caret: Option<u32>,
     preedit: Option<(u32, u32)>,
   },
+}
+
+pub mod area;
+pub mod clipboard;
+pub mod gesture;
+pub mod menu;
+
+pub enum Editor<'a> {
+  Field(&'a mut TextField),
+  Password(&'a mut TextField),
+  Area(&'a mut TextArea),
+}
+
+impl Editor<'_> {
+  pub fn select(self, position: u32, selection: gesture::Selection) -> Result<Typed, Never> {
+    use gesture::Selection;
+
+    match (self, selection) {
+      (Self::Field(field) | Self::Password(field), Selection::Place) => field.moved_to(position),
+      (Self::Area(area), Selection::Place) => area.placed(position),
+      (Self::Field(field) | Self::Password(field), Selection::Extend) => {
+        field.extended_to(position)
+      }
+      (Self::Area(area), Selection::Extend) => area.extended_to(position),
+      (Self::Field(field), Selection::Word) => field.select_word(position),
+      (Self::Area(area), Selection::Word) => area.select_word(position),
+      (Self::Password(field), Selection::Word) => field.moved_to(position),
+    }
+  }
+
+  pub fn clipboard(
+    self,
+    shortcut: clipboard::Shortcut,
+    clipboard: &mut clipboard::Clipboard,
+  ) -> Result<(), Never> {
+    use clipboard::Shortcut;
+
+    match shortcut {
+      Shortcut::Paste => clipboard.paste(),
+      Shortcut::Copy | Shortcut::Cut => self.copy(shortcut, clipboard),
+      Shortcut::Repeat | Shortcut::Other => Ok(()),
+    }
+  }
+
+  fn copy(
+    self,
+    shortcut: clipboard::Shortcut,
+    clipboard: &mut clipboard::Clipboard,
+  ) -> Result<(), Never> {
+    let Ok(selected) = match &self {
+      Self::Field(field) => field.selected_text(),
+      Self::Area(area) => area.selected_text(),
+      Self::Password(_) => Ok(None),
+    };
+
+    match (selected, shortcut) {
+      (Some(text), clipboard::Shortcut::Copy) => clipboard.copy(text),
+      (Some(text), clipboard::Shortcut::Cut) => clipboard.cut(text),
+      _ => Ok(()),
+    }
+  }
+
+  pub fn change(self, change: clipboard::Change) -> Result<Typed, Never> {
+    match (self, change) {
+      (Self::Field(field) | Self::Password(field), clipboard::Change::Paste(text)) => {
+        field.paste(&text)
+      }
+      (Self::Area(area), clipboard::Change::Paste(text)) => area.paste(&text),
+      (Self::Field(field), clipboard::Change::Cut) => field.delete_selection(),
+      (Self::Area(area), clipboard::Change::Cut) => area.delete_selection(),
+      (Self::Password(_), clipboard::Change::Cut) => Ok(Typed::None),
+    }
+  }
 }
 
 pub struct TextParts<'a> {
@@ -122,6 +201,13 @@ impl Line {
 }
 
 impl Field<'_> {
+  pub fn caret_at(&self, said: &str, point: Point<i32>) -> Result<u32, Never> {
+    let Ok(line) = self.layout();
+    let Ok(font) = TextStyle::Body.font();
+    let x = point.x.saturating_sub(line.origin.x).max(0).unsigned_abs();
+    area::caret_position(said, &font, Weight::Plain, x)
+  }
+
   fn layout(&self) -> Result<Line, Never> {
     let Ok(metrics) = measure("M");
     let Ok(height) = fitted::<u32, i32>(metrics.height);
@@ -145,6 +231,7 @@ impl Field<'_> {
       Editing::Active {
         caret: Some(width), ..
       } => width,
+      Editing::Range { caret, .. } => caret,
       Editing::Active { caret: None, .. } | Editing::Inactive | Editing::Selected => 0,
     };
     let overflow =
@@ -177,7 +264,10 @@ impl Field<'_> {
           },
         })
       }
-      Editing::Active { caret: None, .. } | Editing::Inactive | Editing::Selected => None,
+      Editing::Active { caret: None, .. }
+      | Editing::Inactive
+      | Editing::Selected
+      | Editing::Range { .. } => None,
     })
   }
 
@@ -194,7 +284,7 @@ impl Field<'_> {
         wide: 1,
         color: colors.panel,
       },
-      Editing::Selected | Editing::Active { .. } => Edge::Of {
+      Editing::Selected | Editing::Active { .. } | Editing::Range { .. } => Edge::Of {
         wide: 2,
         color: colors.pink,
       },
@@ -217,13 +307,22 @@ impl Field<'_> {
       Content::Placeholder(hint) => (hint, colors.soft),
     };
 
-    match self.editing {
+    let highlight = match self.editing {
       Editing::Selected => {
         let Ok(width) = measure(said);
+        Some((0, width.width))
+      }
+      Editing::Range { start, end, .. } => Some((start, end)),
+      Editing::Active { .. } | Editing::Inactive => None,
+    };
+
+    match highlight {
+      Some((start, end)) => {
+        let Ok(at) = line.at(start);
         shapes.push(Shape::Panel(Panel {
-          at: line.origin,
+          at,
           size: Size {
-            width: width.width,
+            width: end.saturating_sub(start),
             height: line.height,
           },
           round: Round(2),
@@ -231,7 +330,7 @@ impl Field<'_> {
           edge: Edge::None,
         }));
       }
-      Editing::Active { .. } | Editing::Inactive => {}
+      None => {}
     }
 
     let Ok(font) = TextStyle::Body.font();
@@ -266,7 +365,10 @@ impl Field<'_> {
           edge: Edge::None,
         }));
       }
-      Editing::Active { preedit: None, .. } | Editing::Selected | Editing::Inactive => {}
+      Editing::Active { preedit: None, .. }
+      | Editing::Selected
+      | Editing::Inactive
+      | Editing::Range { .. } => {}
     }
 
     let Ok(cursor) = self.cursor(&line);

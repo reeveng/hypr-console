@@ -46,6 +46,7 @@ use console_application_files::doing::{self, FileAction};
 use console_core_never::Never;
 use console_input_bindings::bound::{Binding, Input, Played};
 use console_input_controller::actions::{Context, MappedTask, Table};
+use console_input_controller::binds::{Holding, current_binds, desired_binds};
 use console_input_controller::mode::Mode;
 
 pub const DOABLE: &str = "General";
@@ -351,13 +352,86 @@ pub fn sections(table: &Table) -> Result<Vec<Section>, Never> {
   }
 
   let Ok(reference) = reference(table);
-  let Ok(shortcuts) = keyboard_lines(table);
-  let Ok(typed) = Section::of(TYPED, shortcuts);
+  let Ok(keyboard) = keyboard_sections(table);
 
   every.extend(reference);
-  every.push(typed);
+  every.extend(keyboard);
 
   Ok(every)
+}
+
+pub fn keyboard_sections(table: &Table) -> Result<Vec<Section>, Never> {
+  let Ok(shortcuts) = keyboard_lines(table);
+  let Ok(typed) = Section::of(TYPED, shortcuts);
+  let Ok(editing) = lines_from(&[
+    ("Ctrl + A", "select all text"),
+    ("Ctrl + C / X / V", "copy, cut, or paste"),
+    ("Ctrl + Z / Y", "undo or redo"),
+    ("Shift + arrow", "extend the selection"),
+    ("Ctrl + left / right", "move by a word"),
+    ("Ctrl + Shift + left / right", "select by a word"),
+    ("Shift + F10", "open the edit menu"),
+  ]);
+  let Ok(editor) = Section::of("Notes and panel text fields", editing);
+
+  Ok(vec![typed, editor])
+}
+
+pub fn compositor_shortcuts(table: &Table) -> Result<Option<Section>, Never> {
+  let Ok(holding) = current_binds();
+  let held = match holding {
+    Holding::These(held) => held,
+    Holding::HyprctlError(_) => return Ok(None),
+  };
+  let Ok(configured) = desired_binds(table);
+  let described: BTreeSet<_> = configured
+    .iter()
+    .map(|entry| (entry.held, entry.about.as_str()))
+    .collect();
+
+  let other = held
+    .iter()
+    .filter_map(|entry| {
+      let about = match entry.about.strip_suffix(" [dispatcher]") {
+        Some(description) => description,
+        None => entry.about.as_str(),
+      };
+
+      match described.contains(&(entry.held, about)).then_some(()) {
+        Some(()) => None,
+        None => {
+          let Ok(line) = compositor_line(entry);
+          Some(line)
+        }
+      }
+    })
+    .collect();
+  let Ok(section) = Section::of("Other compositor shortcuts", other);
+
+  Ok(Some(section))
+}
+
+fn compositor_line(entry: &console_compositor::BoundKey) -> Result<Line, Never> {
+  let mut keys: Vec<_> = console_input_bindings::keys::MODIFIERS
+    .iter()
+    .filter_map(|(_, label, mask, _, _)| ((entry.held & mask) != 0).then_some(*label))
+    .collect();
+  let named = match entry.named.as_str() {
+    "" => "Unnamed key",
+    key => key,
+  };
+  keys.push(named);
+
+  Ok(Line {
+    button: keys.join(" + "),
+    does: match entry.about.trim() {
+      "" => "No action description".to_owned(),
+      about => about
+        .chars()
+        .filter(|character| !character.is_control())
+        .collect(),
+    },
+  })
 }
 
 pub fn reference(table: &Table) -> Result<Vec<Section>, Never> {

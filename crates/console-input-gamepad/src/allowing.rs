@@ -15,8 +15,8 @@
 //! because a rule that was written is not the same as a device that took it,
 //! and that listing is the only place a person can tell the two apart.
 
-use console_core_external_programs::Program as ExternalProgram;
 use console_core_bytes::Bytes;
+use console_core_external_programs::Program as ExternalProgram;
 use console_core_never::Never;
 use console_core_state_machine::{Machine, Queue, Transition};
 use console_program_contract::{Command, Effect, Event, Exit, ExitStatus, FileWrite};

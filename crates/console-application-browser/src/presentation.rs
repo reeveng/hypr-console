@@ -92,7 +92,9 @@ impl Presentation {
         | State::Composing(_)
         | State::ClearingLayer,
       )
-      | Err(_) => Err(Box::new(io::Error::other("browser presentation did not settle"))),
+      | Err(_) => Err(Box::new(io::Error::other(
+        "browser presentation did not settle",
+      ))),
     }
   }
 }

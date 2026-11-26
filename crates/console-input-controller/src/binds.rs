@@ -291,6 +291,7 @@ pub enum Holds {
 pub fn holds(one: &KeyBinding, held: &[console_compositor::BoundKey]) -> Result<Holds, Never> {
   let Ok(description) = one.description();
   let Ok(former) = former_description(&description);
+  let Ok(replaced) = replaced_shortcut(&one.about);
   let mut current = 0_u32;
   let mut outdated = false;
 
@@ -301,7 +302,13 @@ pub fn holds(one: &KeyBinding, held: &[console_compositor::BoundKey]) -> Result<
       }
       ::core::option::Option::None => {
         match ::core::primitive::bool::then_some(
-          there.about == one.about || former.as_deref() == Some(there.about.as_str()),
+          there.about == one.about
+            || former.as_deref() == Some(there.about.as_str())
+            || replaced.as_ref().is_some_and(|previous| {
+              there.about.as_str() == previous
+                || there.about.strip_suffix(NATIVE) == Some(previous.as_str())
+                || there.about.strip_suffix(WORKSPACE_POSITION) == Some(previous.as_str())
+            }),
           (),
         ) {
           ::core::option::Option::Some(()) => {
@@ -319,6 +326,23 @@ pub fn holds(one: &KeyBinding, held: &[console_compositor::BoundKey]) -> Result<
     (0, true) => Holds::Outdated,
     _ => Holds::Over,
   })
+}
+
+fn replaced_shortcut(about: &str) -> Result<Option<String>, Never> {
+  let (job, keys) = match about.split_once(" on ") {
+    Some(binding) => binding,
+    None => return Ok(None),
+  };
+  let former = match job {
+    "swap-window-left" => "carry-previous",
+    "swap-window-right" => "carry-next",
+    "tile-above-left" => "tile-above-right",
+    "tile-below-left" => "tile-below-right",
+    "tile-below-right" => "quick-workspace",
+    _ => return Ok(None),
+  };
+
+  Ok(Some(format!("{former} {ON} {keys}")))
 }
 
 fn former_description(description: &str) -> Result<Option<String>, Never> {
@@ -656,6 +680,28 @@ mod tests {
     }]);
 
     assert_eq!(commands_to_send(wanted, &[], &holding), Ok(Vec::new()));
+
+    Ok(())
+  }
+
+  #[test]
+  fn moving_the_top_row_replaces_the_action_using_u() -> Result<(), Failure> {
+    let Ok(every) = defaults();
+    let u = tail("u")?;
+    let left = one(&every, &format!("SUPER+SHIFT+{u}"))?;
+    let legacy = Holding::These(vec![console_compositor::BoundKey {
+      held: left.held,
+      named: String::new(),
+      about: format!("tile-above-right on {}{NATIVE}", left.keys),
+    }]);
+
+    assert_eq!(
+      commands_to_send(std::slice::from_ref(left), &[], &legacy),
+      Ok(vec![
+        BindCommand::Unbind(left.clone()),
+        BindCommand::Bound(left.clone())
+      ])
+    );
 
     Ok(())
   }

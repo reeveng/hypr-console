@@ -383,24 +383,8 @@ impl Snapshot {
         node.set_description(about);
         self.insert(ids, ("confirm", state.here, &sure.question), node)
       }
-      (None, None) => self.search_node(ids, state),
+      (None, None) => Ok(None),
     }
-  }
-
-  fn search_node(&mut self, ids: &RandomState, state: &State) -> Result<Option<NodeId>, Never> {
-    let Ok(page) = nth(&state.pages, state.here);
-    let search = match page.and_then(|current| current.sought.as_ref()) {
-      Some(field) => field,
-      None => return Ok(None),
-    };
-
-    let Ok(mut node) = named(Role::SearchInput, &search.about);
-    let Ok(value) = state.typed.text();
-    let Ok(text) = safe_text(value);
-    node.set_value(text);
-    let Ok(id) = self.insert(ids, ("search", state.here), node);
-    let Ok(()) = self.focus_node(id);
-    Ok(id)
   }
 
   fn focus_node(&mut self, id: Option<NodeId>) -> Result<(), Never> {
@@ -458,6 +442,7 @@ impl Snapshot {
         self.insert(ids, ("row", state.here, key, region), node)
       }
       (None, Lands::Reveal) => self.insert(ids, ("reveal", state.prompt_identity), node),
+      (None, Lands::Search) => self.insert(ids, ("search", state.here), node),
       (None, Lands::Answer(_)) => {
         let label = node.label().map_or("", |text| text).to_owned();
         self.insert(ids, ("answer", region, label), node)
@@ -635,6 +620,7 @@ fn slot(
     Lands::Tab(index) => ("tab", i64::from(index)),
     Lands::More(step) => ("more", i64::from(step)),
     Lands::Back => ("back", 0),
+    Lands::Search => ("search", 0),
     Lands::Reveal => ("reveal", 0),
   })
 }
@@ -686,6 +672,20 @@ fn hit_node(state: &State, lands: Lands, row: Option<&Row>) -> Result<Option<Nod
       button(answer)
     }
     Lands::Back => button("Back"),
+    Lands::Search => {
+      let Ok(search) = state.search();
+      let field = match search {
+        Some(field) => field,
+        None => return Ok(None),
+      };
+      let Ok(mut node) = named(Role::SearchInput, &field.about);
+      let Ok(value) = state.typed.text();
+      let Ok(text) = safe_text(value);
+      node.set_value(text);
+      node.add_action(Action::Click);
+      node.add_action(Action::Focus);
+      Ok(node)
+    }
     Lands::Reveal => {
       let prompt = match state.asking.as_ref() {
         Some(value) => value,
@@ -773,6 +773,7 @@ fn hit_row_node(state: &State, lands: Lands, row: &Row) -> Result<Option<Node>, 
     Lands::Tab(_)
     | Lands::Answer(_)
     | Lands::Back
+    | Lands::Search
     | Lands::Reveal
     | Lands::More(_)
     | Lands::Seek { .. } => return Ok(None),
@@ -835,25 +836,31 @@ fn row_node(row: &Row, selected: &[String]) -> Result<Node, Never> {
 
 #[must_use]
 fn focused(state: &State, lands: Lands) -> Result<KeyboardFocus, Never> {
-  let matches = match lands {
-    Lands::Row(row) => {
+  let Ok(mode) = super::driving(state);
+  let matches = match (mode, lands) {
+    (super::Driving::Search, target) => target == Lands::Search,
+    (_, Lands::Search) => false,
+    (_, Lands::Row(row)) => {
       let Ok(focus) = super::selectable_row(&state.rows, row);
       focus.is_some()
         && state.at == focus
         && state.beside == Beside::No
         && state.pressing.is_none()
     }
-    Lands::Else(row) => state.at == Some(row) && state.beside == Beside::Yes,
-    Lands::ButtonPress { row, which } => state.pressing == Some((row, which)),
-    Lands::Answer(index) => state.sure.as_ref().is_some_and(|sure| sure.at == index),
-    Lands::Nudge { .. }
-    | Lands::Seek { .. }
-    | Lands::Slider { .. }
-    | Lands::Picker { .. }
-    | Lands::Tab(_)
-    | Lands::More(_)
-    | Lands::Back
-    | Lands::Reveal => false,
+    (_, Lands::Else(row)) => state.at == Some(row) && state.beside == Beside::Yes,
+    (_, Lands::ButtonPress { row, which }) => state.pressing == Some((row, which)),
+    (_, Lands::Answer(index)) => state.sure.as_ref().is_some_and(|sure| sure.at == index),
+    (
+      _,
+      Lands::Nudge { .. }
+      | Lands::Seek { .. }
+      | Lands::Slider { .. }
+      | Lands::Picker { .. }
+      | Lands::Tab(_)
+      | Lands::More(_)
+      | Lands::Back
+      | Lands::Reveal,
+    ) => false,
   };
 
   Ok(match matches.then_some(()) {
@@ -920,9 +927,20 @@ pub(super) fn perform(
         None => return Ok(ActionOutcome::Stay),
       };
       let Ok(()) = state.reveal_focus();
+      let Ok(()) = state.model.focus_search(super::SearchFocus::Rows);
       state.at = Some(at);
       state.beside = Beside::No;
       state.pressing = None;
+      ActionOutcome::Stay
+    }
+    (
+      Action::Focus,
+      Some(Target::Region(HitRegion {
+        lands: Lands::Search,
+        ..
+      })),
+    ) => {
+      let Ok(()) = state.model.focus_search(super::SearchFocus::Input);
       ActionOutcome::Stay
     }
     (

@@ -37,6 +37,22 @@ fn main() -> ExitCode {
 
       return status;
     }
+    Some(("quick-workspace-rules", [])) => {
+      let rules = quick_workspace::rules();
+
+      return match rules {
+        Ok(script) => {
+          print!("{script}");
+          ExitCode::SUCCESS
+        }
+        Err(fault) => {
+          console_core_logging::warn!(
+            "console-compositor: reading Quick Workspace apps: {fault}"
+          );
+          ExitCode::FAILURE
+        }
+      };
+    }
     Some(("reload", [])) => {
       let Ok(outcome) = console_compositor::reload_configuration();
       let Ok(status) = report(outcome);
@@ -57,7 +73,7 @@ fn main() -> ExitCode {
     Some(("display-off", [])) => DisplayPower::Off,
     Some(_) | None => {
       console_core_logging::warn!(
-        "usage: console-compositor start CONFIG | display-on | display-off | reload | theme-borders | quick-workspace | special-workspace NAME | quick-music LIBRARY PANEL"
+        "usage: console-compositor start CONFIG | display-on | display-off | reload | theme-borders | quick-workspace | special-workspace NAME | quick-workspace-rules | quick-music LIBRARY PANEL"
       );
 
       return ExitCode::from(2);

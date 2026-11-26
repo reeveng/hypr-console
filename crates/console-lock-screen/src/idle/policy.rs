@@ -280,10 +280,11 @@ impl State {
 
   fn resumed(&mut self, effects: &mut Queue<Effect>) -> Result<(), Never> {
     self.sleep = Sleep::Awake;
+    self.display = Display::On;
     let Ok(()) = self.reset();
     let Ok(()) = effects.offer(Effect::ReportSleep(Sleep::Awake));
     let Ok(()) = effects.offer(Effect::ResetTimers);
-    let Ok(()) = self.display(Display::On, effects);
+    let Ok(()) = effects.offer(Effect::Display(Display::On));
 
     match self.lock_before_sleep {
       LockScreen::On => effects.offer(Effect::HoldSleepDelay),
@@ -426,11 +427,31 @@ mod tests {
         vec![
           Effect::ReportSleep(Sleep::Awake),
           Effect::ResetTimers,
+          Effect::Display(Display::On),
           Effect::HoldSleepDelay
         ],
         vec![
           Effect::ReportSleep(Sleep::Preparing),
           Effect::ReleaseSleepDelay
+        ],
+      ]),
+    );
+  }
+
+  #[test]
+  fn resume_restores_the_display_even_when_the_screen_was_on_and_unlocked() {
+    assert_eq!(
+      effects(
+        LockScreen::Off,
+        [Request::PreparingForSleep, Request::ResumedFromSleep],
+      ),
+      Ok(vec![
+        vec![],
+        vec![Effect::ReportSleep(Sleep::Preparing)],
+        vec![
+          Effect::ReportSleep(Sleep::Awake),
+          Effect::ResetTimers,
+          Effect::Display(Display::On),
         ],
       ]),
     );

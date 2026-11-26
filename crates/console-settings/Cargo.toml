@@ -99,6 +99,7 @@ console-paper.workspace = true
 console-wallpaper.workspace = true
 console-input-alphabets.workspace = true
 console-input-language.workspace = true
+console-input-mapping.workspace = true
 console-input-dictation.workspace = true
 console-core-localization.workspace = true
 console-manifest-engine.workspace = true

@@ -47,7 +47,10 @@ pub fn press(frame: &Frame, at: Point<f64>) -> std::result::Result<Press, Never>
   let Ok(action) = frame.targets.action(at);
   Ok(match action {
     Some(requested) => Press::Activate(requested),
-    None => match (0.0..f64::from(strip::CONTENT_TOP)).contains(&at.y).then_some(()) {
+    None => match (0.0..f64::from(strip::CONTENT_TOP))
+      .contains(&at.y)
+      .then_some(())
+    {
       Some(()) => Press::MoveWindow,
       None => Press::Ignore,
     },
@@ -323,8 +326,14 @@ pub fn draw(
   match bool::then_some(width < 300 || height < 155, ()) {
     Some(()) => {
       let below_header = Area {
-        origin: Point { x: 0, y: strip::CONTENT_TOP },
-        size: Size { width, height: height.saturating_sub(strip::CONTENT_TOP) },
+        origin: Point {
+          x: 0,
+          y: strip::CONTENT_TOP,
+        },
+        size: Size {
+          width,
+          height: height.saturating_sub(strip::CONTENT_TOP),
+        },
       };
       let Ok(()) = scene.canvas.text(
         below_header,

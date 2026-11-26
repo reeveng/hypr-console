@@ -14,6 +14,7 @@ use std::time::Duration;
 
 use console_core_external_programs::Program;
 use console_core_state_machine::{EffectDependencies, Machine, Never, Queue, Service};
+use console_notifications::{Application, saying::LiveNotification};
 use console_operating_system_linux::program_lifetime::{BoundToParent, alongside};
 use console_waiting::{
   Outcome, Ready, Schedule,
@@ -41,6 +42,32 @@ pub enum Action {
   Logout,
   Reboot,
   Poweroff,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Progress {
+  Quiet,
+  Notify,
+}
+
+impl Action {
+  fn preparing(self) -> Result<&'static str, Never> {
+    Ok(match self {
+      Self::Checkpoint => "Saving your session…",
+      Self::Logout => "Preparing to log out…",
+      Self::Reboot => "Preparing to restart…",
+      Self::Poweroff => "Preparing to shut down…",
+    })
+  }
+
+  fn finishing(self) -> Result<&'static str, Never> {
+    Ok(match self {
+      Self::Checkpoint => "Session saved",
+      Self::Logout => "Logging out…",
+      Self::Reboot => "Restarting…",
+      Self::Poweroff => "Shutting down…",
+    })
+  }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -329,7 +356,12 @@ fn take_snapshots(
   Ok(effects)
 }
 
-pub fn run(sessions: &Sessions, name: &str, action: Action) -> Result<(), Unresumed> {
+pub fn run(
+  sessions: &Sessions,
+  name: &str,
+  action: Action,
+  progress: Progress,
+) -> Result<(), Unresumed> {
   match { ::core::primitive::bool::then_some(sessions.really == Really::Simulated, ()) } {
     ::core::option::Option::Some(()) => {
       println!("checkpoint session {name:?} before {action:?}");
@@ -351,6 +383,16 @@ pub fn run(sessions: &Sessions, name: &str, action: Action) -> Result<(), Unresu
     Some(Ok(ShutdownStatus::Available)) | None => {}
   }
 
+  let mut notice = match progress {
+    Progress::Quiet => None,
+    Progress::Notify => {
+      let Ok(made) = LiveNotification::new(Application("Settings"));
+
+      Some(made)
+    }
+  };
+  let Ok(preparing) = action.preparing();
+  let Ok(()) = announce(&mut notice, preparing);
   let effects = take_snapshots(sessions, name, action)?;
 
   for effect in effects {
@@ -364,8 +406,14 @@ pub fn run(sessions: &Sessions, name: &str, action: Action) -> Result<(), Unresu
         }
 
         drop(coordination);
+        let Ok(finishing) = action_2.finishing();
+        let Ok(()) = announce(&mut notice, finishing);
         return match end(action_2) {
-          Ok(()) => Ok(()),
+          Ok(()) => {
+            let Ok(()) = notice.map_or(Ok(()), LiveNotification::leave_until_expiry);
+
+            Ok(())
+          }
           Err(fault) => {
             let Ok(()) = Coordination::clear_stamp();
 
@@ -378,6 +426,13 @@ pub fn run(sessions: &Sessions, name: &str, action: Action) -> Result<(), Unresu
   }
 
   Ok(())
+}
+
+fn announce(notice: &mut Option<LiveNotification>, summary: &str) -> Result<(), Never> {
+  match notice.as_mut() {
+    Some(shown) => shown.update(summary),
+    None => Ok(()),
+  }
 }
 
 fn end(action: Action) -> Result<(), Unresumed> {

@@ -726,11 +726,24 @@ fn parse_binds(value: serde_json::Value) -> Result<Vec<BoundKey>, HyprctlError> 
     };
 
     let named = match one.get("key").and_then(serde_json::Value::as_str) {
+      Some("") => match one.get("keycode").and_then(serde_json::Value::as_u64) {
+        Some(code) => format!("code:{code}"),
+        None => String::new(),
+      },
       Some(named) => named.to_string(),
       None => return Err(HyprctlError::MissingField(Query::Binds, "key")),
     };
 
     let about = match one.get("description").and_then(serde_json::Value::as_str) {
+      Some("") => one
+        .get("dispatcher")
+        .and_then(serde_json::Value::as_str)
+        .map_or_else(String::new, |dispatcher| {
+          match one.get("arg").and_then(serde_json::Value::as_str) {
+            Some(argument) => format!("{dispatcher} {argument}"),
+            None => dispatcher.to_owned(),
+          }
+        }),
       Some(about) => about.to_string(),
       None => return Err(HyprctlError::MissingField(Query::Binds, "description")),
     };

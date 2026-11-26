@@ -462,7 +462,9 @@ impl Bus {
     let mut value = String::from("\0AUTH EXTERNAL ");
 
     let Ok(()) = console_core_bytes::hex::append(
-      &mut value, mine.to_string().as_bytes(), console_core_bytes::hex::Case::Lower,
+      &mut value,
+      mine.to_string().as_bytes(),
+      console_core_bytes::hex::Case::Lower,
     );
 
     value.push_str("\r\n");

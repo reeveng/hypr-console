@@ -137,7 +137,9 @@ impl fmt::Display for Unapplied {
       Unapplied::PacmanUntold => {
         write!(to, "pacman would not be told the desktop asks for these.")
       }
-      Unapplied::PackageCheck(fault) => write!(to, "could not check installed package providers: {fault}"),
+      Unapplied::PackageCheck(fault) => {
+        write!(to, "could not check installed package providers: {fault}")
+      }
       Unapplied::PackageRemoval(package, fault) => {
         write!(to, "pacman could not remove {package}: {fault}")
       }
@@ -147,7 +149,10 @@ impl fmt::Display for Unapplied {
          Preserve the existing store and convert it to multi-user Nix before retrying console apply.",
         path.display()
       ),
-      Unapplied::NixSetup { command, diagnostic } => write!(to, "{command} failed: {diagnostic}"),
+      Unapplied::NixSetup {
+        command,
+        diagnostic,
+      } => write!(to, "{command} failed: {diagnostic}"),
       Unapplied::Restore(fell) => write!(
         to,
         "put back: {} would not run what this was about to install.",

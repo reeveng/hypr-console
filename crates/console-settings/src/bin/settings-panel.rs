@@ -11,11 +11,25 @@
 use std::process::ExitCode;
 
 use console_panel::card::{Panel, opened};
+use console_settings::power::{FLAG, Request};
 
 fn main() -> ExitCode {
   let asked: Vec<String> = std::env::args().skip(1).collect();
 
   match asked.as_slice() {
+    [flag, action] => match flag.as_str() {
+      FLAG => {
+        let Ok(parsed) = Request::from_word(action);
+        return match parsed {
+          Some(request) => {
+            let Ok(status) = request.run();
+            status
+          }
+          None => ExitCode::FAILURE,
+        };
+      }
+      _ => {}
+    },
     [action] => match action.as_str() {
       console_settings::TOGGLE_WINDOW_PLACEMENT => {
         let Ok(status) = console_settings::toggle_window_placement();

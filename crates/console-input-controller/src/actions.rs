@@ -255,8 +255,6 @@ const L2_R2: &[&str] = &["l2", "r2"];
 const SUPER: &[&str] = &["super"];
 const SUPER_CONTROL: &[&str] = &["super", "ctrl"];
 const SUPER_SHIFT: &[&str] = &["super", "shift"];
-const SUPER_ALT: &[&str] = &["super", "alt"];
-const SUPER_ALT_SHIFT: &[&str] = &["super", "alt", "shift"];
 
 pub const JOBS: [Task; 103] = [
   Task {
@@ -435,7 +433,7 @@ pub const JOBS: [Task; 103] = [
     slug: "quick-workspace",
     action: Action::QuickWorkspace,
     context: Context::Anywhere,
-    bound: &[(PAD, L2, "y"), (KEYS, SUPER_SHIFT, "m")],
+    bound: &[],
   },
   Task {
     slug: "downloads",
@@ -585,7 +583,7 @@ pub const JOBS: [Task; 103] = [
     slug: "swap-window-left",
     action: Action::Tile(TileChange::Swap(Direction::Left)),
     context: Context::OnTheDesktop,
-    bound: &[(KEYS, SUPER_ALT, "h")],
+    bound: &[(KEYS, SUPER_SHIFT, "h")],
   },
   Task {
     slug: "resize-window-left",
@@ -597,7 +595,7 @@ pub const JOBS: [Task; 103] = [
     slug: "swap-window-down",
     action: Action::Tile(TileChange::Swap(Direction::Down)),
     context: Context::OnTheDesktop,
-    bound: &[(KEYS, SUPER_ALT, "j")],
+    bound: &[(KEYS, SUPER_SHIFT, "j")],
   },
   Task {
     slug: "resize-window-down",
@@ -609,7 +607,7 @@ pub const JOBS: [Task; 103] = [
     slug: "swap-window-up",
     action: Action::Tile(TileChange::Swap(Direction::Up)),
     context: Context::OnTheDesktop,
-    bound: &[(KEYS, SUPER_ALT, "k")],
+    bound: &[(KEYS, SUPER_SHIFT, "k")],
   },
   Task {
     slug: "resize-window-up",
@@ -621,7 +619,7 @@ pub const JOBS: [Task; 103] = [
     slug: "swap-window-right",
     action: Action::Tile(TileChange::Swap(Direction::Right)),
     context: Context::OnTheDesktop,
-    bound: &[(KEYS, SUPER_ALT, "l")],
+    bound: &[(KEYS, SUPER_SHIFT, "l")],
   },
   Task {
     slug: "resize-window-right",
@@ -636,7 +634,7 @@ pub const JOBS: [Task; 103] = [
       edge: TileEdge::Above,
     }),
     context: Context::OnTheDesktop,
-    bound: &[(KEYS, SUPER_ALT_SHIFT, "u")],
+    bound: &[(KEYS, SUPER_SHIFT, "u")],
   },
   Task {
     slug: "tile-above-right",
@@ -645,7 +643,7 @@ pub const JOBS: [Task; 103] = [
       edge: TileEdge::Above,
     }),
     context: Context::OnTheDesktop,
-    bound: &[(KEYS, SUPER_ALT_SHIFT, "i")],
+    bound: &[(KEYS, SUPER_SHIFT, "i")],
   },
   Task {
     slug: "tile-below-left",
@@ -654,7 +652,7 @@ pub const JOBS: [Task; 103] = [
       edge: TileEdge::Below,
     }),
     context: Context::OnTheDesktop,
-    bound: &[(KEYS, SUPER_ALT_SHIFT, "j")],
+    bound: &[(KEYS, SUPER_SHIFT, "n")],
   },
   Task {
     slug: "tile-below-right",
@@ -663,19 +661,19 @@ pub const JOBS: [Task; 103] = [
       edge: TileEdge::Below,
     }),
     context: Context::OnTheDesktop,
-    bound: &[(KEYS, SUPER_ALT_SHIFT, "k")],
+    bound: &[(KEYS, SUPER_SHIFT, "m")],
   },
   Task {
     slug: "move-window-to-root",
     action: Action::Tile(TileChange::MoveToRoot),
     context: Context::OnTheDesktop,
-    bound: &[(KEYS, SUPER_ALT_SHIFT, "space")],
+    bound: &[(KEYS, SUPER_SHIFT, "backspace")],
   },
   Task {
     slug: "toggle-tile-split",
     action: Action::Tile(TileChange::ToggleSplit),
     context: Context::OnTheDesktop,
-    bound: &[(KEYS, SUPER_ALT, "space")],
+    bound: &[(KEYS, SUPER_SHIFT, "enter")],
   },
   Task {
     slug: "workspace-next",
@@ -757,21 +755,13 @@ pub const JOBS: [Task; 103] = [
     slug: "carry-next",
     action: Action::Payload(1),
     context: Context::OnTheDesktop,
-    bound: &[
-      (PAD, L2_R2, "r1"),
-      (KEYS, SUPER_SHIFT, "right"),
-      (KEYS, SUPER_SHIFT, "l"),
-    ],
+    bound: &[(PAD, L2_R2, "r1"), (KEYS, SUPER_SHIFT, "right")],
   },
   Task {
     slug: "carry-previous",
     action: Action::Payload(-1),
     context: Context::OnTheDesktop,
-    bound: &[
-      (PAD, L2_R2, "l1"),
-      (KEYS, SUPER_SHIFT, "left"),
-      (KEYS, SUPER_SHIFT, "h"),
-    ],
+    bound: &[(PAD, L2_R2, "l1"), (KEYS, SUPER_SHIFT, "left")],
   },
   Task {
     slug: "overview",

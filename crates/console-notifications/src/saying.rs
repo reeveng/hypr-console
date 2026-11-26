@@ -123,6 +123,12 @@ impl LiveNotification {
 
     Ok(())
   }
+
+  pub fn leave_until_expiry(mut self) -> Result<(), Never> {
+    self.id = None;
+
+    Ok(())
+  }
 }
 
 impl Drop for LiveNotification {

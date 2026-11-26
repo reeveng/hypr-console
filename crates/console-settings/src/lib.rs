@@ -28,6 +28,7 @@ pub mod machine;
 pub mod named;
 pub mod network_code;
 mod pointer;
+pub mod power;
 pub mod power_profile;
 mod quick_workspace;
 pub mod rocker;

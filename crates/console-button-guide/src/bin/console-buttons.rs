@@ -14,8 +14,8 @@
 use std::io::IsTerminal;
 use std::process::ExitCode;
 
-use console_button_guide::guide::{Section, sections};
-use console_button_guide::printed::{COLORED, COMMAND, IDENTIFY, PLAIN, guide};
+use console_button_guide::guide::{Section, compositor_shortcuts, keyboard_sections, sections};
+use console_button_guide::printed::{COLORED, COMMAND, IDENTIFY, KEYBOARD, PLAIN, guide};
 use console_core_arguments::Presence;
 use console_core_atomic_writes::Stored;
 use console_core_iteration::{Endless, Step, iterate};
@@ -26,10 +26,18 @@ use console_input_event_devices::{EventType, KeyCode};
 use console_input_focus::{self as claim, CONTROLLER, Claim, DeviceKind, Direction, InputEvent};
 use console_input_gamepad::vocabulary::{spoken_for, trigger_spoken};
 
-fn read() -> Result<Vec<Section>, Never> {
+fn read(keyboard: Presence) -> Result<Vec<Section>, Never> {
   let Ok(table) = table();
 
-  sections(&table)
+  match keyboard {
+    Presence::Present => {
+      let Ok(mut configured) = keyboard_sections(&table);
+      let Ok(other) = compositor_shortcuts(&table);
+      configured.extend(other);
+      Ok(configured)
+    }
+    Presence::Absent => sections(&table),
+  }
 }
 
 fn table() -> Result<Table, Never> {
@@ -78,6 +86,7 @@ fn main() -> ExitCode {
     }
   };
   let Ok(identifying) = line.presence(IDENTIFY);
+  let Ok(keyboard) = line.presence(KEYBOARD);
 
   match identifying {
     Presence::Present => match identify() {
@@ -89,7 +98,7 @@ fn main() -> ExitCode {
       }
     },
     Presence::Absent => {
-      let Ok(read) = read();
+      let Ok(read) = read(keyboard);
       let Ok(ink) = ink();
       let Ok(guide) = guide(&read, ink);
 

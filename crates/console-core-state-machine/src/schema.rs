@@ -177,7 +177,13 @@ macro_rules! numbers {
     };
 }
 
-numbers!((u16, u16_be), (u32, u32_be), (u64, u64_be), (i32, i32_be), (i64, i64_be));
+numbers!(
+  (u16, u16_be),
+  (u32, u32_be),
+  (u64, u64_be),
+  (i32, i32_be),
+  (i64, i64_be)
+);
 
 impl Serializable for Bytes {
   fn encode(&self, encoder: &mut Encoder) -> Result<(), Never> {

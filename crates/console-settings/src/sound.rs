@@ -51,7 +51,9 @@ impl App {
     let mut key = format!("app.{field}.");
 
     let Ok(()) = console_core_bytes::hex::append(
-      &mut key, name.as_bytes(), console_core_bytes::hex::Case::Lower,
+      &mut key,
+      name.as_bytes(),
+      console_core_bytes::hex::Case::Lower,
     );
 
     Ok(Some(key))

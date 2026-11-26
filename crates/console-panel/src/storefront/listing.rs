@@ -615,7 +615,10 @@ impl<A: Copy + PartialEq> Components<A> {
         x: left,
         y: y.saturating_add(2),
       },
-      size: Size { width, height: area.size.height.saturating_sub(4) },
+      size: Size {
+        width,
+        height: area.size.height.saturating_sub(4),
+      },
     };
     let Ok(()) = list::label(
       &mut self.canvas,

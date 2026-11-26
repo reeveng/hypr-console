@@ -24,23 +24,20 @@ impl Actions {
     const PENDING_DISPLAY_CHANGES: u32 = 8;
     let Ok(capacity) = index(PENDING_DISPLAY_CHANGES);
     let (wanted, pending) = sync_channel::<Display>(capacity);
-    let mut previous = Display::On;
     let display = Latest::start("idle-display".to_owned(), move || {
-      let latest = pending.try_iter().last().filter(|next| *next != previous);
-
-      match latest {
-        Some(next) => {
-          let Ok(()) = report("changing the idle display state", show(next));
-          previous = next;
-        }
-        None => {}
+      match pending.try_iter().last() {
+        Some(next) => report("changing the idle display state", show(next)),
+        None => Ok(()),
       }
-
-      Ok(())
     })?;
     let lock = Latest::start("idle-lock".to_owned(), || {
       let Ok(mut command) = Program::Systemctl.command();
-      command.args(["--user", "--no-block", "start", "console-lock.service"]);
+      command.args([
+        "--user",
+        "--no-block",
+        "start",
+        console_lock_screen::LOCK_SERVICE,
+      ]);
       report("starting the session lock", run(command))
     })?;
     let suspend = Latest::start("idle-suspend".to_owned(), || {

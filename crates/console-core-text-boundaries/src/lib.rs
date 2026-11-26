@@ -335,14 +335,9 @@ enum WordPart {
   Symbol,
 }
 
-#[doc = "Byte offset of the last word or symbol run, skipping trailing whitespace."]
-pub fn previous_word_start(text: &str) -> Result<u64, Never> {
-  let Ok(graphemes) = text.grapheme_indices(ClusterKind::Extended);
-  let mut previous = WordPart::Space;
-  let mut start = 0;
-
-  for (position, cluster) in graphemes {
-    let part = match (
+fn word_part(cluster: &str) -> Result<WordPart, Never> {
+  Ok(
+    match (
       cluster.chars().all(char::is_whitespace).then_some(()),
       cluster
         .chars()
@@ -352,7 +347,18 @@ pub fn previous_word_start(text: &str) -> Result<u64, Never> {
       (Some(()), _) => WordPart::Space,
       (None, Some(())) => WordPart::Word,
       (None, None) => WordPart::Symbol,
-    };
+    },
+  )
+}
+
+#[doc = "Byte offset of the last word or symbol run, skipping trailing whitespace."]
+pub fn previous_word_start(text: &str) -> Result<u64, Never> {
+  let Ok(graphemes) = text.grapheme_indices(ClusterKind::Extended);
+  let mut previous = WordPart::Space;
+  let mut start = 0;
+
+  for (position, cluster) in graphemes {
+    let Ok(part) = word_part(cluster);
 
     match (part, (part != previous).then_some(())) {
       (WordPart::Word | WordPart::Symbol, Some(())) => start = position,
@@ -363,4 +369,42 @@ pub fn previous_word_start(text: &str) -> Result<u64, Never> {
   }
 
   Ok(start)
+}
+
+pub fn next_word_end(text: &str) -> Result<u64, Never> {
+  let Ok(graphemes) = text.grapheme_indices(ClusterKind::Extended);
+  let mut previous = WordPart::Space;
+
+  for (position, cluster) in graphemes {
+    let Ok(part) = word_part(cluster);
+
+    match (previous, part) {
+      (WordPart::Word, WordPart::Space | WordPart::Symbol)
+      | (WordPart::Symbol, WordPart::Space | WordPart::Word) => return Ok(position),
+      _ => previous = part,
+    }
+  }
+
+  console_core_number_conversion::fixed_index(text.len())
+}
+
+pub fn word_at(text: &str, caret: u64) -> Result<core::ops::Range<u64>, Never> {
+  let Ok(graphemes) = text.grapheme_indices(ClusterKind::Extended);
+  let mut previous = WordPart::Space;
+  let mut start = 0;
+
+  for (position, cluster) in graphemes {
+    let Ok(part) = word_part(cluster);
+
+    match (part != previous, position > caret) {
+      (true, true) => return Ok(start..position),
+      (true, false) => start = position,
+      (false, _) => {}
+    }
+
+    previous = part;
+  }
+
+  let Ok(end) = console_core_number_conversion::fixed_index(text.len());
+  Ok(start..end)
 }

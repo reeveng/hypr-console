@@ -1056,6 +1056,7 @@ pub struct Bound {
   scale: Scale,
   closed: Closed,
   pointer_events: Vec<PointerEvent>,
+  context_presses: Option<Vec<(f64, f64)>>,
   pointer: SeatPointer,
   fingers: Fingers,
   keys: SeatKeys,
@@ -1250,6 +1251,7 @@ impl Surface {
       scale: Scale::ONE,
       closed: Closed::No,
       pointer_events: Vec::new(),
+      context_presses: None,
       pointer,
       fingers: Fingers::default(),
       keys: SeatKeys::default(),
@@ -1848,6 +1850,21 @@ impl Surface {
     }
 
     Ok(events)
+  }
+
+  pub fn accept_context_presses(&mut self) -> Result<(), Never> {
+    let _pending = self.bound.context_presses.get_or_insert_with(Vec::new);
+    Ok(())
+  }
+
+  pub fn context_presses(&mut self) -> Result<Vec<(f64, f64)>, Never> {
+    Ok(
+      self
+        .bound
+        .context_presses
+        .as_mut()
+        .map_or_else(Vec::new, std::mem::take),
+    )
   }
 
   fn handled_input(&mut self) -> Result<(), Never> {
@@ -3821,6 +3838,18 @@ impl Dispatch<wl_pointer::WlPointer, ()> for Bound {
           Some(focus) => focus,
           None => return,
         };
+        match (button, bound.context_presses.as_mut()) {
+          (0x111, Some(context)) => {
+            match state {
+              wayland_client::WEnum::Value(wl_pointer::ButtonState::Pressed) => {
+                context.push(focus.at)
+              }
+              wayland_client::WEnum::Value(_) | wayland_client::WEnum::Unknown(_) => {}
+            }
+            return;
+          }
+          _ => {}
+        }
         let input = match state {
           wayland_client::WEnum::Value(wl_pointer::ButtonState::Pressed) => {
             focus.pressed = (button == 0x110).then_some(serial);

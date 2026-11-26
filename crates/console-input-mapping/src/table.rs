@@ -18,7 +18,7 @@ use std::process::Command;
 use console_core_atomic_writes::Stored;
 use console_core_never::Never;
 use console_input_bindings::moved::{Tasks, path_in};
-use console_input_controller::actions::{Table, special_workspace_job};
+use console_input_controller::actions::{MappedAction, Table, special_workspace_job};
 use console_input_gamepad::front::{DEVICES, Front, Read, capabilities_command};
 
 use crate::Unmapped;
@@ -51,6 +51,19 @@ pub fn read() -> Result<Tasks, Never> {
       Tasks::default()
     }
   })
+}
+
+pub fn special_workspaces() -> Result<Vec<String>, Never> {
+  let Ok(jobs) = read();
+  let Ok(table) = Table::of(&jobs);
+  let Ok(every) = table.every();
+
+  Ok(every
+    .filter_map(|(job, _)| match &job.action {
+      MappedAction::SpecialWorkspace(name) => Some(name.clone()),
+      MappedAction::Builtin(_) => None,
+    })
+    .collect())
 }
 
 fn read_at(path: &Path) -> Result<Tasks, Unmapped> {

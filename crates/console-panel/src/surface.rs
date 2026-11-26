@@ -86,6 +86,7 @@ use console_draw_surface::{
 };
 
 use crate::description;
+use crate::field::{self, Editor, clipboard, gesture, menu};
 use crate::fitting;
 use crate::keys::{
   Driving, Meaning, Navigation, NavigationEffect, NavigationInput, NavigationKeys, TabMotion,
@@ -478,10 +479,8 @@ fn in_the_line(state: &State) -> Result<(String, String, Filled), Never> {
     None => {}
   }
 
-  let Ok(page) = nth(&state.pages, state.here);
-  let about = page
-    .and_then(|page_2| page_2.sought.as_ref())
-    .map(|sought| sought.about.clone());
+  let Ok(search) = state.search();
+  let about = search.map(|sought| sought.about.clone());
   let Ok((typed, before)) = editing_line(&state.typed, state.preedit.as_ref());
 
   Ok(match (typed.is_empty(), about) {
@@ -542,33 +541,15 @@ fn text_input_state(state: &State, card: &Card) -> Result<Option<TextInputState>
       )
     }
     None => {
-      let Ok(page) = nth(&state.pages, state.here);
+      let Ok(mode) = driving(state);
 
-      match page.and_then(|current| current.sought.as_ref()) {
-        Some(_search) => {}
-        None => return Ok(None),
+      match mode {
+        Driving::Search => {}
+        Driving::Panel | Driving::Question | Driving::Sure => return Ok(None),
       }
 
-      let Ok(left) = inside_left(card);
-      let Ok(right) = inside_right(card);
-      let Ok(wide) = width(right.saturating_sub(left));
-      let top = match state.opened {
-        Opened::Expanded => card.y.saturating_sub(fitting::ROW),
-        Opened::No => card
-          .y
-          .saturating_add(fitting::STRIP)
-          .saturating_add(OVER_ROWS),
-      };
-      (
-        &state.typed,
-        Point {
-          x: left,
-          y: top.saturating_add(BETWEEN_ROWS.saturating_div(2)),
-        },
-        wide,
-        false,
-        u64::from(state.here),
-      )
+      let Ok((at, wide)) = search_line(card, state.opened);
+      (&state.typed, at, wide, false, u64::from(state.here))
     }
   };
   let content = match sensitive.then_some(()) {
@@ -746,6 +727,7 @@ pub(crate) enum Lands {
   Tab(u32),
   More(i32),
   Back,
+  Search,
   Reveal,
 }
 
@@ -769,6 +751,7 @@ impl Lands {
       Lands::Tab(_) => ("tab", Owner::Card),
       Lands::More(_) => ("more", Owner::Card),
       Lands::Back => ("shut", Owner::Card),
+      Lands::Search => ("search", Owner::Card),
       Lands::Reveal => ("reveal", Owner::Card),
     })
   }
@@ -1398,6 +1381,7 @@ fn stirred(state: &State) -> Result<WakeOutcome, Never> {
 
 fn wait_for_frame(
   waking: &crate::frames::WakeReceiver,
+  clipboard: Option<std::os::fd::BorrowedFd<'_>>,
   surface: &mut Surface,
   panelled: &Panelled,
   logical: Size<u32>,
@@ -1406,7 +1390,11 @@ fn wait_for_frame(
 ) -> Result<(Dirty, Stale), console_draw_surface::SurfaceError> {
   let (mut dirty, mut stale) = was;
   let Ok(descriptor) = waking.descriptor();
-  surface.wait(&[descriptor], None)?;
+  let waited = match clipboard {
+    Some(ready) => surface.wait(&[descriptor, ready], None),
+    None => surface.wait(&[descriptor], None),
+  };
+  waited?;
   let Ok(woken) = waking.state();
 
   match woken.rows {
@@ -1510,11 +1498,8 @@ fn repainted(
       let Ok(size) = pixels.size();
       let Ok(part) = picture_part(moving, size);
       let Ok(picture) = console_core_shapes::Picture::rectangular(part.at, part.size, pixels);
-      let Ok(local) = console_core_shapes::Picture::rectangular(
-        Point::default(),
-        part.size,
-        pixels,
-      );
+      let Ok(local) =
+        console_core_shapes::Picture::rectangular(Point::default(), part.size, pixels);
       let Ok(caption_here) = said_over(moving, &local, caption);
 
       match surface_2.draw_layer(part, |target, buffer_size, _scale| {
@@ -3510,8 +3495,36 @@ fn aside_label(
 }
 
 fn measured_line(state: &State) -> Result<crate::field::Editing, Never> {
-  let Ok((_, before, _)) = in_the_line(state);
+  let Ok(mode) = driving(state);
+
+  match mode {
+    Driving::Panel | Driving::Sure => return Ok(crate::field::Editing::Inactive),
+    Driving::Question | Driving::Search => {}
+  }
+
+  let Ok((said, before, _)) = in_the_line(state);
   let Ok(measured) = crate::field::measure(&before);
+  let field = state
+    .asking
+    .as_ref()
+    .map_or(&state.typed, |prompt| &prompt.typed);
+  let Ok(selection) = field.selection();
+
+  match (state.preedit.as_ref(), selection) {
+    (None, Some(range)) => {
+      let Ok(start) = console_input_text::between(&said, 0..range.start);
+      let Ok(end) = console_input_text::between(&said, 0..range.end);
+      let Ok(from) = crate::field::measure(start);
+      let Ok(through) = crate::field::measure(end);
+      return Ok(crate::field::Editing::Range {
+        caret: measured.width,
+        start: from.width,
+        end: through.width,
+      });
+    }
+    _ => {}
+  }
+
   let (caret, preedit) = match state.preedit.as_ref() {
     Some(preedit) => {
       let Ok(underline) = preedit_underline(state, preedit);
@@ -3533,6 +3546,27 @@ fn line_area(at: Point<i32>, wide: u32) -> Result<crate::canvas::Area, Never> {
       height: crate::field::HEIGHT,
     },
   })
+}
+
+fn search_line(card: &Card, opened: Opened) -> Result<(Point<i32>, u32), Never> {
+  let Ok(left) = inside_left(card);
+  let Ok(right) = inside_right(card);
+  let Ok(wide) = width(right.saturating_sub(left));
+  let top = match opened {
+    Opened::Expanded => card.y.saturating_sub(fitting::ROW),
+    Opened::No => card
+      .y
+      .saturating_add(fitting::STRIP)
+      .saturating_add(OVER_ROWS),
+  };
+
+  Ok((
+    Point {
+      x: left,
+      y: top.saturating_add(BETWEEN_ROWS.saturating_div(2)),
+    },
+    wide,
+  ))
 }
 
 fn line_shapes(
@@ -3596,6 +3630,9 @@ pub(crate) struct State {
   loading: bool,
   navigation: Navigation,
   wheel: scrolling::Position,
+  clipboard: clipboard::Clipboard,
+  edit_menu: menu::Menu,
+  selection: gesture::Gesture,
 }
 
 #[derive(Clone, Copy)]
@@ -3610,7 +3647,38 @@ struct PageViewport {
   scroll: i32,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SearchFocus {
+  Input,
+  Rows,
+}
+
 impl State {
+  fn editor(
+    &mut self,
+    act: impl FnOnce(Editor<'_>, &mut clipboard::Clipboard) -> Result<Typed, Never>,
+  ) -> Result<Dirty, Never> {
+    let Ok(mode) = driving(self);
+    let editor = match (mode, self.model.asking.as_mut()) {
+      (Driving::Search, _) => Editor::Field(&mut self.model.typed),
+      (Driving::Question, Some(prompt)) => match prompt.secret {
+        Secret::No => Editor::Field(&mut prompt.typed),
+        Secret::Hidden | Secret::Shown => Editor::Password(&mut prompt.typed),
+      },
+      _ => return Ok(Dirty::No),
+    };
+    let Ok(typed) = act(editor, &mut self.clipboard);
+
+    Ok(match (typed, mode) {
+      (Typed::Edited, Driving::Search) => {
+        let Ok(()) = narrowed(&mut self.model, &self.rows);
+        Dirty::Yes
+      }
+      (Typed::Edited | Typed::Moved, _) => Dirty::Yes,
+      (Typed::None, _) => Dirty::No,
+    })
+  }
+
   fn cancel_navigation(&mut self) -> Result<(), Never> {
     let Ok(turn) = NavigationKeys::handle(self.navigation, NavigationInput::Cancel);
     self.navigation = turn.state;
@@ -3654,6 +3722,7 @@ pub(crate) struct CardModel {
   from_tab: u32,
   scroll: i32,
   reveal: Reveal,
+  search_focus: SearchFocus,
   typed: TextField,
   preedit: Option<Composition>,
   prompt_identity: u32,
@@ -3666,6 +3735,19 @@ pub(crate) struct CardModel {
   selected: Vec<String>,
   framing: Framing,
   tasks: Actor<Tasks>,
+}
+
+impl CardModel {
+  fn search(&self) -> Result<Option<&crate::page::Sought>, Never> {
+    let Ok(page) = nth(&self.pages, self.here);
+    Ok(page.and_then(|current| current.sought.as_ref()))
+  }
+
+  fn focus_search(&mut self, focus: SearchFocus) -> Result<(), Never> {
+    self.search_focus = focus;
+    self.preedit = None;
+    Ok(())
+  }
 }
 
 impl std::ops::Deref for State {
@@ -4010,16 +4092,23 @@ pub(crate) fn shapes(
 
       match &page_2.sought {
         Some(_) => {
-          let at = Point {
-            x: left,
-            y: rows_start
-              .saturating_sub(sought_tall)
-              .saturating_add(BETWEEN_ROWS.saturating_div(2)),
-          };
-
-          let Ok(line) = line_shapes(state, measured.typed, at, inside_wide, wearing);
+          let Ok((at, wide)) = search_line(card, state.opened);
+          let Ok(line) = line_shapes(state, measured.typed, at, wide, wearing);
 
           shapes.extend(line);
+          touching.push(HitRegion {
+            lands: Lands::Search,
+            panel: console_core_shapes::Panel {
+              at,
+              size: Size {
+                width: wide,
+                height: crate::field::HEIGHT.unsigned_abs(),
+              },
+              round: Round(strip::ROUND),
+              fill: wearing.night,
+              edge: Edge::None,
+            },
+          });
         }
         None => {}
       }
@@ -4707,12 +4796,11 @@ pub(crate) fn driving(state: &State) -> Result<Driving, Never> {
     (None, None) => {}
   }
 
-  let Ok(page) = nth(&state.pages, state.here);
-  let sought = page.and_then(|page_2| page_2.sought.as_ref());
+  let Ok(search) = state.search();
 
-  Ok(match sought {
-    Some(_) => Driving::Search,
-    None => Driving::Panel,
+  Ok(match (search, state.search_focus) {
+    (Some(_), SearchFocus::Input) => Driving::Search,
+    (None, _) | (Some(_), SearchFocus::Rows) => Driving::Panel,
   })
 }
 
@@ -4732,6 +4820,11 @@ fn pressed_here(
   }
 
   match (meaning, driving) {
+    (Meaning::Close, Driving::Search) => {
+      let Ok(()) = state.focus_search(SearchFocus::Rows);
+
+      return Ok(ActionOutcome::Stay);
+    }
     (Meaning::Abandon, Driving::Question) => {
       state.asking = None;
 
@@ -4790,6 +4883,18 @@ fn pressed_here(
           let Ok(()) = narrowed(state, rows);
         }
         Typed::Moved | Typed::None => {}
+      }
+
+      return Ok(ActionOutcome::Stay);
+    }
+    (Meaning::None, Driving::Panel) => {
+      let Ok(search) = state.search();
+
+      match (search, press.key, press.kind) {
+        (Some(_), Keysym::slash, KeyPressKind::Initial) => {
+          let Ok(()) = state.focus_search(SearchFocus::Input);
+        }
+        _ => {}
       }
 
       return Ok(ActionOutcome::Stay);
@@ -4854,6 +4959,7 @@ fn stood_on(state: &mut CardModel, which: u32) -> Result<(), Never> {
   };
   state.beside = Beside::No;
   state.selected = Vec::new();
+  let Ok(()) = state.focus_search(SearchFocus::Input);
 
   Ok(())
 }
@@ -5106,6 +5212,7 @@ fn sliding_under(lands: Option<Lands>) -> Result<Option<(u32, Rectangle<i32>)>, 
       | Lands::Tab(_)
       | Lands::More(_)
       | Lands::Back
+      | Lands::Search
       | Lands::Reveal,
     )
     | None => None,
@@ -5592,6 +5699,9 @@ fn opened_on(
     loading: false,
     navigation: Navigation::Ready,
     wheel: scrolling::Position::default(),
+    clipboard: clipboard::Clipboard::default(),
+    edit_menu: menu::Menu::default(),
+    selection: gesture::Gesture::default(),
     model: CardModel {
       here: match crate::page::find(&pages, start) {
         Ok(index) => index,
@@ -5605,6 +5715,7 @@ fn opened_on(
       from_tab: 0,
       scroll: 0,
       reveal: Reveal::Focus,
+      search_focus: SearchFocus::Input,
       typed: TextField::default(),
       preedit: None,
       prompt_identity: 0,
@@ -5771,6 +5882,7 @@ fn hover_region(
       | Lands::More(_)
       | Lands::Back
       | Lands::Reveal => true,
+      Lands::Search => false,
     })
   }))
 }
@@ -6299,6 +6411,11 @@ fn tapped(
 
       ActionOutcome::Stay
     }
+    Some(Lands::Search) => {
+      let Ok(()) = model.focus_search(SearchFocus::Input);
+
+      ActionOutcome::Stay
+    }
     Some(Lands::Back) => {
       model.leaving = Leaving::No;
 
@@ -6766,6 +6883,8 @@ fn show_surface(
   framing: Framing,
   mut surface: Surface,
 ) -> Result<Surface, console_draw_surface::SurfaceError> {
+  let Ok(()) = surface.accept_context_presses();
+
   match framing {
     Framing::Card | Framing::Compact => {
       let Ok(wanted) = covering();
@@ -7032,6 +7151,7 @@ fn turn_once(turning: &mut Turning<'_>, still: Still<'_>) -> Result<ActionOutcom
       let Ok(mut drawn) = shapes(state, &card, *fits, &measured, wearing);
       let Ok(next_hover) = hover_region(&drawn, &state.rows, pointer);
       let Ok(()) = decorate_hover(&mut drawn, surface, (next_hover, wearing));
+      let Ok(()) = state.edit_menu.paint(&mut drawn.shapes, wearing);
       let Ok(_painted_in_this_frame) = hover.observe(next_hover);
       let already_drawn = *painted == Visible::Yes && panelled.shapes == drawn.shapes;
 
@@ -7472,8 +7592,10 @@ fn handle_input(
   let Ok(()) = surface.set_text_input(text_input);
   let Ok(focus) = surface.keyboard_focus();
   let Ok(()) = accessibility.update(accessibility_changed, focus, state, &panelled);
+  let Ok(clipboard) = state.clipboard.descriptor();
   let updates = wait_for_frame(
     waking,
+    clipboard,
     surface,
     panelled,
     logical,
@@ -7498,6 +7620,7 @@ fn handle_input(
 
   match accessible_action {
     Some(request) => {
+      let Ok(()) = state.clipboard.cancel();
       let action = request.action;
       let Ok(outcome) = accessibility::perform(state, card, room, request);
 
@@ -7549,10 +7672,122 @@ struct PanelInput<'a> {
 }
 
 impl PanelInput<'_> {
+  fn editor_area(&self) -> Result<Option<crate::canvas::Area>, Never> {
+    let Ok(mode) = driving(self.state);
+    let Ok(search) = self.state.search();
+    let (at, wide) = match (mode, search) {
+      (Driving::Search | Driving::Panel, Some(_)) => {
+        let Ok(line) = search_line(self.card, self.state.opened);
+        line
+      }
+      (Driving::Question, _) => {
+        let Ok(at) = asked_at(self.card);
+        let Ok(wide) = asked_wide(self.card);
+        (
+          Point {
+            y: at.y.saturating_add(fitting::ROW),
+            ..at
+          },
+          wide,
+        )
+      }
+      (Driving::Panel | Driving::Search, None) | (Driving::Sure, _) => return Ok(None),
+    };
+    let Ok(area) = line_area(at, wide);
+    Ok(Some(area))
+  }
+
+  fn context_presses(&mut self, surface: &mut Surface) -> Result<(), Never> {
+    let Ok(presses) = surface.context_presses();
+    let Ok(editor) = self.editor_area();
+
+    match (presses.last().copied(), editor) {
+      (Some(at), Some(area)) => {
+        let Ok(point) = pointer_position(at);
+        let Ok(room) = self.menu_room();
+
+        let Ok(bounds) = area.bounds();
+
+        match bounds.contains(point) {
+          Ok(Containment::Inside) => {
+            let Ok(()) = self.focus_editor();
+            let Ok(()) = self.state.edit_menu.open(point, room);
+            *self.dirty = Dirty::Yes;
+          }
+          Ok(Containment::Outside) => {}
+        }
+      }
+      _ => {}
+    }
+
+    Ok(())
+  }
+
+  fn begin_selection(&mut self, point: Point<i32>) -> Result<Dirty, Never> {
+    let Ok(editor) = self.editor_area();
+    let area = match editor {
+      Some(area) => area,
+      None => return Ok(Dirty::No),
+    };
+    let Ok(bounds) = area.bounds();
+
+    match bounds.contains(point) {
+      Ok(Containment::Inside) => {
+        let Ok(()) = self.focus_editor();
+        let Ok(select) = self.state.selection.press_now(point);
+        let Ok(_moved) = self.select_at(area, point, select);
+        Ok(Dirty::Yes)
+      }
+      Ok(Containment::Outside) => Ok(Dirty::No),
+    }
+  }
+
+  fn focus_editor(&mut self) -> Result<(), Never> {
+    let Ok(mode) = driving(self.state);
+
+    match mode {
+      Driving::Panel => self.state.model.focus_search(SearchFocus::Input),
+      Driving::Search | Driving::Question | Driving::Sure => Ok(()),
+    }
+  }
+
+  fn select_at(
+    &mut self,
+    area: crate::canvas::Area,
+    point: Point<i32>,
+    select: gesture::Selection,
+  ) -> Result<Dirty, Never> {
+    self.state.preedit = None;
+    let Ok((displayed, _, filled)) = in_the_line(self.state);
+    let said = match filled {
+      Filled::Typed => displayed.as_str(),
+      Filled::Empty => "",
+    };
+    let Ok(editing) = measured_line(self.state);
+    let Ok(position) = field::Field {
+      area,
+      trailing: 0,
+      content: field::Content::Value(said),
+      editing,
+    }
+    .caret_at(said, point);
+
+    self
+      .state
+      .editor(|editor, _| editor.select(position, select))
+  }
+
+  fn menu_room(&self) -> Result<Size<u32>, Never> {
+    let Ok(width) = fitted(self.card.x.saturating_add(self.card.width).max(0));
+    let Ok(height) = fitted(self.card.y.saturating_add(self.card.height).max(0));
+    Ok(Size { width, height })
+  }
+
   fn process(&mut self, surface: &mut Surface) -> Result<ActionOutcome, Never> {
     let Ok(changes) = surface.text_input_changes();
 
     for change in changes {
+      let Ok(()) = self.state.clipboard.cancel();
       let Ok(changed) = apply_text_input(self.state, change);
 
       match changed {
@@ -7577,6 +7812,9 @@ impl PanelInput<'_> {
     match keyboard {
       KeyboardFocus::Elsewhere => {
         let Ok(()) = self.state.cancel_navigation();
+        let Ok(()) = self.state.clipboard.cancel();
+        let Ok(()) = self.state.edit_menu.close();
+        let Ok(()) = self.state.selection.cancel();
       }
       KeyboardFocus::Here => {}
     }
@@ -7597,11 +7835,49 @@ impl PanelInput<'_> {
       }
     }
 
+    let Ok(()) = self.context_presses(surface);
+
+    let Ok(reply) = self.state.clipboard.receive();
+
+    match reply {
+      Some(change) => {
+        self.state.preedit = None;
+        let Ok(edited) = self.state.editor(|editor, _| editor.change(change));
+
+        match edited {
+          Dirty::Yes => {
+            *self.dirty = Dirty::Yes;
+            *self.stale = Stale::Yes;
+          }
+          Dirty::No => {}
+        }
+      }
+      None => {}
+    }
+
     Ok(ActionOutcome::Stay)
   }
 
-  fn key(&mut self, press: PhysicalKeyPress) -> Result<ActionOutcome, Never> {
+  fn key(&mut self, physical: PhysicalKeyPress) -> Result<ActionOutcome, Never> {
     *self.dirty = Dirty::Yes;
+    let Ok(()) = self.state.selection.cancel();
+    let Ok(editor) = self.editor_area();
+    let Ok(room) = self.menu_room();
+    let Ok(input) = self
+      .state
+      .edit_menu
+      .key(physical.translated, editor.map(|area| (area.origin, room)));
+    let translated = match input {
+      menu::Input::Continue(press) | menu::Input::Action(press) => press,
+      menu::Input::Consumed => {
+        let Ok(()) = self.focus_editor();
+        return Ok(ActionOutcome::Stay);
+      }
+    };
+    let press = PhysicalKeyPress {
+      translated,
+      ..physical
+    };
     self.reported.presses = self.reported.presses.saturating_add(1);
     let Ok(wake) = stirred(self.state);
 
@@ -7615,6 +7891,27 @@ impl PanelInput<'_> {
     }
 
     let Ok(driving) = driving(self.state);
+    let Ok(shortcut) = clipboard::shortcut(press.translated);
+
+    match (driving, shortcut) {
+      (
+        Driving::Search | Driving::Question,
+        clipboard::Shortcut::Copy
+        | clipboard::Shortcut::Cut
+        | clipboard::Shortcut::Paste
+        | clipboard::Shortcut::Repeat,
+      ) => {
+        let Ok(_dirty) = self.state.editor(|focused, clipboard| {
+          let Ok(()) = focused.clipboard(shortcut, clipboard);
+          Ok(Typed::None)
+        });
+        return Ok(ActionOutcome::Stay);
+      }
+      _ => {
+        let Ok(()) = self.state.clipboard.cancel();
+      }
+    }
+
     let Ok(turn) = NavigationKeys::handle(
       self.state.navigation,
       NavigationInput::Press {
@@ -7686,7 +7983,39 @@ impl PanelInput<'_> {
   fn pointer(&mut self, event: PointerEvent) -> Result<ActionOutcome, Never> {
     match event {
       PointerEvent::Down { at } => {
+        let Ok(point) = pointer_position(at);
+        let Ok(menu) = self.state.edit_menu.click(point);
+
+        match menu {
+          Some(menu::Input::Action(translated)) => {
+            return self.key(PhysicalKeyPress {
+              code: 0,
+              depressed_modifiers: 0,
+              translated,
+            });
+          }
+          Some(menu::Input::Continue(_) | menu::Input::Consumed) => {
+            *self.dirty = Dirty::Yes;
+            return Ok(ActionOutcome::Stay);
+          }
+          None => {}
+        }
+
+        let Ok(()) = self.state.clipboard.cancel();
         let Ok(()) = self.state.cancel_navigation();
+        let Ok(selected) = self.begin_selection(point);
+
+        match selected {
+          Dirty::Yes => {
+            *self.finger = None;
+            *self.dirty = Dirty::Yes;
+            return Ok(ActionOutcome::Stay);
+          }
+          Dirty::No => {
+            let Ok(()) = self.state.selection.cancel();
+          }
+        }
+
         self.state.wheel = scrolling::Position::default();
         let Ok(down) = finger_down(self.state, self.view, at);
         *self.finger = match down {
@@ -7699,6 +8028,19 @@ impl PanelInput<'_> {
         };
       }
       PointerEvent::Moved { at } => {
+        let Ok(point) = pointer_position(at);
+        let Ok(gesture) = self.state.selection.moved(point);
+        let Ok(editor) = self.editor_area();
+
+        match (gesture, editor) {
+          (Some(select), Some(area)) => {
+            let Ok(_moved) = self.select_at(area, point, select);
+            *self.dirty = Dirty::Yes;
+            return Ok(ActionOutcome::Stay);
+          }
+          _ => {}
+        }
+
         let Ok(()) = self.moved(at);
       }
       PointerEvent::Scrolled { by } => {
@@ -7720,8 +8062,25 @@ impl PanelInput<'_> {
         });
         *self.dirty = Dirty::Yes;
       }
-      PointerEvent::Up => return self.lifted(),
-      PointerEvent::Left => *self.finger = None,
+      PointerEvent::Up => {
+        let Ok(held) = self.state.selection.release_now();
+
+        match held {
+          Some(point) => {
+            let Ok(room) = self.menu_room();
+            let Ok(()) = self.state.edit_menu.open(point, room);
+            *self.dirty = Dirty::Yes;
+            return Ok(ActionOutcome::Stay);
+          }
+          None => {}
+        }
+
+        return self.lifted();
+      }
+      PointerEvent::Left => {
+        let Ok(()) = self.state.selection.cancel();
+        *self.finger = None;
+      }
     }
 
     Ok(ActionOutcome::Stay)
@@ -7880,7 +8239,7 @@ impl PanelInput<'_> {
     }
 
     match touch.lands {
-      Some(Lands::Tab(_) | Lands::More(_) | Lands::Reveal) => {}
+      Some(Lands::Tab(_) | Lands::More(_) | Lands::Search | Lands::Reveal) => {}
       None => {
         match {
           ::core::primitive::bool::then_some(outside(self.card, at) == Ok(Covers::Yes), ())
@@ -8602,6 +8961,9 @@ mod tests {
       rows,
       row_layout: super::LayoutCache::Unmeasured,
       wheel: super::scrolling::Position::default(),
+      clipboard: super::clipboard::Clipboard::default(),
+      edit_menu: super::menu::Menu::default(),
+      selection: super::gesture::Gesture::default(),
       loading: false,
       navigation: super::Navigation::Ready,
       model: super::CardModel {
@@ -8614,6 +8976,7 @@ mod tests {
         from_tab: 0,
         scroll: 0,
         reveal: super::Reveal::Focus,
+        search_focus: super::SearchFocus::Input,
         typed: TextField::default(),
         preedit: None,
         prompt_identity: 0,
@@ -9860,6 +10223,81 @@ mod tests {
   }
 
   #[test]
+  fn escape_leaves_search_before_it_closes_the_panel() -> Result<(), Failure> {
+    use console_input_event_devices::KeyCode;
+
+    let Ok(stay) = Handler::and_stay(|_| {});
+    let Ok(first) = Row::new("First", Aside(""), stay.clone());
+    let Ok(second) = Row::new("Second", Aside(""), stay);
+    let Ok(page) = Page::new("Menu", Rows::Fixed(vec![first, second]));
+    let Ok(page_2) = page.searching("Search", |_, _| {});
+    let mut state = state_of(vec![page_2])?;
+    state.at = Some(0);
+    let Ok(query) = TextField::holding("second");
+    state.typed = query;
+    let Ok(card) = card();
+    let wearing = sample_palette()?;
+    let Ok(view) = drawn(&state, &card, &wearing);
+    let Ok(mut reported) = focused_report();
+    let mut input = super::PanelInput {
+      state: &mut state,
+      view: &view,
+      card: &card,
+      room: card.height,
+      finger: &mut None,
+      reported: &mut reported,
+      dirty: &mut super::Dirty::No,
+      stale: &mut super::Stale::No,
+    };
+    let key = |code: KeyCode, symbol, kind| super::PhysicalKeyPress {
+      code: u32::from(code.0),
+      depressed_modifiers: 0,
+      translated: super::KeyPress {
+        key: symbol,
+        kind,
+        modifiers: 0,
+      },
+    };
+    let escape = key(
+      KeyCode::KEY_ESC,
+      Keysym::Escape,
+      super::KeyPressKind::Initial,
+    );
+    let repeated = key(
+      KeyCode::KEY_ESC,
+      Keysym::Escape,
+      super::KeyPressKind::Repeated,
+    );
+    let down = key(KeyCode::KEY_J, Keysym::j, super::KeyPressKind::Initial);
+
+    assert!(matches!(
+      super::text_input_state(input.state, &card),
+      Ok(Some(_))
+    ));
+    assert_eq!(input.key(escape), Ok(ActionOutcome::Stay));
+    assert!(matches!(
+      super::text_input_state(input.state, &card),
+      Ok(None)
+    ));
+    assert_eq!(input.key(repeated), Ok(ActionOutcome::Stay));
+    assert_eq!(input.key(down), Ok(ActionOutcome::Stay));
+    assert_eq!(input.state.at, Some(1));
+    assert_eq!(input.state.typed.text(), Ok("second"));
+
+    let search = view
+      .touching
+      .iter()
+      .find(|region| region.lands == Lands::Search)
+      .ok_or("missing search field")?;
+    let Ok(outcome) = super::tapped(input.state, Some(search.lands), search.panel.at, &card);
+    assert_eq!(outcome, ActionOutcome::Stay);
+    assert_eq!(driving(input.state), Ok(Driving::Search));
+    assert_eq!(input.key(escape), Ok(ActionOutcome::Stay));
+    assert_eq!(input.key(escape), Ok(ActionOutcome::Close));
+    Ok(())
+  }
+
+  #[test]
   fn the_line_to_type_in_stands_over_the_rows_and_pushes_them_down() -> Result<(), Failure> {
     let Ok(aether) = said_row("Aether");
     let Ok(page) = Page::new("Menu", Rows::Fixed(vec![aether]));
@@ -11050,6 +11488,7 @@ mod tests {
       | Lands::Tab(_)
       | Lands::More(_)
       | Lands::Back
+      | Lands::Search
       | Lands::Reveal => return Err(Failure::from("the slider landed somewhere else")),
     };
     let knob = frame.size.height.saturating_mul(2).saturating_div(3);

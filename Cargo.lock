@@ -1229,6 +1229,7 @@ dependencies = [
 name = "console-compositor"
 version = "0.1.0"
 dependencies = [
+ "console-applications",
  "console-core-atomic-writes",
  "console-core-bounded-reads",
  "console-core-color",
@@ -3474,6 +3475,7 @@ dependencies = [
  "console-core-fonts",
  "console-core-geometry",
  "console-core-highlight",
+ "console-core-internal-programs",
  "console-core-iteration",
  "console-core-logging",
  "console-core-never",
@@ -3485,6 +3487,7 @@ dependencies = [
  "console-core-temporary-directories",
  "console-core-walking",
  "console-core-words",
+ "console-default-applications",
  "console-draw-painting",
  "console-input-alphabets",
  "console-input-controller",
@@ -4484,6 +4487,7 @@ dependencies = [
  "console-input-dictation",
  "console-input-event-devices",
  "console-input-language",
+ "console-input-mapping",
  "console-lock-screen",
  "console-login-greeter",
  "console-login-pattern",

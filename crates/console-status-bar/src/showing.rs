@@ -116,8 +116,6 @@ pub const BETWEEN: Share = Share(105);
 
 pub const ICON: Share = Share(579);
 
-const SIDE: Share = Share(1210);
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Face {
   Icon,
@@ -176,9 +174,7 @@ impl Fitting {
   }
 
   pub fn sidebar_width(&self) -> Result<u32, Never> {
-    let Ok(body) = SIDE.spent(self.deep);
-
-    Ok(body.saturating_add(self.thin))
+    self.height()
   }
 
   pub fn sidebar_content_width(&self, width: u32) -> Result<u32, Never> {

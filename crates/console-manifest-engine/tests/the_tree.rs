@@ -764,7 +764,9 @@ fn reloading_the_compositor_restores_saved_display_settings() -> Result<(), Fail
   let (_, hooked) = lua
     .split_once("hl.on(\"config.reloaded\", function()")
     .ok_or("the compositor does not handle a configuration reload")?;
-  let (callback, _) = hooked.split_once("\nend)").ok_or("unfinished reload hook")?;
+  let (callback, _) = hooked
+    .split_once("\nend)")
+    .ok_or("unfinished reload hook")?;
   let Ok(scale) = InternalProgram::Scale.path();
   let restore = format!("hl.exec_cmd(\"{scale} apply\")");
 

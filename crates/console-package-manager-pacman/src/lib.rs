@@ -35,7 +35,10 @@ pub fn unmet_dependencies(packages: &[&str]) -> io::Result<Vec<String>> {
       let missing = String::from_utf8(answer.stdout).map_err(io::Error::other)?;
       Ok(missing.split_whitespace().map(str::to_owned).collect())
     }
-    Some(_) | None => Err(io::Error::other(format!("pacman -T exited with {}", answer.status))),
+    Some(_) | None => Err(io::Error::other(format!(
+      "pacman -T exited with {}",
+      answer.status
+    ))),
   }
 }
 

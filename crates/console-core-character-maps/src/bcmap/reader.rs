@@ -51,7 +51,10 @@ impl<'a> Reader<'a> {
   }
 
   pub(crate) fn take(&mut self, length: u32) -> Result<&'a [u8], ParseError> {
-    self.0.take(u64::from(length)).map_err(|_| ParseError::Truncated)
+    self
+      .0
+      .take(u64::from(length))
+      .map_err(|_| ParseError::Truncated)
   }
 
   pub(crate) fn terminated(&mut self) -> Result<&'a [u8], ParseError> {

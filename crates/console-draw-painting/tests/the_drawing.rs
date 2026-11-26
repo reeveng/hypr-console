@@ -655,12 +655,7 @@ fn a_full_frame_picture_matches_the_rasterizer_before_drawing_the_overlay()
     let mut expected = actual.clone();
     let Ok(picture) = Picture::rectangular(origin, WHOLE.points, pixels);
     let Ok(borrowed) = picture.borrow_pixels();
-    over_picture(
-      &mut actual,
-      WHOLE,
-      borrowed,
-      std::slice::from_ref(&overlay),
-    )?;
+    over_picture(&mut actual, WHOLE, borrowed, std::slice::from_ref(&overlay))?;
     over(
       &mut expected,
       WHOLE,

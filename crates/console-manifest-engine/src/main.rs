@@ -508,8 +508,12 @@ fn check(root: &Path, manifest: &Manifest) -> Result<ExitCode, Never> {
   let Ok(unlisted) = packages::missing_packages(named, &have);
   let provided = match system::unmet_dependencies(&unlisted) {
     Ok(unmet) => {
-      let unmet_names: std::collections::HashSet<&str> = unmet.iter().map(String::as_str).collect();
-      unlisted.into_iter().filter(|name| !unmet_names.contains(name)).collect()
+      let unmet_names: std::collections::HashSet<&str> =
+        unmet.iter().map(String::as_str).collect();
+      unlisted
+        .into_iter()
+        .filter(|name| !unmet_names.contains(name))
+        .collect()
     }
     Err(fault) => {
       console_core_logging::warn!("console check: checking installed package providers: {fault}");
@@ -1734,39 +1738,43 @@ fn packages_held(
     let Ok(()) = moving.say(&format!("{YELLOW}installing{OFF} {}", missing.join(" ")));
 
     let mut fetching = Fetching { moving, done: 0 };
-    let installed = system::install_with(missing.iter().map(String::as_str), &mut fetching, |progress, line, said| {
-      let Ok(()) = progress.moving.say(line);
+    let installed = system::install_with(
+      missing.iter().map(String::as_str),
+      &mut fetching,
+      |progress, line, said| {
+        let Ok(()) = progress.moving.say(line);
 
-      match said {
-        InstallOutput::Downloading(name) => {
-          progress.done = progress.done.saturating_add(1);
+        match said {
+          InstallOutput::Downloading(name) => {
+            progress.done = progress.done.saturating_add(1);
 
-          let Ok(far) = installing::fetched(Progress {
-            done: progress.done,
-            many,
-          });
-          let Ok(()) = progress
-            .moving
-            .far(going::StageFraction(far), &format!("fetching {name}"));
+            let Ok(far) = installing::fetched(Progress {
+              done: progress.done,
+              many,
+            });
+            let Ok(()) = progress
+              .moving
+              .far(going::StageFraction(far), &format!("fetching {name}"));
+          }
+
+          InstallOutput::Installing {
+            done,
+            many: many_2,
+            name,
+          } => {
+            let Ok(far) = installing::overall_fraction(Progress { done, many: many_2 });
+            let Ok(counted) = console_how_far::format_count(Progress { done, many: many_2 });
+            let Ok(()) = progress
+              .moving
+              .far(going::StageFraction(far), &format!("{counted} {name}"));
+          }
+
+          InstallOutput::Other => {}
         }
 
-        InstallOutput::Installing {
-          done,
-          many: many_2,
-          name,
-        } => {
-          let Ok(far) = installing::overall_fraction(Progress { done, many: many_2 });
-          let Ok(counted) = console_how_far::format_count(Progress { done, many: many_2 });
-          let Ok(()) = progress
-            .moving
-            .far(going::StageFraction(far), &format!("{counted} {name}"));
-        }
-
-        InstallOutput::Other => {}
-      }
-
-      Ok(())
-    });
+        Ok(())
+      },
+    );
 
     installed.is_ok_and(|status| status.success())
   });
@@ -1814,7 +1822,10 @@ fn told_the_rest(going: &mut going::Going, manifest: &Manifest) -> Result<(), Ne
   let Ok(()) = going.through(going::SCREEN, || {
     let Ok(files) = manifest.of(Section::Files);
 
-    match files.iter().find(|path| path.as_str() == screen::BACKLIGHT_RULE) {
+    match files
+      .iter()
+      .find(|path| path.as_str() == screen::BACKLIGHT_RULE)
+    {
       Some(_) => {
         let Ok(()) = screen::refresh_backlight();
       }

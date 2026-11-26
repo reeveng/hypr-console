@@ -46,6 +46,7 @@ use crate::learned::Following;
 use crate::level::{CELLS, Muted, bar, slider};
 use crate::machine::MachineSetting;
 use crate::named::{self, Allowed};
+use crate::power::{self, Request};
 use crate::power_profile::Profile;
 use crate::size::{EVERY, Size};
 use crate::turning::{self, Turn};
@@ -1375,30 +1376,16 @@ pub fn set_engine_command(engine: &str) -> Result<Command, Never> {
 }
 
 pub fn power_rows() -> Result<Vec<Row>, Never> {
-  let Ok(systemctl) = Program::Systemctl.name();
-  let suspending = vec![systemctl.to_string(), "suspend".to_string()];
-  let Ok(suspends) = Handler::call(move |_| {
-    let Ok(()) = console_application_music::player::pause();
-    let Ok(()) = console_panel::running::left_running(&suspending);
-
-    ActionOutcome::Close
-  });
-  let Ok(sleep) = Row::new("Sleep", Aside(""), suspends);
-  let Ok(resume) = InternalProgram::Resume.name();
-  let Ok(reboots) = Handler::run(&[resume, "finish", "reboot"]);
-  let Ok(restart) = Row::new("Restart", Aside(""), reboots);
-  let Ok(powers_off) = Handler::run(&[resume, "finish", "poweroff"]);
-  let Ok(shut_down) = Row::new("Shut Down", Aside(""), powers_off);
-  let Ok(signing_out) = Handler::run(&[resume, "finish", "logout"]);
-  let Ok(sign_out) = Row::new("Log Out", Aside(""), signing_out);
+  let Ok(sleep) = power::row(Request::Sleep);
+  let Ok(restart) = power::row(Request::Restart);
+  let Ok(shut_down) = power::row(Request::ShutDown);
+  let Ok(sign_out) = power::row(Request::LogOut);
   let mut rows = vec![sleep, restart, shut_down, sign_out];
   let Ok(locks) = locking();
 
   match locks {
     Locks::Yes => {
-      let Ok(loginctl) = Program::Loginctl.name();
-      let Ok(locking) = Handler::run(&[loginctl, "lock-session"]);
-      let Ok(lock) = Row::new(LOCK_NOW, Aside(""), locking);
+      let Ok(lock) = power::row(Request::Lock);
 
       rows.push(lock);
     }
@@ -1407,8 +1394,6 @@ pub fn power_rows() -> Result<Vec<Row>, Never> {
 
   Ok(rows)
 }
-
-const LOCK_NOW: &str = "Lock Now";
 
 const LOCK_SCREEN: &str = "Lock Screen";
 

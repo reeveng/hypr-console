@@ -223,7 +223,8 @@ mod tests {
     ));
     let invalid = decode_request(Bytes::from(b"\x89unrecognized".to_vec()));
     assert!(matches!(invalid, Err(fault) if fault.kind() == io::ErrorKind::InvalidData));
-    let plain_text_request = decode_request(Bytes::from(br#"{"CopyText":"still text"}"#.to_vec()))?;
+    let plain_text_request =
+      decode_request(Bytes::from(br#"{"CopyText":"still text"}"#.to_vec()))?;
     assert!(matches!(
       plain_text_request,
       Request::CopyText(text) if text == "still text"

@@ -11,7 +11,7 @@ use wayland_client::globals::GlobalList;
 use wayland_client::protocol::wl_buffer;
 use wayland_client::{Connection, Dispatch, QueueHandle, event_created_child};
 use wayland_protocols::wp::linux_dmabuf::zv1::client::{
-  zwp_linux_buffer_params_v1 as params, zwp_linux_dmabuf_v1 as protocol,
+  zwp_linux_buffer_params_v1, zwp_linux_dmabuf_v1,
 };
 
 use super::{
@@ -34,7 +34,7 @@ pub enum DmaBufSupport {
 }
 
 pub(super) struct Import {
-  proxy: protocol::ZwpLinuxDmabufV1,
+  proxy: zwp_linux_dmabuf_v1::ZwpLinuxDmabufV1,
   state: ImportState,
 }
 
@@ -118,12 +118,17 @@ impl Import {
     &mut self,
     hand: &QueueHandle<Bound>,
     frame: &PreparedFrame<'_>,
-  ) -> Result<Option<params::ZwpLinuxBufferParamsV1>, Never> {
+  ) -> Result<Option<zwp_linux_buffer_params_v1::ZwpLinuxBufferParamsV1>, Never> {
     Ok(match self.state {
       ImportState::Ready => {
         let parameters = self.proxy.create_params(hand, ());
         parameters.add(frame.fd, 0, 0, frame.stride, 0, 0);
-        parameters.create(frame.width, frame.height, ABGR8888, params::Flags::empty());
+        parameters.create(
+          frame.width,
+          frame.height,
+          ABGR8888,
+          zwp_linux_buffer_params_v1::Flags::empty(),
+        );
         self.state = ImportState::WaitingForBuffer;
         Some(parameters)
       }
@@ -134,13 +139,13 @@ impl Import {
     })
   }
 
-  fn observe(&mut self, event: params::Event) -> Result<(), Never> {
+  fn observe(&mut self, event: zwp_linux_buffer_params_v1::Event) -> Result<(), Never> {
     match (event, &self.state) {
-      (params::Event::Created { buffer }, ImportState::WaitingForBuffer) => {
+      (zwp_linux_buffer_params_v1::Event::Created { buffer }, ImportState::WaitingForBuffer) => {
         self.state = ImportState::Imported(buffer);
       }
-      (params::Event::Created { buffer }, _) => buffer.destroy(),
-      (params::Event::Failed, ImportState::WaitingForBuffer) => {
+      (zwp_linux_buffer_params_v1::Event::Created { buffer }, _) => buffer.destroy(),
+      (zwp_linux_buffer_params_v1::Event::Failed, ImportState::WaitingForBuffer) => {
         self.state = ImportState::Rejected;
       }
       _ => {}
@@ -282,18 +287,18 @@ impl Surface {
   }
 }
 
-impl Dispatch<protocol::ZwpLinuxDmabufV1, ()> for Bound {
+impl Dispatch<zwp_linux_dmabuf_v1::ZwpLinuxDmabufV1, ()> for Bound {
   fn event(
     state: &mut Self,
-    _: &protocol::ZwpLinuxDmabufV1,
-    event: protocol::Event,
+    _: &zwp_linux_dmabuf_v1::ZwpLinuxDmabufV1,
+    event: zwp_linux_dmabuf_v1::Event,
     _: &(),
     _: &Connection,
     _: &QueueHandle<Self>,
   ) {
     match (event, state.dmabuf.as_mut()) {
       (
-        protocol::Event::Modifier {
+        zwp_linux_dmabuf_v1::Event::Modifier {
           format: ABGR8888,
           modifier_hi: 0,
           modifier_lo: 0,
@@ -309,11 +314,11 @@ impl Dispatch<protocol::ZwpLinuxDmabufV1, ()> for Bound {
 
 struct Imported;
 
-impl Dispatch<params::ZwpLinuxBufferParamsV1, ()> for Bound {
+impl Dispatch<zwp_linux_buffer_params_v1::ZwpLinuxBufferParamsV1, ()> for Bound {
   fn event(
     state: &mut Self,
-    _: &params::ZwpLinuxBufferParamsV1,
-    event: params::Event,
+    _: &zwp_linux_buffer_params_v1::ZwpLinuxBufferParamsV1,
+    event: zwp_linux_buffer_params_v1::Event,
     _: &(),
     _: &Connection,
     _: &QueueHandle<Self>,
@@ -322,13 +327,13 @@ impl Dispatch<params::ZwpLinuxBufferParamsV1, ()> for Bound {
       (Some(import), reply) => {
         let Ok(()) = import.observe(reply);
       }
-      (None, params::Event::Created { buffer }) => buffer.destroy(),
+      (None, zwp_linux_buffer_params_v1::Event::Created { buffer }) => buffer.destroy(),
       (None, _) => {}
     }
   }
 
-  event_created_child!(Bound, params::ZwpLinuxBufferParamsV1, [
-    params::EVT_CREATED_OPCODE => (wl_buffer::WlBuffer, Imported)
+  event_created_child!(Bound, zwp_linux_buffer_params_v1::ZwpLinuxBufferParamsV1, [
+    zwp_linux_buffer_params_v1::EVT_CREATED_OPCODE => (wl_buffer::WlBuffer, Imported)
   ]);
 }
 

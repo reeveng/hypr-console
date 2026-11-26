@@ -18,7 +18,7 @@ fn what_is_set_is_what_is_got_until_it_is_removed() -> Result<(), Failure> {
 
   let set = store.get("books")?;
 
-  assert_eq!(set, Some(b"page 412".to_vec()));
+  assert_eq!(set.as_deref(), Some(b"page 412".as_slice()));
 
   store.remove("books")?;
 

@@ -1,24 +1,28 @@
 //! The session socket accepts one bounded JSON or raw PNG request per connection.
 
 use std::fs::OpenOptions;
-use std::io::{self, BufRead, BufReader, Read, Write};
+use std::io::{self, Read, Write};
 use std::net::Shutdown;
 use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use console_core_never::Never;
+use console_core_bytes::Bytes;
+use console_operating_system_linux::unix_stream::{Within, connect};
 use serde::{Deserialize, Serialize};
 
 use crate::history::{Capture, MAX_TEXT_BYTES, Preview};
 
 const TIMEOUT: Duration = Duration::from_millis(250);
+const PNG_TIME: Duration = Duration::from_secs(2);
 const MAX_REQUEST: u32 = MAX_TEXT_BYTES.saturating_mul(6).saturating_add(128);
 const MAX_REPLY: u32 = 24 * 1024;
 pub(crate) const MAX_PASTE: u32 = 48 * 1024;
 
 pub const MAX_PNG_REQUEST: u32 = 128 * 1024 * 1024;
+pub(crate) const PEERS: u64 = 8;
+pub(crate) const REQUEST_MEMORY: u64 = 135 * 1024 * 1024;
 const PNG_SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
 
 #[derive(Deserialize, Serialize)]
@@ -28,7 +32,7 @@ pub enum Request {
   Restore(u64),
   CopyText(String),
   #[serde(skip)]
-  CopyPng(Vec<u8>),
+  CopyPng(Bytes),
   Clear,
   Pause(Capture),
 }
@@ -132,7 +136,7 @@ fn bind(socket: &Path) -> io::Result<UnixListener> {
 }
 
 fn rebind_stale(socket: &Path, bind_fault: io::Error) -> io::Result<UnixListener> {
-  match UnixStream::connect(socket) {
+  match connect(socket) {
     Ok(_active) => Err(bind_fault),
     Err(connect_fault) => {
       match (connect_fault.kind() == io::ErrorKind::ConnectionRefused).then_some(()) {
@@ -146,19 +150,18 @@ fn rebind_stale(socket: &Path, bind_fault: io::Error) -> io::Result<UnixListener
   }
 }
 
-fn timed(stream: &UnixStream) -> io::Result<()> {
-  stream.set_read_timeout(Some(TIMEOUT))?;
-  stream.set_write_timeout(Some(TIMEOUT))
-}
-
 fn read<T: serde::de::DeserializeOwned>(input: impl Read, maximum: u32) -> io::Result<T> {
   let bytes = console_core_bounded_reads::bytes(input, maximum)?;
   serde_json::from_slice(&bytes).map_err(io::Error::other)
 }
 
-fn read_png(input: impl Read) -> io::Result<Vec<u8>> {
-  let bytes = console_core_bounded_reads::bytes(input, MAX_PNG_REQUEST)?;
+fn read_png(input: impl Read) -> io::Result<Bytes> {
+  let bytes = console_core_bounded_reads::payload(input, MAX_PNG_REQUEST)?;
 
+  png(bytes)
+}
+
+fn png(bytes: Bytes) -> io::Result<Bytes> {
   match bytes.starts_with(PNG_SIGNATURE).then_some(()) {
     Some(()) => Ok(bytes),
     None => Err(io::Error::new(
@@ -168,58 +171,43 @@ fn read_png(input: impl Read) -> io::Result<Vec<u8>> {
   }
 }
 
-fn read_request(mut input: impl BufRead) -> io::Result<Request> {
-  let checked_value = input.fill_buf()?;
-
-  match checked_value {
-    [0x89, ..] => read_png(input).map(Request::CopyPng),
-    _ => read(input, MAX_REQUEST),
+fn decode_request(bytes: Bytes) -> io::Result<Request> {
+  match bytes.as_ref() {
+    [0x89, ..] => png(bytes).map(Request::CopyPng),
+    _ => serde_json::from_slice(&bytes).map_err(io::Error::other),
   }
 }
 
-fn write(stream: &mut UnixStream, message: &impl Serialize) -> io::Result<()> {
+fn write(stream: &mut impl Write, message: &impl Serialize) -> io::Result<()> {
   let bytes = serde_json::to_vec(message)?;
   stream.write_all(&bytes)
 }
 
-fn connect() -> io::Result<UnixStream> {
-  let socket = path()?;
-  let stream = UnixStream::connect(socket)?;
-  timed(&stream)?;
-
-  Ok(stream)
-}
-
-fn finish_request(stream: &UnixStream) -> io::Result<Reply> {
+fn finish_request(stream: &UnixStream, timed: Within<'_>) -> io::Result<Reply> {
   stream.shutdown(Shutdown::Write)?;
-  read(stream, MAX_REPLY)
+  read(timed, MAX_REPLY)
 }
 
 pub fn ask(request: Request) -> io::Result<Reply> {
-  let mut stream = connect()?;
-  write(&mut stream, &request)?;
-  finish_request(&stream)
+  let socket = path()?;
+  let stream = connect(&socket)?;
+  let mut timed = Within::new(&stream, TIMEOUT)?;
+  write(&mut timed, &request)?;
+  finish_request(&stream, timed)
 }
 
 pub fn copy_png(input: impl Read) -> io::Result<Reply> {
   let png = read_png(input)?;
-  let mut stream = connect()?;
-  stream.write_all(&png)?;
-  finish_request(&stream)
+  let socket = path()?;
+  let stream = connect(&socket)?;
+  let mut timed = Within::new(&stream, PNG_TIME)?;
+  timed.write_all(&png)?;
+  finish_request(&stream, timed)
 }
 
-pub fn answer<State>(
-  listener: &UnixListener,
-  state: &mut State,
-  reply: impl FnOnce(&mut State, Request) -> Result<Reply, Never>,
-) -> io::Result<()> {
-  let (mut stream, _peer) = listener.accept()?;
-  timed(&stream)?;
-  let request = read_request(BufReader::new(&stream))?;
-  let Ok(answered) = reply(state, request);
+mod transfer;
 
-  write(&mut stream, &answered)
-}
+pub(crate) use transfer::Peer;
 
 #[cfg(test)]
 mod tests {
@@ -228,14 +216,14 @@ mod tests {
   #[test]
   fn png_requests_keep_their_binary_bytes() -> io::Result<()> {
     let sent = b"\x89PNG\r\n\x1a\n\x00\xff";
-    let request = read_request(sent.as_slice())?;
+    let request = decode_request(Bytes::from(sent.to_vec()))?;
     assert!(matches!(
       request,
-      Request::CopyPng(bytes) if bytes == sent
+      Request::CopyPng(bytes) if bytes.as_ref() == sent
     ));
-    let invalid = read_request(b"\x89unrecognized".as_slice());
+    let invalid = decode_request(Bytes::from(b"\x89unrecognized".to_vec()));
     assert!(matches!(invalid, Err(fault) if fault.kind() == io::ErrorKind::InvalidData));
-    let plain_text_request = read_request(br#"{"CopyText":"still text"}"#.as_slice())?;
+    let plain_text_request = decode_request(Bytes::from(br#"{"CopyText":"still text"}"#.to_vec()))?;
     assert!(matches!(
       plain_text_request,
       Request::CopyText(text) if text == "still text"

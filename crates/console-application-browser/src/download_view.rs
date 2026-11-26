@@ -10,11 +10,11 @@ use console_core_geometry::{Point, Rectangle, Size};
 use console_core_highlight::under;
 use console_core_never::Never;
 use console_core_number_conversion::toward_zero_u32;
-use console_core_shapes::{Clip, Edge, Line, Shape};
-use console_draw_painting::{self as drawing, Frame};
-use console_draw_surface::KeyPress;
 use console_input_key_symbols::Keysym;
 use console_input_text::{TextField, Typed};
+use console_panel::ui::painting::{self, Frame};
+use console_panel::ui::shapes::{Clip, Edge, Line, Shape};
+use console_panel::ui::surface::KeyPress;
 
 use crate::download_catalog::{Catalog, FileAction, Matches, Record};
 use crate::downloads::{self, Id};
@@ -745,7 +745,7 @@ impl View {
     frame: Frame,
     palette: &Wearing,
     font: &Font,
-  ) -> Result<(), drawing::Cannot> {
+  ) -> Result<(), painting::Cannot> {
     let Ok(width) = console_core_number_conversion::fitted::<_, i32>(frame.points.width);
     let Ok(height) = console_core_number_conversion::fitted::<_, i32>(frame.points.height);
     let Ok(layout) = Layout::new(Size { width, height });
@@ -794,7 +794,7 @@ impl View {
     let Ok(()) = self.paint_rows(&mut shapes, layout, palette, font);
     let Ok(()) = self.paint_menu(&mut shapes, layout, palette, font);
 
-    drawing::onto(pixels, frame, &shapes)?;
+    painting::onto(pixels, frame, &shapes)?;
 
     match self.window {
       Window::Hidden => {}

@@ -587,6 +587,7 @@ name = "console-actor"
 version = "0.1.0"
 dependencies = [
  "console-core-atomic-writes",
+ "console-core-bytes",
  "console-core-logging",
  "console-core-never",
  "console-core-number-conversion",
@@ -620,16 +621,14 @@ dependencies = [
  "console-core-png-files",
  "console-core-portable-document-rasterizer",
  "console-core-portable-document-text",
- "console-core-shapes",
  "console-core-state-machine",
  "console-core-temporary-directories",
  "console-core-text-boundaries",
  "console-core-words",
  "console-core-zip-files",
  "console-defaults",
- "console-draw-painting",
- "console-draw-surface",
  "console-events",
+ "console-input-text",
  "console-operating-system-linux",
  "console-panel",
  "console-pictures",
@@ -644,6 +643,7 @@ version = "0.1.0"
 dependencies = [
  "console-browser-downloads",
  "console-browser-renderer",
+ "console-concurrency",
  "console-core-arguments",
  "console-core-atomic-writes",
  "console-core-bounded-reads",
@@ -660,14 +660,11 @@ dependencies = [
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
- "console-core-shapes",
  "console-core-state-machine",
  "console-core-temporary-directories",
  "console-core-urls",
  "console-core-web-engine",
  "console-default-applications",
- "console-draw-painting",
- "console-draw-surface",
  "console-gio",
  "console-input-key-symbols",
  "console-input-text",
@@ -711,11 +708,8 @@ dependencies = [
  "console-core-number-conversion",
  "console-core-places",
  "console-core-png-files",
- "console-core-shapes",
  "console-core-state-machine",
  "console-core-temporary-directories",
- "console-draw-painting",
- "console-draw-surface",
  "console-operating-system-linux",
  "console-panel",
  "console-pictures",
@@ -730,6 +724,7 @@ dependencies = [
  "console-compositor",
  "console-core-arguments",
  "console-core-bounded-reads",
+ "console-core-bytes",
  "console-core-controls",
  "console-core-internal-programs",
  "console-core-logging",
@@ -738,6 +733,7 @@ dependencies = [
  "console-core-places",
  "console-core-state-machine",
  "console-notifications",
+ "console-operating-system-linux",
  "console-panel",
  "console-waiting",
  "console-wayland",
@@ -795,6 +791,7 @@ dependencies = [
  "console-content-types",
  "console-core-arguments",
  "console-core-atomic-writes",
+ "console-core-bytes",
  "console-core-checksums",
  "console-core-external-programs",
  "console-core-file-names",
@@ -838,7 +835,6 @@ dependencies = [
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
- "console-draw-surface",
  "console-panel",
  "console-wayland",
  "rustix",
@@ -866,14 +862,11 @@ dependencies = [
  "console-core-number-conversion",
  "console-core-places",
  "console-core-png-files",
- "console-core-shapes",
  "console-core-state-machine",
  "console-core-subtitle-files",
  "console-core-temporary-directories",
  "console-core-walking",
  "console-core-words",
- "console-draw-painting",
- "console-draw-surface",
  "console-films",
  "console-music-player",
  "console-notifications",
@@ -906,7 +899,6 @@ dependencies = [
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
- "console-core-shapes",
  "console-core-size",
  "console-core-state-machine",
  "console-core-temporary-directories",
@@ -946,10 +938,7 @@ dependencies = [
  "console-core-places",
  "console-core-scalable-vector-graphics",
  "console-core-scalable-vector-graphics-rasterizer",
- "console-core-shapes",
  "console-core-temporary-directories",
- "console-draw-painting",
- "console-draw-surface",
  "console-gio",
  "console-input-keyboard",
  "console-input-text",
@@ -971,10 +960,7 @@ dependencies = [
  "console-core-number-conversion",
  "console-core-places",
  "console-core-png-files",
- "console-core-shapes",
  "console-core-state-machine",
- "console-draw-painting",
- "console-draw-surface",
  "console-gio",
  "console-input-text",
  "console-notifications",
@@ -1145,6 +1131,7 @@ version = "0.1.0"
 dependencies = [
  "console-core-arguments",
  "console-core-atomic-writes",
+ "console-core-bytes",
  "console-core-checksums",
  "console-core-never",
  "console-core-number-conversion",
@@ -1195,11 +1182,13 @@ dependencies = [
 name = "console-bus"
 version = "0.1.0"
 dependencies = [
+ "console-core-bytes",
  "console-core-external-programs",
  "console-core-iteration",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-synchronization",
+ "console-operating-system-linux",
  "console-program-contract",
  "rustix",
 ]
@@ -1256,8 +1245,10 @@ dependencies = [
  "console-core-temporary-directories",
  "console-core-text-encodings",
  "console-core-words",
+ "console-operating-system-linux",
  "console-wayland",
  "rustix",
+ "serde",
  "serde_json",
  "wayland-scanner",
 ]
@@ -1365,6 +1356,7 @@ dependencies = [
  "console-core-byte-streams",
  "console-core-checksums",
  "console-core-frequency-transforms",
+ "console-core-iteration",
  "console-core-never",
  "console-core-number-conversion",
 ]
@@ -1489,6 +1481,7 @@ version = "0.5.5"
 dependencies = [
  "console-core-audio-decoding-interfaces",
  "console-core-byte-streams",
+ "console-core-bytes",
  "console-core-logging",
  "console-core-never",
  "console-core-number-conversion",
@@ -1541,6 +1534,7 @@ dependencies = [
  "console-core-atomic-writes",
  "console-core-audio-decoding-advanced-audio-coding",
  "console-core-audio-decoding-interfaces",
+ "console-core-bytes",
  "console-core-deflate",
  "console-core-iso-media-boxes",
  "console-core-mpeg-audio-frames",
@@ -1593,6 +1587,11 @@ dependencies = [
 [[package]]
 name = "console-core-bounded-reads"
 version = "0.1.0"
+dependencies = [
+ "console-core-bytes",
+ "console-core-never",
+ "console-core-number-conversion",
+]
 
 [[package]]
 name = "console-core-byte-sources"
@@ -1608,8 +1607,17 @@ dependencies = [
 name = "console-core-byte-streams"
 version = "0.1.0"
 dependencies = [
+ "console-core-bytes",
  "console-core-checksums",
  "console-core-iteration",
+ "console-core-never",
+ "console-core-number-conversion",
+]
+
+[[package]]
+name = "console-core-bytes"
+version = "0.1.0"
+dependencies = [
  "console-core-never",
  "console-core-number-conversion",
 ]
@@ -1627,6 +1635,7 @@ dependencies = [
 name = "console-core-character-maps"
 version = "0.1.0"
 dependencies = [
+ "console-core-bytes",
  "console-core-checksums",
  "console-core-deflate",
  "console-core-never",
@@ -1638,6 +1647,7 @@ dependencies = [
 name = "console-core-checksums"
 version = "0.1.0"
 dependencies = [
+ "console-core-bytes",
  "console-core-never",
  "console-core-number-conversion",
  "sha2",
@@ -1657,6 +1667,7 @@ name = "console-core-color"
 version = "0.1.0"
 dependencies = [
  "console-core-atomic-writes",
+ "console-core-bytes",
  "console-core-finite-numbers",
  "console-core-logging",
  "console-core-never",
@@ -1700,6 +1711,7 @@ dependencies = [
 name = "console-core-deflate"
 version = "0.1.0"
 dependencies = [
+ "console-core-bytes",
  "console-core-checksums",
  "console-core-iteration",
  "console-core-never",
@@ -1873,6 +1885,7 @@ version = "0.41.0"
 dependencies = [
  "bytemuck",
  "console-core-api-compatibility",
+ "console-core-bytes",
  "console-core-checksums",
  "console-core-font-fixtures",
  "console-core-font-reading",
@@ -1893,6 +1906,7 @@ name = "console-core-font-types"
 version = "0.12.6"
 dependencies = [
  "bytemuck",
+ "console-core-bytes",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-point",
@@ -1994,6 +2008,7 @@ dependencies = [
 name = "console-core-iso-media-boxes"
 version = "0.1.0"
 dependencies = [
+ "console-core-bytes",
  "console-core-never",
  "console-core-number-conversion",
 ]
@@ -2062,6 +2077,7 @@ name = "console-core-logging"
 version = "0.1.0"
 dependencies = [
  "console-core-atomic-writes",
+ "console-core-bytes",
  "console-core-checksums",
  "console-core-never",
  "console-core-places",
@@ -2362,6 +2378,7 @@ dependencies = [
 name = "console-core-percent-decoding"
 version = "0.1.0"
 dependencies = [
+ "console-core-bytes",
  "console-core-never",
 ]
 
@@ -2387,6 +2404,7 @@ dependencies = [
 name = "console-core-picture-sizes"
 version = "0.16.0"
 dependencies = [
+ "console-core-bytes",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-size",
@@ -2432,6 +2450,13 @@ version = "0.1.0"
 dependencies = [
  "console-core-never",
  "serde",
+]
+
+[[package]]
+name = "console-core-pointer"
+version = "0.1.0"
+dependencies = [
+ "console-core-state-machine",
 ]
 
 [[package]]
@@ -2500,6 +2525,7 @@ dependencies = [
  "cbc",
  "console-core-api-compatibility",
  "console-core-black-and-white-images",
+ "console-core-bytes",
  "console-core-checksums",
  "console-core-fax-images",
  "console-core-jpeg-2000-files",
@@ -2536,6 +2562,7 @@ dependencies = [
 name = "console-core-postscript-tokens"
 version = "0.2.0"
 dependencies = [
+ "console-core-bytes",
  "console-core-never",
  "console-core-number-conversion",
 ]
@@ -2578,9 +2605,9 @@ dependencies = [
 name = "console-core-scalable-vector-graphics"
 version = "0.48.1"
 dependencies = [
- "base64",
  "console-core-api-compatibility",
  "console-core-bounded-reads",
+ "console-core-bytes",
  "console-core-cascading-style-sheets",
  "console-core-curve-geometry",
  "console-core-extensible-markup",
@@ -2630,6 +2657,7 @@ name = "console-core-scalable-vector-graphics-values"
 version = "0.16.1"
 dependencies = [
  "console-core-api-compatibility",
+ "console-core-bytes",
  "console-core-curve-geometry",
  "console-core-never",
  "console-core-number-conversion",
@@ -2700,6 +2728,7 @@ dependencies = [
 name = "console-core-state-machine"
 version = "0.1.0"
 dependencies = [
+ "console-core-bytes",
  "console-core-checksums",
  "console-core-never",
  "console-core-number-conversion",
@@ -2767,6 +2796,7 @@ dependencies = [
 name = "console-core-text-layout"
 version = "0.19.0"
 dependencies = [
+ "console-core-bytes",
  "console-core-font-database",
  "console-core-font-metrics",
  "console-core-geometry",
@@ -2791,6 +2821,7 @@ version = "0.12.0"
 dependencies = [
  "bitflags",
  "bytemuck",
+ "console-core-bytes",
  "console-core-font-reading",
  "console-core-integer-sets",
  "console-core-macintosh-roman",
@@ -2838,6 +2869,7 @@ dependencies = [
 name = "console-core-urls"
 version = "0.3.2"
 dependencies = [
+ "console-core-bytes",
  "console-core-never",
  "console-core-percent-decoding",
 ]
@@ -2942,6 +2974,7 @@ name = "console-core-video-decoding-mpeg-4-container"
 version = "0.4.0"
 dependencies = [
  "console-core-byte-sources",
+ "console-core-bytes",
  "console-core-iso-media-boxes",
  "console-core-never",
  "console-core-number-conversion",
@@ -3017,6 +3050,7 @@ name = "console-core-webp-files"
 version = "0.1.0"
 dependencies = [
  "console-core-boolean-decoding",
+ "console-core-bytes",
  "console-core-geometry",
  "console-core-iteration",
  "console-core-never",
@@ -3163,8 +3197,13 @@ dependencies = [
 name = "console-events"
 version = "0.1.0"
 dependencies = [
+ "console-actor",
  "console-bluetooth",
  "console-bus",
+ "console-compositor",
+ "console-concurrency",
+ "console-core-arguments",
+ "console-core-bounded-reads",
  "console-core-directory-listing",
  "console-core-external-programs",
  "console-core-iteration",
@@ -3172,6 +3211,7 @@ dependencies = [
  "console-core-never",
  "console-core-number-conversion",
  "console-core-reconnect",
+ "console-core-state-machine",
  "console-core-temporary-directories",
  "console-core-text-encodings",
  "console-onscreen",
@@ -3179,7 +3219,10 @@ dependencies = [
  "console-program-contract",
  "console-program-lifetime",
  "console-waiting",
+ "criterion",
  "rustix",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -3339,6 +3382,7 @@ dependencies = [
  "console-audio-streams",
  "console-core-arguments",
  "console-core-atomic-writes",
+ "console-core-bytes",
  "console-core-external-programs",
  "console-core-internal-programs",
  "console-core-iteration",
@@ -3384,6 +3428,7 @@ dependencies = [
  "console-bus",
  "console-core-arguments",
  "console-core-bounded-reads",
+ "console-core-bytes",
  "console-core-external-programs",
  "console-core-finite-numbers",
  "console-core-geometry",
@@ -3420,6 +3465,7 @@ version = "0.1.0"
 dependencies = [
  "console-concurrency",
  "console-core-arguments",
+ "console-core-bytes",
  "console-core-color",
  "console-core-external-programs",
  "console-core-fonts",
@@ -3499,6 +3545,7 @@ dependencies = [
  "console-compositor",
  "console-core-arguments",
  "console-core-atomic-writes",
+ "console-core-bytes",
  "console-core-color",
  "console-core-external-programs",
  "console-core-geometry",
@@ -3593,6 +3640,7 @@ dependencies = [
 name = "console-kernel-handles"
 version = "0.1.0"
 dependencies = [
+ "console-core-bytes",
  "console-core-never",
  "console-core-number-conversion",
 ]
@@ -3601,6 +3649,7 @@ dependencies = [
 name = "console-kernel-heap"
 version = "0.1.0"
 dependencies = [
+ "console-core-bytes",
  "console-core-never",
 ]
 
@@ -3737,6 +3786,7 @@ dependencies = [
  "console-bus",
  "console-core-arguments",
  "console-core-atomic-writes",
+ "console-core-bounded-reads",
  "console-core-external-programs",
  "console-core-internal-programs",
  "console-core-iteration",
@@ -3837,6 +3887,7 @@ dependencies = [
  "console-core-audio-decoding",
  "console-core-audio-decoding-opus",
  "console-core-audio-metadata",
+ "console-core-bytes",
  "console-core-checksums",
  "console-core-directory-listing",
  "console-core-external-programs",
@@ -3928,6 +3979,8 @@ version = "0.1.0"
 dependencies = [
  "console-concurrency",
  "console-core-atomic-writes",
+ "console-core-bounded-reads",
+ "console-core-bytes",
  "console-core-external-programs",
  "console-core-iteration",
  "console-core-logging",
@@ -3964,6 +4017,7 @@ dependencies = [
  "console-core-walking",
  "console-draw-painting",
  "console-draw-surface",
+ "console-events",
  "console-onscreen",
  "console-response-times",
 ]
@@ -4006,6 +4060,7 @@ dependencies = [
  "console-core-external-programs",
  "console-core-never",
  "console-core-number-conversion",
+ "console-core-places",
  "rustix",
  "serde",
  "serde_json",
@@ -4052,6 +4107,7 @@ dependencies = [
  "console-concurrency",
  "console-core-arguments",
  "console-core-atomic-writes",
+ "console-core-bounded-reads",
  "console-core-color",
  "console-core-controls",
  "console-core-external-programs",
@@ -4109,6 +4165,7 @@ dependencies = [
  "console-calendar",
  "console-concurrency",
  "console-core-arguments",
+ "console-core-bounded-reads",
  "console-core-external-programs",
  "console-core-internal-programs",
  "console-core-iteration",
@@ -4180,6 +4237,7 @@ dependencies = [
 name = "console-program-contract"
 version = "0.1.0"
 dependencies = [
+ "console-core-bytes",
  "console-core-external-programs",
  "console-core-internal-programs",
  "console-core-never",
@@ -4197,6 +4255,7 @@ dependencies = [
 name = "console-program-runtime"
 version = "0.1.0"
 dependencies = [
+ "console-core-bytes",
  "console-core-external-programs",
  "console-core-internal-programs",
  "console-core-iteration",
@@ -4393,6 +4452,7 @@ dependencies = [
  "console-compositor",
  "console-core-arguments",
  "console-core-atomic-writes",
+ "console-core-bytes",
  "console-core-color",
  "console-core-controls",
  "console-core-external-programs",
@@ -4742,6 +4802,7 @@ dependencies = [
  "console-compositor",
  "console-core-arguments",
  "console-core-atomic-writes",
+ "console-core-bytes",
  "console-core-checksums",
  "console-core-color",
  "console-core-external-programs",
@@ -4778,6 +4839,8 @@ dependencies = [
  "console-core-logging",
  "console-core-never",
  "console-core-number-conversion",
+ "console-core-pointer",
+ "console-core-state-machine",
  "console-core-vector",
  "console-input-key-symbols",
  "console-input-keymaps",

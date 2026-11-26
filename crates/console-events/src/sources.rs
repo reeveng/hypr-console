@@ -94,16 +94,18 @@
 
 use std::fmt;
 use std::io::{BufRead, BufReader};
-use std::os::unix::net::UnixStream;
 use std::process::{Command, Stdio};
 use std::sync::mpsc::SyncSender;
+use std::time::Duration;
 
 use console_bus::cli;
+use console_core_bounded_reads::{Line, LineEnding, LinePart, ReadError};
 use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_core_reconnect::{Round, keep};
 use console_core_text_encodings::decode;
 use console_operating_system_linux::program_lifetime::alongside;
+use console_operating_system_linux::unix_stream::{connect, receive_line};
 use console_program_contract::{Change, EventGroup};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -117,6 +119,9 @@ pub const NOTIFICATIONS: &str = "org.freedesktop.Notifications";
 pub const APPLICATION: &str = "console.Notifications";
 
 pub const PLAYERS: &str = "/org/mpris/MediaPlayer2";
+
+const SOURCE_FRAME_BYTES: u32 = 1 << 20;
+const SOURCE_FRAME_TIME: Duration = Duration::from_secs(1);
 
 pub fn handed_to(
   waiting: Option<&SyncSender<SyncSender<Change>>>,
@@ -262,7 +267,7 @@ fn compositor(say: SyncSender<Change>) -> Result<(), Never> {
       }
     };
 
-    let stream = match UnixStream::connect(&socket) {
+    let stream = match connect(&socket) {
       Ok(stream) => stream,
       Err(fault) => {
         let Ok(round) = outage.retry(
@@ -274,11 +279,13 @@ fn compositor(say: SyncSender<Change>) -> Result<(), Never> {
       }
     };
 
-    let Ok(round) = passed_on(
+    let Ok(round) = relay(
       BufReader::new(stream),
+      LineEnding::Required,
       &EventGroup::Compositor,
       &say,
       &mut outage,
+      |reading, frame| receive_line(reading, frame, None, SOURCE_FRAME_TIME),
     );
 
     round
@@ -336,14 +343,54 @@ fn passed_on(
   say: &SyncSender<Change>,
   outage: &mut Outage,
 ) -> Result<Round, Never> {
-  for read in reading.split(b'\n') {
-    let line = match read {
-      Ok(line) => line,
+  relay(
+    reading,
+    LineEnding::OptionalAtEof,
+    event_group,
+    say,
+    outage,
+    |input, frame| {
+      let Ok(()) = frame.clear();
+      let read = frame.read(input)?;
+
+      Ok(match read {
+        Some(_) => LinePart::Complete,
+        None => LinePart::End,
+      })
+    },
+  )
+}
+
+fn relay<Reader>(
+  mut reading: Reader,
+  ending: LineEnding,
+  event_group: &EventGroup,
+  say: &SyncSender<Change>,
+  outage: &mut Outage,
+  read: impl Fn(&mut Reader, &mut Line) -> Result<LinePart, ReadError>,
+) -> Result<Round, Never> {
+  let Ok(mut frame) = Line::new(SOURCE_FRAME_BYTES, ending);
+
+  #[cfg_attr(
+    dylint_lib = "explicit054_no_loop",
+    expect(
+      explicit054_no_loop,
+      reason = "the source is a persistent stream and this owner exits on EOF, read error, or a closed output channel"
+    )
+  )]
+  loop {
+    match read(&mut reading, &mut frame) {
+      Ok(LinePart::Complete) => {}
+      Ok(LinePart::End | LinePart::Partial) => {
+        return outage.retry(event_group, format_args!("the event stream closed"));
+      }
       Err(fault) => return outage.retry(event_group, format_args!("reading events: {fault}")),
-    };
+    }
+
+    let Ok(line) = frame.bytes();
     let ended = match line.strip_suffix(b"\r") {
-      Some(before) => before,
-      None => &line,
+      Some(stripped) => stripped,
+      None => line,
     };
     let Ok(text) = decode(ended);
     let sent = say.send(Change {
@@ -356,8 +403,6 @@ fn passed_on(
       Err(_no_one_is_listening) => return Ok(Round::Finished),
     }
   }
-
-  outage.retry(event_group, format_args!("the event stream closed"))
 }
 
 #[cfg(test)]

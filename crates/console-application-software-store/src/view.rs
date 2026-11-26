@@ -3,14 +3,15 @@
 use std::cmp::Ordering;
 use std::convert::Infallible;
 
-use console_core_color::palette::{self, Wearing};
+use console_core_color::palette::Wearing;
 use console_core_external_programs::Installed;
 use console_core_geometry::Size;
 use console_core_number_conversion::fitted;
-use console_panel::canvas::Interaction;
 use console_panel::storefront::{
   self, Catalogue, DetailActions, Dialog, DialogBody, Entry, Introduction, Link, Message, Search,
 };
+use console_panel::ui::canvas::Interaction;
+use console_panel::ui::theme;
 
 use crate::catalogue::{Category, Package, Source};
 use crate::{
@@ -19,22 +20,13 @@ use crate::{
 
 pub type Frame = storefront::Frame<Action>;
 
-const PALETTE: &str = include_str!("../../../files/usr/local/lib/console/palette.sh");
-
 pub struct Theme {
   colors: Wearing,
 }
 
 impl Theme {
   pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
-    let colors = match Wearing::worn() {
-      Ok(colors) => colors,
-      Err(fault) => {
-        console_core_logging::debug!("store theme: {fault}");
-        let Ok(fallback) = palette::read(PALETTE);
-        Wearing::out_of(&fallback)?
-      }
-    };
+    let colors = theme::current()?;
     Ok(Self { colors })
   }
 }
@@ -61,9 +53,10 @@ impl PageView {
 
 #[must_use]
 pub fn draw(shop: &Shop, room: Size<u32>, theme: &Theme) -> Result<Frame, Infallible> {
+  let Ok(hover) = shop.hover.target();
   let interaction = Interaction {
     focus: shop.focus,
-    hover: shop.hover,
+    hover: hover.map(|(_, action)| action),
   };
 
   match &shop.overlay {
@@ -155,15 +148,12 @@ fn search(shop: &Shop) -> Result<Search<'_, Action>, Infallible> {
   };
   Ok(Search {
     edit: Action::Search,
-    clear: Link {
-      label: "Clear",
-      action: Action::ClearSearch,
-    },
+    clear: Action::ClearSearch,
     shortcut: "/",
     placeholder: "Search for an app or package",
     before_caret: before,
     after_caret: after,
-    preedit: &shop.preedit,
+    preedit: shop.preedit.as_ref(),
   })
 }
 
@@ -181,15 +171,11 @@ fn search_notice(
           title: &notice.title,
           detail: notice.detail.as_deref(),
         },
-        tone: storefront::NoticeTone::Error,
         details: notice.error.as_ref().map(|_| Link {
           label: "Details",
           action: Action::SearchDetails,
         }),
-        reply: Some(Link {
-          label: "Retry",
-          action: Action::RetrySearch,
-        }),
+        retry: Some(Action::RetrySearch),
       }),
   )
 }

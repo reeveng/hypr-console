@@ -17,7 +17,9 @@ use std::num::NonZeroU32;
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
 
-pub const HEADER: u32 = 76;
+use console_panel::ui::{field, strip};
+
+pub const HEADER: u32 = (strip::CONTENT_TOP + field::HEIGHT + strip::GAP).unsigned_abs();
 
 pub const MARGIN: u32 = 32;
 

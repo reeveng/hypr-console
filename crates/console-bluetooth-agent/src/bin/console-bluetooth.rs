@@ -77,10 +77,9 @@ use console_bluetooth_agent::errors::Error;
 use console_bluetooth_agent::introduction::{
   self, Effect, Input, Introduction, Method, Outcome, Request, State,
 };
-use console_bus::connection::{Bus, ConnectionError};
+use console_bus::connection::{Bus, ConnectionError, Dispatched, Dispatcher};
 use console_bus::messages::Message;
 use console_bus::properties::ObjectPath;
-use console_bus::replies::Pending;
 use console_core_iteration::{Endless, Step, iterate};
 use console_core_media_access_control_addresses::Address;
 use console_core_never::Never;
@@ -96,10 +95,11 @@ const SEARCH: Duration = Duration::from_secs(600);
 const BETWEEN_LOOKS: Duration = Duration::from_secs(5);
 
 const PIN_DIGITS: u32 = 1_000_000;
+const SERVICE_REPLY: Duration = Duration::from_secs(25);
+const PAIR_REPLY: Duration = Duration::from_secs(120);
 
 struct Running {
-  bus: Bus,
-  pending: Pending<Method>,
+  bus: Dispatcher<Method>,
   state: State,
   lost: Option<ConnectionError>,
 }
@@ -117,24 +117,31 @@ fn first(
 fn carry(running: Running, effect: Effect) -> Result<Running, Never> {
   let Running {
     mut bus,
-    mut pending,
     state,
     lost: earlier,
   } = running;
 
   let lost = match effect {
-    Effect::Call { method, message } => match bus.say(&message) {
-      Ok(serial) => {
-        let Ok(()) = pending.sent(serial, method);
+    Effect::Call { method, message } => {
+      let timeout = match method {
+        Method::Pair => PAIR_REPLY,
+        Method::GetManagedObjects
+        | Method::RegisterAgent
+        | Method::RequestDefaultAgent
+        | Method::SetTrusted
+        | Method::Connect
+        | Method::UnregisterAgent => SERVICE_REPLY,
+      };
 
-        earlier
-      }
-      Err(why) => {
-        let Ok(kept) = first(earlier, why);
+      match bus.call(method, &message, timeout) {
+        Ok(_serial) => earlier,
+        Err(why) => {
+          let Ok(kept) = first(earlier, why);
 
-        kept
+          kept
+        }
       }
-    },
+    }
     Effect::Reply(message) => match bus.say(&message) {
       Ok(_nothing_answers_a_reply) => earlier,
       Err(why) => {
@@ -150,12 +157,7 @@ fn carry(running: Running, effect: Effect) -> Result<Running, Never> {
     }
   };
 
-  Ok(Running {
-    bus,
-    pending,
-    state,
-    lost,
-  })
+  Ok(Running { bus, state, lost })
 }
 
 fn carried(running: Running, effects: Vec<Effect>) -> Result<Running, Never> {
@@ -170,7 +172,6 @@ fn turn(running: Running) -> Result<Step<Running, Outcome>, Never> {
     None => {
       let Running {
         mut bus,
-        mut pending,
         state: before,
         lost,
       } = running;
@@ -178,12 +179,9 @@ fn turn(running: Running) -> Result<Step<Running, Outcome>, Never> {
       let request = match lost {
         Some(why) => Request::Lost(why),
         None => match bus.receive() {
-          Ok(message) => {
-            let Ok(received) = pending.received(message);
-
-            Request::Received(received)
-          }
-          Err(why) => Request::Lost(why),
+          Ok(Dispatched::Message(received)) => Request::Received(received),
+          Ok(Dispatched::TimedOut(_method)) => Request::Lost(ConnectionError::TimedOut),
+          Err(disconnected) => Request::Lost(disconnected.reason),
         },
       };
 
@@ -191,7 +189,6 @@ fn turn(running: Running) -> Result<Step<Running, Outcome>, Never> {
       let Ok(next) = carried(
         Running {
           bus,
-          pending,
           state,
           lost: None,
         },
@@ -210,11 +207,10 @@ fn introduce(bus: Bus, address: Address, pins: Pins) -> Result<Outcome, Never> {
     pins,
   };
   let Ok(Transition { state, effects }) = Introduction::initial_transition(&input, None);
-  let Ok(pending) = Pending::new();
+  let Ok(dispatcher) = bus.dispatching();
   let Ok(running) = carried(
     Running {
-      bus,
-      pending,
+      bus: dispatcher,
       state,
       lost: None,
     },

@@ -25,7 +25,33 @@ pub mod tracked;
 pub const MARK: &str = "desktop.conf";
 
 pub const DEVICE_ROOT: &str = "/etc/console";
+pub const RELEASE_ROOT: &str = "/etc/console/.release";
 pub const RELEASE_MARKER: &str = ".git/console-release";
+
+pub fn installed_root() -> Result<&'static Path, Never> {
+  let release = Path::new(RELEASE_ROOT);
+  let observed = std::fs::metadata(release.join(MARK));
+  Ok(
+    match observed.is_ok_and(|marker| marker.is_file()).then_some(()) {
+      Some(()) => release,
+      None => Path::new(DEVICE_ROOT),
+    },
+  )
+}
+
+pub fn release_root() -> Result<&'static Path, Never> {
+  let Ok(installed) = installed_root();
+  let observed = std::fs::metadata(installed.join(".git"));
+  Ok(
+    match observed
+      .is_ok_and(|entry| entry.is_dir() || entry.is_file())
+      .then_some(())
+    {
+      Some(()) => installed,
+      None => Path::new(RELEASE_ROOT),
+    },
+  )
+}
 
 pub struct RelativePath<'a>(&'a Path);
 

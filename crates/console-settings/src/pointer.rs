@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use console_compositor::{DispatchResult, Request};
-use console_core_atomic_writes::{self as writes, Stored};
+use console_core_atomic_writes::Stored;
 use console_core_never::Never;
 use console_core_places::Base;
 use console_panel::page::{Aside, Handler, Initial, Row, Showing};
@@ -71,7 +71,7 @@ pub fn rows() -> Result<Vec<Row>, Never> {
 }
 
 fn preference(at: &Path) -> Result<String, Never> {
-  let Ok(stored) = writes::read(at);
+  let Ok(stored) = console_core_atomic_writes::read(at);
 
   Ok(match stored {
     Stored::Text(value) => value.trim().to_owned(),
@@ -168,7 +168,7 @@ fn save(
   at: &Path,
   Preference { value, option }: Preference<'_>,
 ) -> Result<(), Never> {
-  match writes::whole_with_folders(at, value.as_bytes()) {
+  match console_core_atomic_writes::whole_with_folders(at, value.as_bytes()) {
     Ok(()) => {
       let Ok(result) = console_compositor::request(
         Request::Script,

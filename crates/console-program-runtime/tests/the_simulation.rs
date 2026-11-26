@@ -8,6 +8,7 @@ use std::thread;
 use std::time::Duration;
 
 use console_core_external_programs::Program as ExternalProgram;
+use console_core_bytes::Bytes;
 use console_core_never::Never;
 use console_core_state_machine::{EffectDependencies, Machine, Queue, Service, Transition};
 use console_program_contract::{
@@ -301,7 +302,7 @@ fn a_write_failure_is_delivered_to_the_machine() -> Result<(), Box<dyn Error>> {
     path: <::std::path::PathBuf as ::core::convert::From<&::core::primitive::str>>::from(
       "report",
     ),
-    contents: "ready".to_string(),
+    contents: Bytes::from("ready".to_string()),
   };
   let failed = WriteAnswer {
     path: write.path.clone(),
@@ -610,7 +611,7 @@ fn seeded_placement_preserves_state_and_the_ordered_effect_loop() -> Result<(), 
     path: <::std::path::PathBuf as ::core::convert::From<&::core::primitive::str>>::from(
       "report",
     ),
-    contents: "ready".to_string(),
+    contents: Bytes::from("ready".to_string()),
   };
   let written = WriteAnswer {
     path: write.path.clone(),

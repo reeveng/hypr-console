@@ -19,7 +19,7 @@ use crate::layer::{Layer, Span};
 use crate::{CharacterCollection, CidFamily, Layered, Metadata, ParseError, WritingMode};
 use embedded::{Bundle, bundle};
 use huffman::Huffman;
-use reader::{Bits, Bytes, Remaining};
+use reader::{Bits, Reader, Remaining};
 
 pub(crate) const MAGIC: &[u8] = b"bcmap";
 const VERSION: u8 = 0x01;
@@ -115,7 +115,7 @@ impl Cursor {
 }
 
 fn frame(data: &[u8]) -> Result<&[u8], ParseError> {
-  let Ok(mut head) = Bytes::new(data);
+  let Ok(mut head) = Reader::new(data);
   let magic = head.take(5)?;
   let version = head.u8()?;
 
@@ -133,7 +133,7 @@ fn frame(data: &[u8]) -> Result<&[u8], ParseError> {
 }
 
 fn decoded(
-  reader: &mut Bytes<'_>,
+  reader: &mut Reader<'_>,
   entries: u16,
   table: &Huffman,
 ) -> Result<Vec<u32>, ParseError> {
@@ -152,7 +152,7 @@ fn decoded(
 }
 
 fn columns(
-  reader: &mut Bytes<'_>,
+  reader: &mut Reader<'_>,
   entries: u16,
   shape: Shape,
   tables: &Bundle,
@@ -195,7 +195,7 @@ fn consecutive(previous: Option<Previous>) -> Result<u32, ParseError> {
 }
 
 fn codespace(payload: &[u8]) -> Result<(), ParseError> {
-  let Ok(mut reader) = Bytes::new(payload);
+  let Ok(mut reader) = Reader::new(payload);
   let ranges = reader.u8()?;
 
   for _range in 0..ranges {
@@ -210,7 +210,7 @@ fn codespace(payload: &[u8]) -> Result<(), ParseError> {
 
 impl Reading {
   fn system_info(&mut self, payload: &[u8]) -> Result<(), ParseError> {
-    let Ok(mut reader) = Bytes::new(payload);
+    let Ok(mut reader) = Reader::new(payload);
     let registry = reader.terminated()?;
     let ordering = reader.terminated()?;
     let supplement = reader.u16()?;
@@ -236,7 +236,7 @@ impl Reading {
   }
 
   fn notdef(&mut self, payload: &[u8]) -> Result<(), ParseError> {
-    let Ok(mut reader) = Bytes::new(payload);
+    let Ok(mut reader) = Reader::new(payload);
     let width = reader.u8()?;
     let entries = reader.u16()?;
 
@@ -264,7 +264,7 @@ impl Reading {
     shape: Shape,
     tables: &Bundle,
   ) -> Result<(), ParseError> {
-    let Ok(mut reader) = Bytes::new(payload);
+    let Ok(mut reader) = Reader::new(payload);
     let entries = reader.u16()?;
 
     match entries {
@@ -308,7 +308,7 @@ impl Reading {
     units: Units,
     tables: &Bundle,
   ) -> Result<(), ParseError> {
-    let Ok(mut reader) = Bytes::new(payload);
+    let Ok(mut reader) = Reader::new(payload);
     let entries = reader.u16()?;
     let columns = columns(&mut reader, entries, shape, tables)?;
     let mut cursor = Cursor::default();
@@ -379,7 +379,7 @@ impl Reading {
 pub(crate) fn read(data: &[u8]) -> Result<Layered, ParseError> {
   let tables = bundle()?;
   let body = frame(data)?;
-  let Ok(mut segments) = Bytes::new(body);
+  let Ok(mut segments) = Reader::new(body);
   let mut reading = Reading::default();
 
   for _segment in body {

@@ -11,6 +11,7 @@ use std::process::{Command, Output, Stdio};
 use console_core_external_programs::{Installed, Program, installed};
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
+use console_core_places::Base;
 use rustix::fs::{FlockOperation, flock};
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
@@ -261,17 +262,85 @@ fn checked(response: Output) -> io::Result<Vec<u8>> {
 }
 
 pub fn search(query: &str) -> io::Result<Vec<SearchMatch>> {
-  let response = ({
-    let Ok(explicit_value) = command();
-    explicit_value
-  })
-  .args(["search", "--json", "nixpkgs", "--"])
-  .args(query.split_whitespace().map(|explicit_argument_0| {
-    let Ok(explicit_value) = literal(explicit_argument_0);
-    explicit_value
-  }))
-  .output()?;
+  let initial = search_command(query, None)?;
+  let Ok(access) = search_access(&initial);
+  let response = match access {
+    SearchAccess::Available => initial,
+    SearchAccess::SystemStoreUnavailable => {
+      let Ok(cache) = Base::Cache.ours();
 
+      match cache {
+        Some(directory) => {
+          let store = directory.join("nixpkgs-search");
+          search_command(query, Some(&store))?
+        }
+        None => initial,
+      }
+    }
+  };
+  search_response(response)
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum SearchAccess {
+  Available,
+  SystemStoreUnavailable,
+}
+
+fn search_access(response: &Output) -> Result<SearchAccess, Never> {
+  let diagnostic = match std::str::from_utf8(&response.stderr) {
+    Ok(text) => text,
+    Err(_unreadable) => return Ok(SearchAccess::Available),
+  };
+  let Ok(access) = system_store_access(diagnostic);
+  let unavailable = !response.status.success() && access == SearchAccess::SystemStoreUnavailable;
+  Ok(match unavailable.then_some(()) {
+    Some(()) => SearchAccess::SystemStoreUnavailable,
+    None => SearchAccess::Available,
+  })
+}
+
+fn system_store_access(diagnostic: &str) -> Result<SearchAccess, Never> {
+  let unavailable = diagnostic.lines().any(|line| {
+    let denied = line.contains("Permission denied") || line.contains("Operation not permitted");
+    let store_lock = line.contains("opening lock file")
+      && (line.contains("\"/nix/store/") || line.contains("'/nix/store/"))
+      && (line.contains(".lock\"") || line.contains(".lock'"));
+    let local = (line.contains("/nix/var/nix/db/") || store_lock)
+      && (denied || line.contains("Read-only file system"));
+    let daemon = line.contains("connect to socket")
+      && line.contains("daemon-socket/socket")
+      && (denied
+        || line.contains("No such file or directory")
+        || line.contains("Connection refused"));
+    local || daemon
+  });
+  Ok(match unavailable.then_some(()) {
+    Some(()) => SearchAccess::SystemStoreUnavailable,
+    None => SearchAccess::Available,
+  })
+}
+
+fn search_command(query: &str, store: Option<&Path>) -> io::Result<Output> {
+  let Ok(mut search) = command();
+
+  match store {
+    Some(root) => {
+      search.arg("--store").arg(root);
+    }
+    None => {}
+  }
+
+  search
+    .args(["search", "--json", "nixpkgs", "--"])
+    .args(query.split_whitespace().map(|term| {
+      let Ok(escaped) = literal(term);
+      escaped
+    }))
+    .output()
+}
+
+fn search_response(response: Output) -> io::Result<Vec<SearchMatch>> {
   match {
     bool::then_some(
       !response.status.success()
@@ -456,6 +525,43 @@ fn profile_entries(response: &[u8]) -> io::Result<Vec<ProfileEntry>> {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn only_nix_store_access_failures_retry_with_a_private_search_store() {
+    for diagnostic in [
+      "error: opening lock file '/nix/var/nix/db/big-lock': Permission denied",
+      r#"error: opening lock file "/nix/var/nix/db/big-lock": Read-only file system"#,
+      r#"error: opening lock file "/nix/store/1lkcg3fdn9ha9gww4nj6x0fxm58l0pdq-flake-registry.json.lock": Permission denied"#,
+      "error: cannot connect to socket at '/nix/var/nix/daemon-socket/socket': No such file or directory",
+      "error: cannot connect to socket at '/nix/var/nix/daemon-socket/socket': Operation not permitted",
+    ] {
+      assert_eq!(
+        system_store_access(diagnostic),
+        Ok(SearchAccess::SystemStoreUnavailable)
+      );
+    }
+
+    for diagnostic in [
+      "error: unable to download 'https://cache.nixos.org/nix-cache-info': Timeout was reached",
+      "error: opening lock file '/home/account/.cache/nix/fetcher-cache-v4.sqlite': Permission denied",
+      "error: opening lock file '/home/account/nix/store/registry.json.lock': Permission denied",
+      "error: no results for the given search term",
+    ] {
+      assert_eq!(system_store_access(diagnostic), Ok(SearchAccess::Available));
+    }
+  }
+
+  #[test]
+  #[ignore = "requires a Nixpkgs fixture and a denied system store"]
+  fn searches_with_an_unavailable_system_store() -> io::Result<()> {
+    let results = search("obs")?;
+    assert!(
+      results
+        .iter()
+        .any(|package| package.installable.attribute == "obs-studio")
+    );
+    Ok(())
+  }
 
   #[test]
   fn search_keeps_the_full_installable_and_escapes_literal_queries() -> io::Result<()> {

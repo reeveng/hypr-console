@@ -7,7 +7,7 @@
 //! entry becomes -- which of them is a book, and at what address -- is still
 //! each library's own.
 
-use console_core_markup_tokens::{self as markup, Token};
+use console_core_markup_tokens::Token;
 
 use console_core_external_programs::Program;
 use console_core_never::Never;
@@ -76,7 +76,7 @@ pub fn found_in(
   byline: Byline,
   book: fn(Entry) -> Result<Option<Found>, Never>,
 ) -> Result<Vec<Found>, Never> {
-  let Ok(tokens) = markup::tokenize(text);
+  let Ok(tokens) = console_core_markup_tokens::tokenize(text);
   let Ok(many) = console_core_number_conversion::index(MANY);
   let mut found: Vec<Found> = Vec::new();
   let mut entry: Option<Entry> = None;
@@ -130,8 +130,8 @@ pub fn found_in(
 }
 
 fn picture_link(entry: Option<&mut Entry>, attributes: &[(String, String)]) -> Result<(), Never> {
-  let Ok(rel) = markup::attribute(attributes, "rel");
-  let Ok(href) = markup::attribute(attributes, "href");
+  let Ok(rel) = console_core_markup_tokens::attribute(attributes, "rel");
+  let Ok(href) = console_core_markup_tokens::attribute(attributes, "href");
 
   match (entry, rel, href) {
     (Some(open), Some(THUMBNAIL), Some(url)) => open.picture = url.to_string(),

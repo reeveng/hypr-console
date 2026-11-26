@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use console_core_external_programs::Program;
 use console_events::again::Worth;
 use console_panel::page::{ButtonStyle, Subject};
+use console_program_contract::Command;
 
 use super::*;
 use crate::looking::FileRevision;
@@ -16,7 +17,7 @@ pub(super) fn manage_effect(
   held: &Panel,
   work: &Work,
   showing: &dyn Showing,
-) -> Result<Option<Manage>, Never> {
+) -> Result<Option<Request>, Never> {
   match work {
     Work::FocusFirst => showing.replace(0),
     Work::Redraw => showing.refresh(),
@@ -43,7 +44,7 @@ pub(super) fn manage_effect(
   Ok(None)
 }
 
-fn scan_task(held: &Panel, showing: &dyn Showing, id: u64) -> Result<Option<Manage>, Never> {
+fn scan_task(held: &Panel, showing: &dyn Showing, id: u64) -> Result<Option<Request>, Never> {
   let Ok(index) = crate::update::INDEX.at();
   let program = match index.to_str() {
     Some(program) => program,
@@ -55,7 +56,7 @@ fn scan_task(held: &Panel, showing: &dyn Showing, id: u64) -> Result<Option<Mana
         None,
       );
 
-      return Ok(Some(Manage::Finished {
+      return Ok(Some(Request::Finished {
         id,
         job: Job::Scan,
         status: ExitStatus::Failure(None),
@@ -83,7 +84,7 @@ fn scan_task(held: &Panel, showing: &dyn Showing, id: u64) -> Result<Option<Mana
     program,
     "--analyze",
   ];
-  let Ok(command) = RunCommand::external(Program::SystemdRun, &arguments);
+  let Ok(command) = Command::external(Program::SystemdRun, &arguments);
 
   let Ok(()) = task(held, showing, command, id, Job::Scan);
 
@@ -97,10 +98,10 @@ fn json_task<T: serde::Serialize>(
   value: &T,
   id: u64,
   job: Job,
-) -> Result<Option<Manage>, Never> {
+) -> Result<Option<Request>, Never> {
   match serde_json::to_string(value) {
     Ok(encoded) => {
-      let Ok(command) = RunCommand::internal(crate::update::INDEX, &[flag, &encoded]);
+      let Ok(command) = Command::internal(crate::update::INDEX, &[flag, &encoded]);
 
       let Ok(()) = task(held, showing, command, id, job);
 
@@ -109,7 +110,7 @@ fn json_task<T: serde::Serialize>(
     Err(fault) => {
       console_core_logging::warn!("could not prepare lookup: {fault}");
 
-      Ok(Some(Manage::Finished {
+      Ok(Some(Request::Finished {
         id,
         job,
         status: ExitStatus::Failure(None),
@@ -118,7 +119,7 @@ fn json_task<T: serde::Serialize>(
   }
 }
 
-fn saved(id: u64, result: std::io::Result<()>) -> Result<Manage, Never> {
+fn saved(id: u64, result: std::io::Result<()>) -> Result<Request, Never> {
   let status = match result {
     Ok(()) => ExitStatus::Success,
     Err(fault) => {
@@ -133,7 +134,7 @@ fn saved(id: u64, result: std::io::Result<()>) -> Result<Manage, Never> {
     }
   };
 
-  Ok(Manage::Finished {
+  Ok(Request::Finished {
     id,
     job: Job::Selection,
     status,
@@ -162,7 +163,7 @@ fn play_album(start: &AlbumStart, showing: &dyn Showing) -> Result<(), Never> {
   };
   let tracks = albums::paths(album)?;
   let Ok(arguments) = album_argument(&AlbumQueue { tracks, first });
-  let Ok(command) = RunCommand::internal(
+  let Ok(command) = Command::internal(
     console_core_internal_programs::InternalProgram::MusicPlayer,
     &["--album-uris", &arguments],
   );
@@ -175,7 +176,7 @@ fn play_album(start: &AlbumStart, showing: &dyn Showing) -> Result<(), Never> {
 fn task(
   held: &Panel,
   showing: &dyn Showing,
-  command: RunCommand,
+  command: Command,
   id: u64,
   job: Job,
 ) -> Result<(), Never> {
@@ -185,7 +186,7 @@ fn task(
   let Ok(with_completion) = attributed.then(move |answer| {
     let Ok(effects) = decided(
       &destination,
-      MusicEvent::Manage(Manage::Finished {
+      MusicEvent::Manage(Request::Finished {
         id,
         job,
         status: answer.status.clone(),
@@ -220,11 +221,11 @@ fn task(
   Ok(())
 }
 
-pub(super) fn manage(held: &Panel, request: Manage, showing: &dyn Showing) -> Result<(), Never> {
+pub(super) fn manage(held: &Panel, request: Request, showing: &dyn Showing) -> Result<(), Never> {
   press(held, MusicEvent::Manage(request), showing)
 }
 
-pub(super) fn action(held: &Panel, request: Manage) -> Result<Handler, Never> {
+pub(super) fn action(held: &Panel, request: Request) -> Result<Handler, Never> {
   let destination = held.clone();
 
   Handler::and_stay(move |showing| {
@@ -279,7 +280,7 @@ pub(super) fn albums_page(held: &Panel) -> Result<Page, Never> {
 
     match state.management.album {
       Some(_) => {
-        let Ok(()) = manage(&leaving, Manage::Browse(None), showing);
+        let Ok(()) = manage(&leaving, Request::Browse(None), showing);
 
         ActionOutcome::Stay
       }
@@ -344,13 +345,12 @@ fn album_list(held: &Panel, albums: &[albums::Album<'_>]) -> Result<Vec<Row>, Ne
       None => {}
     }
 
-    let does = action(held, Manage::Browse(Some(album.key.clone())))?;
+    let does = action(held, Request::Browse(Some(album.key.clone())))?;
     let aside = format!("{} tracks", album.tracks.len());
-    let Ok(row) = Row::new(album.title, Aside(&aside), does);
     let cover = album_art::cached(&album.key)?;
-    let Ok(row_2) = row.picturing(Picture::Sleeve(cover));
-    let Ok(row_3) = row_2.opening();
-    rows.push(row_3);
+    let Ok(row) = Row::stacked_action(Picture::Sleeve(cover), album.title, Aside(&aside), does);
+    let Ok(opening) = row.opening();
+    rows.push(opening);
   }
 
   Ok(rows)
@@ -363,7 +363,7 @@ fn album_tracks(
 ) -> Result<Vec<Row>, Never> {
   let back = held.clone();
   let Ok(back_2) = Row::back("Albums", move |showing| {
-    let Ok(()) = manage(&back, Manage::Browse(None), showing);
+    let Ok(()) = manage(&back, Request::Browse(None), showing);
   });
   let cover = album_art::cached(&album.key)?;
   let Ok(head) = Row::stacked(
@@ -373,7 +373,7 @@ fn album_tracks(
   );
   let does = action(
     held,
-    Manage::PlayAlbum(AlbumStart {
+    Request::PlayAlbum(AlbumStart {
       album: album.key.clone(),
       track: None,
     }),
@@ -389,7 +389,7 @@ fn album_tracks(
     (None, Status::Idle | Status::Finished(_)) => {
       let does_2 = action(
         held,
-        Manage::Cover(album_art::Lookup {
+        Request::Cover(album_art::Lookup {
           album: album.key.clone(),
           artist: album.artist.to_owned(),
           title: album.title.to_owned(),
@@ -405,7 +405,7 @@ fn album_tracks(
     let Ok(name) = song.says();
     let does_3 = action(
       held,
-      Manage::PlayAlbum(AlbumStart {
+      Request::PlayAlbum(AlbumStart {
         album: album.key.clone(),
         track: Some(song.path.clone()),
       }),
@@ -440,7 +440,7 @@ fn review_rows(held: &Panel) -> Result<Vec<Row>, Never> {
   let scan = match active {
     Activity::Running => Row::placeholder("Scanning your library…")?,
     Activity::Idle => {
-      let does = action(held, Manage::Refresh)?;
+      let does = action(held, Request::Refresh)?;
 
       Row::new("Scan for Possible Duplicates", Aside(""), does)?
     }
@@ -510,7 +510,7 @@ fn review_rows(held: &Panel) -> Result<Vec<Row>, Never> {
           .iter()
           .map(|song| (song.path.clone(), Visibility::Included))
           .collect();
-        let Ok(row) = include_all(held, Manage::Select(changes));
+        let Ok(row) = include_all(held, Request::Select(changes));
         rows.push(row);
       }
       None => {}
@@ -528,7 +528,7 @@ fn review_rows(held: &Panel) -> Result<Vec<Row>, Never> {
   Ok(rows)
 }
 
-fn include_all(held: &Panel, request: Manage) -> Result<Row, Never> {
+fn include_all(held: &Panel, request: Request) -> Result<Row, Never> {
   let destination = held.clone();
   let Ok(button) = ButtonPress::labelled("Include All Versions", Active::No, move |showing| {
     let Ok(()) = manage(&destination, request.clone(), showing);
@@ -603,10 +603,10 @@ fn review_track(
           );
         }
         1 => {
-          let Ok(()) = manage(&other, Manage::Select(vec![(track, include)]), picked);
+          let Ok(()) = manage(&other, Request::Select(vec![(track, include)]), picked);
         }
         2 => {
-          let Ok(()) = manage(&other, Manage::Select(keep_only), picked);
+          let Ok(()) = manage(&other, Request::Select(keep_only), picked);
         }
         3 => {
           let Ok(()) = confirm_trash(picked, track, expected, &file);

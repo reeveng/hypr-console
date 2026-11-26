@@ -10,10 +10,13 @@ use console_core_geometry::{Point, Size};
 use console_core_iteration::{Step, iterate};
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index, toward_zero_i32};
-use console_draw_surface::{Closed, Keysym, PointerEvent, Scale, Surface, Window};
 use console_panel::activity::{
-  self, Action, Art, Day as DisplayDay, Frame, KeyAction, Kind, Lane, LaneView, Page, Period,
-  Press, Recorder as Recording, Refresh, Rows, Scope, Source, View, duration,
+  self, Action, Art, Frame, KeyAction, Kind, Lane, LaneView, Page, Period, Press, Refresh, Rows,
+  Scope, Source, View, duration,
+};
+use console_panel::canvas::Area;
+use console_panel::ui::surface::{
+  Closed, Hover, Keysym, PointerEvent, RepaintHover, Scale, Surface, Window,
 };
 
 use crate::activity::{Span, read_history};
@@ -50,7 +53,7 @@ struct Dashboard {
   scroll: i32,
   more: Rows,
   focus: Option<Action>,
-  hover: Option<Action>,
+  hover: Hover<(Area, Action)>,
   details: Option<(Period, String)>,
   problem: Option<&'static str>,
 }
@@ -58,17 +61,19 @@ struct Dashboard {
 impl Dashboard {
   fn view(&self) -> std::result::Result<View<'_>, Never> {
     let recorder = match (&self.recorder, self.recorder_state) {
-      (Some(value), RecorderState::Current) => Recording::Current {
+      (Some(value), RecorderState::Current) => activity::Recorder::Current {
         status: &value.status,
         interval: value.interval,
       },
-      (Some(value), RecorderState::Stale) => Recording::Stale {
+      (Some(value), RecorderState::Stale) => activity::Recorder::Stale {
         interval: value.interval,
       },
-      (None, RecorderState::Current | RecorderState::Stale) => Recording::Waiting {
+      (None, RecorderState::Current | RecorderState::Stale) => activity::Recorder::Waiting {
         interval: DEFAULT_INTERVAL,
       },
     };
+    let Ok(hover) = self.hover.target();
+
     Ok(View {
       title: WINDOW_TITLE,
       source: self,
@@ -83,7 +88,7 @@ impl Dashboard {
       scroll: self.scroll,
       more: self.more,
       focus: self.focus,
-      hover: self.hover,
+      hover: hover.map(|(_, action)| action),
       details: self.details.as_ref(),
       problem: self.problem,
     })
@@ -116,7 +121,7 @@ impl Dashboard {
       scroll: 0,
       more: Rows::Summary,
       focus: None,
-      hover: None,
+      hover: Hover::default(),
       details: None,
       problem: None,
     })
@@ -207,7 +212,7 @@ impl Dashboard {
 
   fn activate(&mut self, action: Action) -> Result<WindowChange> {
     match action {
-      Action::Page(page) => {
+      Action::Page(page) | Action::PageArrow(page) => {
         self.page = page;
         self.scroll = 0;
       }
@@ -247,7 +252,7 @@ impl Dashboard {
       Action::Close => return Ok(WindowChange::Close),
     }
 
-    self.hover = None;
+    let Ok(_redrawn_for_action) = self.hover.observe(None);
     Ok(WindowChange::StayOpen)
   }
 
@@ -271,9 +276,9 @@ impl Dashboard {
 }
 
 impl Source for Dashboard {
-  fn day(&self, position: u32) -> std::result::Result<Option<DisplayDay<'_>>, Never> {
+  fn day(&self, position: u32) -> std::result::Result<Option<activity::Day<'_>>, Never> {
     let Ok(slot) = index(position);
-    Ok(self.calendar.get(slot).map(|day| DisplayDay {
+    Ok(self.calendar.get(slot).map(|day| activity::Day {
       period: Period {
         start: day.start,
         end: day.end,
@@ -398,6 +403,14 @@ impl WindowSession {
     }
 
     let Ok(()) = self.refresh(paths);
+    let Ok(target) = self.frame.targets.under_pointer(&self.surface);
+    let Ok(feedback) = self.app.hover.observe(target);
+
+    match feedback {
+      Some(RepaintHover) => self.drawing = Drawing::Needed,
+      None => {}
+    }
+
     Ok(WindowChange::StayOpen)
   }
 
@@ -429,6 +442,18 @@ impl WindowSession {
       Ordering::Less | Ordering::Equal => {}
     }
 
+    let Ok(target) = self.frame.targets.under_pointer(&self.surface);
+    let Ok(feedback) = self.app.hover.observe(target);
+
+    match feedback {
+      Some(RepaintHover) => {
+        let Ok(current_view) = self.app.view();
+        let Ok(next) = activity::draw(&current_view, room, &self.art);
+        self.frame = next;
+      }
+      None => {}
+    }
+
     self.frame.paint(&mut self.surface, room)?;
     self.drawing = current;
     Ok(())
@@ -437,20 +462,6 @@ impl WindowSession {
   fn pointer(&mut self, event: PointerEvent) -> Result<WindowChange> {
     match event {
       PointerEvent::Down { at: (x, y) } => return self.press(Point { x, y }),
-      PointerEvent::Moved { at: (x, y) } => {
-        let Ok(hover) = self.frame.targets.action(Point { x, y });
-
-        match (hover != self.app.hover).then_some(()) {
-          Some(()) => self.drawing = Drawing::Needed,
-          None => {}
-        }
-
-        self.app.hover = hover;
-      }
-      PointerEvent::Left => match self.app.hover.take() {
-        Some(_) => self.drawing = Drawing::Needed,
-        None => {}
-      },
       PointerEvent::Scrolled { by } => {
         let position =
           (f64::from(self.app.scroll) + by).clamp(0.0, f64::from(self.frame.max_scroll));
@@ -463,7 +474,10 @@ impl WindowSession {
 
         self.app.scroll = scroll;
       }
-      PointerEvent::Up | PointerEvent::Pinched { .. } => {}
+      PointerEvent::Up
+      | PointerEvent::Moved { .. }
+      | PointerEvent::Left
+      | PointerEvent::Pinched { .. } => {}
     }
 
     Ok(WindowChange::StayOpen)

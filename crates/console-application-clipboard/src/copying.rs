@@ -89,6 +89,7 @@ impl Machine for Copying {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use console_core_bytes::Bytes;
 
   #[test]
   fn only_a_successful_publication_during_recording_enters_history() {
@@ -102,7 +103,7 @@ mod tests {
         initial.state,
         Request::Copy(Contents {
           format: Format::Text,
-          bytes: b"sample".to_vec(),
+          bytes: Bytes::from(b"sample".to_vec()),
         }),
       );
       assert!(matches!(copying.effects.as_slice(), [Effect::Publish(_)]));

@@ -12,15 +12,18 @@
 //! Requests and replies are newline-delimited. Arguments preserve spaces,
 //! backslashes, and newlines through the wire escaping below.
 
-use std::io::{BufRead, BufReader, Write};
+use std::io::{self, BufReader, Write};
 use std::os::fd::{AsRawFd, BorrowedFd};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
+use console_core_bounded_reads::{Line, LineEnding, LinePart};
 use console_core_iteration::Step;
 use console_core_never::Never;
+use console_core_number_conversion::fixed_index;
+use console_operating_system_linux::unix_stream::{Within, connect, receive_line};
 
 pub const SOCKET: &str = "panels.sock";
 
@@ -29,6 +32,11 @@ pub const RESIDENT_SOCKET: &str = "panels-resident.sock";
 pub const OPEN: &str = "open";
 
 pub const CLOSE: &str = "close";
+
+pub const REQUEST_BYTES: u32 = 128 * 1024;
+const REPLY_BYTES: u32 = 256;
+const FRAME_TIME: Duration = Duration::from_secs(1);
+const ACK_TIME: Duration = Duration::from_secs(2);
 
 const RESIDENT: &str = "resident ";
 const DISMISS: &str = "dismiss";
@@ -95,6 +103,7 @@ fn send_to_host(packet: &str) -> std::io::Result<()> {
     AddressFamily, SendFlags, SocketAddrUnix, SocketFlags, SocketType, connect, send, socket_with,
   };
 
+  check_request(packet)?;
   let Ok(path) = resident_where();
   let at = path.ok_or(std::io::ErrorKind::NotFound)?;
   let socket = socket_with(
@@ -115,6 +124,18 @@ fn send_to_host(packet: &str) -> std::io::Result<()> {
   match (written == length).then_some(()) {
     Some(()) => Ok(()),
     None => Err(std::io::Error::from(std::io::ErrorKind::WriteZero)),
+  }
+}
+
+fn check_request(frame: &str) -> io::Result<()> {
+  let Ok(length) = fixed_index(frame.len());
+
+  match (length <= u64::from(REQUEST_BYTES)).then_some(()) {
+    Some(()) => Ok(()),
+    None => Err(io::Error::new(
+      io::ErrorKind::InvalidInput,
+      "panel request exceeds its byte limit",
+    )),
   }
 }
 
@@ -383,7 +404,7 @@ pub fn request(
   arguments: &[String],
   report: impl FnMut(crate::completion::Progress) -> Result<(), Never>,
 ) -> Result<DrawnBy, Never> {
-  let asking = match UnixStream::connect(at) {
+  let asking = match connect(at) {
     Ok(asking) => asking,
     Err(fault) => {
       console_core_logging::warn!(
@@ -398,7 +419,7 @@ pub fn request(
   let Ok(asked) = asking_for(who, arguments);
   let Ok(said) = serialize(&asked);
 
-  let mut writing = match asking.try_clone() {
+  let writing = match asking.try_clone() {
     Ok(writing) => writing,
     Err(fault) => {
       console_core_logging::warn!("{who}: {fault}, so this panel draws itself");
@@ -418,7 +439,12 @@ pub fn request(
 
   let Ok(()) = answers_being_asked_to_stop();
 
-  match writeln!(writing, "{said}") {
+  let frame = format!("{said}\n");
+  let sent = check_request(&frame)
+    .and_then(|()| Within::new(&writing, FRAME_TIME))
+    .and_then(|mut stream| stream.write_all(frame.as_bytes()));
+
+  match sent {
     Ok(()) => {}
     Err(fault) => {
       console_core_logging::warn!("{who}: {fault}, so this panel draws itself");
@@ -429,7 +455,15 @@ pub fn request(
     }
   }
 
-  let Ok(drawn) = read_reply(who, asking, report);
+  #[cfg_attr(
+    all(not(test), dylint_lib = "explicit039_no_reading_the_clock"),
+    expect(
+      explicit039_no_reading_the_clock,
+      reason = "sending the request is the socket boundary that starts the acknowledgement timeout"
+    )
+  )]
+  let deadline = Instant::now().checked_add(ACK_TIME);
+  let Ok(drawn) = read_reply(who, asking, deadline, report);
   let Ok(()) = no_longer_answering();
 
   Ok(drawn)
@@ -438,26 +472,43 @@ pub fn request(
 fn read_reply(
   who: &str,
   asking: UnixStream,
+  mut deadline: Option<Instant>,
   mut report: impl FnMut(crate::completion::Progress) -> Result<(), Never>,
 ) -> Result<DrawnBy, Never> {
-  let reading = BufReader::new(asking);
+  let mut reading = BufReader::new(asking);
+  let Ok(mut frame) = Line::new(REPLY_BYTES, LineEnding::Required);
   let mut drawn = DrawnBy::Here;
   let mut accepted = false;
 
-  for line in reading.lines() {
-    let line_3 = match line {
-      Ok(line_2) => line_2,
-      Err(_the_read_failed) => break,
+  #[cfg_attr(
+    dylint_lib = "explicit054_no_loop",
+    expect(
+      explicit054_no_loop,
+      reason = "a panel may remain open as long as its owner needs it; EOF and completion end the handoff"
+    )
+  )]
+  loop {
+    match receive_line(&mut reading, &mut frame, deadline, FRAME_TIME) {
+      Ok(LinePart::Complete) => {}
+      Ok(LinePart::Partial | LinePart::End) => break,
+      Err(fault) => {
+        console_core_logging::debug!("{who}: reading panel progress: {fault}");
+
+        break;
+      }
+    }
+
+    let Ok(bytes) = frame.bytes();
+    let line = match std::str::from_utf8(bytes) {
+      Ok(line) => line,
+      Err(_invalid_utf8) => break,
     };
 
-    let Ok(progress) = crate::completion::Progress::read(line_3.trim());
+    let Ok(progress) = crate::completion::Progress::read(line.trim());
     let progress_3 = match progress {
       Some(progress_2) => progress_2,
       None => {
-        console_core_logging::warn!(
-          "{who}: the host said {line:?}, which is nothing this knows",
-          line = line_3
-        );
+        console_core_logging::warn!("{who}: the host said {line:?}, which is nothing this knows");
 
         continue;
       }
@@ -480,7 +531,10 @@ fn read_reply(
     let Ok(()) = report(progress_3);
 
     match progress_3 {
-      crate::completion::Progress::Accepted => accepted = true,
+      crate::completion::Progress::Accepted => {
+        accepted = true;
+        deadline = None;
+      }
       crate::completion::Progress::Visible => {
         let Ok(()) = crate::picker::mark_drawn();
 

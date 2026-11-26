@@ -624,7 +624,7 @@ mod tests {
     use console_core_color::palette;
     use console_core_fonts::TextStyle;
     use console_core_geometry::{Point, Size};
-    use console_draw_painting::Frame;
+    use console_panel::ui::painting::Frame;
 
     use crate::download_view::{Action, View};
 

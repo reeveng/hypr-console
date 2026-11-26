@@ -4,7 +4,6 @@
 //! internal nodes are hidden from the device and application controls.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::fmt::Write;
 
 use console_core_never::Never;
 use serde::de::{Deserialize, DeserializeOwned, Deserializer, Error};
@@ -51,12 +50,9 @@ impl App {
 
     let mut key = format!("app.{field}.");
 
-    for byte in name.bytes() {
-      match write!(key, "{byte:02x}") {
-        Ok(()) => {}
-        Err(_failed_to_format_key) => return Ok(None),
-      }
-    }
+    let Ok(()) = console_core_bytes::hex::append(
+      &mut key, name.as_bytes(), console_core_bytes::hex::Case::Lower,
+    );
 
     Ok(Some(key))
   }

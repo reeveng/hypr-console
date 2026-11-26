@@ -1,6 +1,6 @@
 use console_core_number_conversion::index;
 
-use super::reader::{Bits, Bytes};
+use super::reader::{Bits, Reader};
 use crate::ParseError;
 
 #[derive(Debug, Default)]
@@ -45,21 +45,21 @@ impl Huffman {
 }
 
 pub(crate) fn tables(data: &[u8]) -> Result<(Huffman, Huffman), ParseError> {
-  let Ok(mut reader) = Bytes::new(data);
+  let Ok(mut reader) = Reader::new(data);
   let delta = table(&mut reader, Symbol::Word)?;
   let count = table(&mut reader, Symbol::Byte)?;
 
   Ok((delta, count))
 }
 
-fn symbol(reader: &mut Bytes<'_>, kind: Symbol) -> Result<u32, ParseError> {
+fn symbol(reader: &mut Reader<'_>, kind: Symbol) -> Result<u32, ParseError> {
   match kind {
     Symbol::Word => reader.u32(),
     Symbol::Byte => reader.u8().map(u32::from),
   }
 }
 
-fn table(reader: &mut Bytes<'_>, kind: Symbol) -> Result<Huffman, ParseError> {
+fn table(reader: &mut Reader<'_>, kind: Symbol) -> Result<Huffman, ParseError> {
   let total = reader.u16()?;
   let longest = reader.u8()?;
   let mut counts = Vec::new();

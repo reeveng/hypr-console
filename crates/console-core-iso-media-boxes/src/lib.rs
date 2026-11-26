@@ -202,10 +202,9 @@ impl FullBoxHeader {
   pub const ENCODED_LEN: u64 = 4;
 
   pub fn from_bytes([version, high, middle, low]: [u8; 4]) -> Result<Self, Never> {
-    Ok(Self {
-      version,
-      flags: u32::from_be_bytes([0, high, middle, low]),
-    })
+    let Ok(flags) = console_core_bytes::endian::u24_be([high, middle, low]);
+
+    Ok(Self { version, flags })
   }
 }
 

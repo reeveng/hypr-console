@@ -94,7 +94,7 @@
 use std::path::{Path, PathBuf};
 
 use console_core_arguments::{CommandLine, Flag, NoSubcommand, Operands, Presence, Takes};
-use console_core_external_programs::Program as ExternalProgram;
+use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_core_state_machine::{EffectDependencies, Machine, Queue, Service, Transition};
 use console_program_contract::{Choice, Command, Effect, Event, Exit, ExitStatus, Prompt};
@@ -390,8 +390,7 @@ fn at(
 ) -> Result<Transition<Deploying, Effect<DeployingEffect>>, Never> {
   match (step, event) {
     (Step::Rooting, Event::Opened) => {
-      let Ok(rooting) =
-        Command::external(ExternalProgram::Git, &["rev-parse", "--git-common-dir"]);
+      let Ok(rooting) = Command::external(Program::Git, &["rev-parse", "--git-common-dir"]);
 
       Transition::new(
         Deploying::At(Step::Rooting, going.clone()),
@@ -442,7 +441,7 @@ fn at(
     (Step::Reading, Event::Custom(DeployingEvent::Holder(holder))) => whose(going, holder),
 
     (Step::Still, Event::Replied(answer)) => {
-      let Ok(marking) = Command::external(ExternalProgram::Git, &["rev-parse", "HEAD"]);
+      let Ok(marking) = Command::external(Program::Git, &["rev-parse", "HEAD"]);
 
       let mut effects =
         match ::core::primitive::bool::then_some(answer.output.trim().is_empty(), ()) {
@@ -475,7 +474,7 @@ fn at(
       ExitStatus::Success => {
         let Ok(clearing) = within(
           &going.tree,
-          ExternalProgram::Git,
+          Program::Git,
           &["clean", "-d", "--force", "--quiet"],
         );
 
@@ -502,7 +501,7 @@ fn at(
 
     (Step::Adding | Step::Clearing, Event::Replied(answer)) => match answer.status {
       ExitStatus::Success => {
-        let Ok(asked) = within(&going.tree, ExternalProgram::Cargo, &["--version"]);
+        let Ok(asked) = within(&going.tree, Program::Cargo, &["--version"]);
 
         Transition::new(
           Deploying::At(Step::Toolchain(Side::Here), going.clone()),
@@ -654,7 +653,7 @@ fn at(
     (Step::Ahead, Event::Replied(answer)) => {
       let Ok(spread) = within(
         &going.tree,
-        ExternalProgram::Git,
+        Program::Git,
         &["diff", "--stat", "FETCH_HEAD..HEAD"],
       );
 
@@ -757,7 +756,7 @@ fn at(
     (Step::Settling, Event::Replied(answer)) => {
       match ::core::primitive::bool::then_some(answer.output.trim().is_empty(), ()) {
         ::core::option::Option::Some(()) => {
-          let Ok(moved) = within(&going.tree, ExternalProgram::Git, &["rev-parse", "HEAD"]);
+          let Ok(moved) = within(&going.tree, Program::Git, &["rev-parse", "HEAD"]);
 
           Transition::new(
             Deploying::At(Step::Moved, going.clone()),
@@ -821,11 +820,7 @@ fn at(
     (Step::Allowing, Event::Replied(_)) => {
       let Ok(said) = into(&going.host);
 
-      let Ok(pushing) = within(
-        &going.tree,
-        ExternalProgram::Git,
-        &["push", &said, "HEAD:master"],
-      );
+      let Ok(pushing) = within(&going.tree, Program::Git, &["push", &said, "HEAD:master"]);
 
       Transition::new(
         Deploying::At(Step::Pushing, going.clone()),
@@ -1149,18 +1144,10 @@ pub fn carding(going: &Going, which: Whether) -> Result<Command, Never> {
 pub fn fetching(tree: &Path, host: &str) -> Result<Command, Never> {
   let Ok(said) = into(host);
 
-  within(
-    tree,
-    ExternalProgram::Git,
-    &["fetch", "--quiet", &said, "master"],
-  )
+  within(tree, Program::Git, &["fetch", "--quiet", &said, "master"])
 }
 
-pub fn within(
-  tree: &Path,
-  program: ExternalProgram,
-  arguments: &[&str],
-) -> Result<Command, Never> {
+pub fn within(tree: &Path, program: Program, arguments: &[&str]) -> Result<Command, Never> {
   let Ok(name) = program.name();
   let at = tree.display().to_string();
   let words: Vec<&str> = ["-C", at.as_str(), name]
@@ -1168,13 +1155,13 @@ pub fn within(
     .chain(arguments.iter().copied())
     .collect();
 
-  Command::external(ExternalProgram::Env, &words)
+  Command::external(Program::Env, &words)
 }
 
 pub fn placing(tree: &Path, commit: &str) -> Result<Command, Never> {
   within(
     tree,
-    ExternalProgram::Git,
+    Program::Git,
     &["checkout", "--quiet", "--force", "--detach", commit],
   )
 }
@@ -1183,7 +1170,7 @@ pub fn adding(tree: &Path, commit: &str) -> Result<Command, Never> {
   let at = tree.display().to_string();
 
   Command::external(
-    ExternalProgram::Git,
+    Program::Git,
     &[
       "worktree", "add", "--quiet", "--force", "--detach", &at, commit,
     ],
@@ -1191,13 +1178,13 @@ pub fn adding(tree: &Path, commit: &str) -> Result<Command, Never> {
 }
 
 pub fn gate(tree: &Path) -> Result<Command, Never> {
-  within(tree, ExternalProgram::Just, &["ready"])
+  within(tree, Program::Just, &["ready"])
 }
 
 pub fn checking(tree: &Path) -> Result<Command, Never> {
   within(
     tree,
-    ExternalProgram::Cargo,
+    Program::Cargo,
     &[
       "run",
       "--quiet",
@@ -1212,19 +1199,19 @@ pub fn checking(tree: &Path) -> Result<Command, Never> {
 }
 
 fn git_status() -> Result<Command, Never> {
-  Command::external(ExternalProgram::Git, &["status", "--porcelain"])
+  Command::external(Program::Git, &["status", "--porcelain"])
 }
 
 fn standing(tree: &Path) -> Result<Command, Never> {
-  within(tree, ExternalProgram::Git, &["status", "--porcelain"])
+  within(tree, Program::Git, &["status", "--porcelain"])
 }
 
 fn git_log(tree: &Path, range: &str) -> Result<Command, Never> {
-  within(tree, ExternalProgram::Git, &["log", "--oneline", range])
+  within(tree, Program::Git, &["log", "--oneline", range])
 }
 
 fn on(going: &Going, command: &str) -> Result<Command, Never> {
-  Command::external(ExternalProgram::Ssh, &["--", going.host.as_str(), command])
+  Command::external(Program::Ssh, &["--", going.host.as_str(), command])
 }
 
 fn into(host: &str) -> Result<String, Never> {
@@ -1612,9 +1599,9 @@ mod tests {
     let elsewhere: Vec<&Command> = after
       .iter()
       .copied()
-      .filter(|runs| runs.program != Executable::External(ExternalProgram::Ssh))
+      .filter(|runs| runs.program != Executable::External(Program::Ssh))
       .filter(|runs| {
-        !(runs.program == Executable::External(ExternalProgram::Env)
+        !(runs.program == Executable::External(Program::Env)
           && runs.arguments.get(1) == Some(&at))
       })
       .collect();
@@ -1648,7 +1635,7 @@ mod tests {
 
     let Ok(tree) = deploy_tree();
     let Ok(added) = adding(&tree, "abc123");
-    let Ok(asked) = within(&tree, ExternalProgram::Cargo, &["--version"]);
+    let Ok(asked) = within(&tree, Program::Cargo, &["--version"]);
 
     assert!(
       said.asks.contains(&added),
@@ -1709,7 +1696,7 @@ mod tests {
     let before: Vec<&Command> = asked
       .iter()
       .take_while(|runs| **runs != must_hold)
-      .filter(|runs| runs.program == Executable::External(ExternalProgram::Ssh))
+      .filter(|runs| runs.program == Executable::External(Program::Ssh))
       .collect();
 
     let asked_before: Vec<&str> = before

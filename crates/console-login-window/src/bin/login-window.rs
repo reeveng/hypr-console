@@ -39,7 +39,7 @@
 
 use std::ffi::OsStr;
 use std::fs::{self, File};
-use std::io::{self, BufRead, BufReader, Read, Write};
+use std::io::{self, Write};
 use std::os::fd::AsFd;
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
@@ -55,7 +55,9 @@ use console_login_session::{
 };
 use console_login_window::fingerprint::{self, Verifier};
 use console_login_window::password;
-use console_login_window::protocol::{FromGreeter, ToGreeter, from_greeter, line_to_greeter};
+use console_login_window::protocol::{
+  Buffered, FromGreeter, REQUEST_BYTES, Reader, ToGreeter, from_greeter, line_to_greeter,
+};
 use console_login_window::sessions::{self, SESSIONS};
 use console_login_window::stored_pattern::{self, Hash, PatternAttempts, PatternStoreError};
 use console_login_window::system::{self, Person, Terminal};
@@ -102,7 +104,6 @@ const GREETER_SESSION: &str = "greeter";
 const DESKTOP_SESSION: &str = "desktop";
 
 const TERMINAL: &str = "getty@tty1.service";
-const MAX_GREETER_REQUEST: u64 = 32;
 
 enum LoginWindowError {
   Nobody(String),
@@ -600,13 +601,14 @@ fn greeted(
   let mut running = began.map_err(LoginWindowError::Starting)?;
   let Ok(reading) = running.take_stdout();
   let Ok(writing) = running.take_stdin();
-  let (input, output) = match (reading, writing) {
-    (Some(input), Some(output)) => (input, output),
+  let (pipe, output) = match (reading, writing) {
+    (Some(from_greeter), Some(to_greeter)) => (from_greeter, to_greeter),
     (None, _) | (Some(_), None) => return Err(LoginWindowError::GreeterLeft),
   };
   let Ok(fingerprint) = Verifier::new(&person.name);
+  let input = Reader::new(pipe, REQUEST_BYTES).map_err(LoginWindowError::Starting)?;
   let mut conversation = Conversation {
-    input: BufReader::new(input),
+    input,
     output,
     fingerprint,
     patterns: PatternAttempts::default(),
@@ -638,7 +640,7 @@ fn greeted(
 }
 
 struct Conversation {
-  input: BufReader<ChildStdout>,
+  input: Reader<ChildStdout>,
   output: ChildStdin,
   fingerprint: Verifier,
   patterns: PatternAttempts,
@@ -653,20 +655,15 @@ impl Conversation {
     let ready = listening(&self.input, &self.fingerprint).map_err(LoginWindowError::Starting)?;
     let reply = match ready {
       Ready::Greeter => {
-        let mut line = String::new();
-        let received = (&mut self.input)
-          .take(MAX_GREETER_REQUEST)
-          .read_line(&mut line)
-          .map(|_bytes| ());
-
-        match (received, line.ends_with('\n').then_some(())) {
-          (Ok(()), Some(())) => {}
-          (Ok(()), None) => return Err(LoginWindowError::GreeterLeft),
-          (Err(fault), _) => {
+        let line = match self.input.read() {
+          Ok(Some(line)) => line,
+          Ok(None) => return Ok(Step::Again(())),
+          Err(fault) => {
             console_core_logging::debug!("could not read the greeter's request: {fault}");
+
             return Err(LoginWindowError::GreeterLeft);
           }
-        }
+        };
 
         let Ok(request) = from_greeter(&line);
 
@@ -713,29 +710,34 @@ enum Ready {
   Fingerprint,
 }
 
-fn listening(reading: &BufReader<impl AsFd>, fingerprint: &Verifier) -> io::Result<Ready> {
+fn listening(reading: &Reader<ChildStdout>, fingerprint: &Verifier) -> io::Result<Ready> {
   const INTERVAL: Timespec = Timespec {
     tv_sec: 30,
     tv_nsec: 0,
   };
-  let Ok(descriptor) = fingerprint.fd();
-  let scanner = match descriptor.filter(|_| reading.buffer().is_empty()) {
-    Some(pending) => pending,
-    None => return Ok(Ready::Greeter),
-  };
+  let Ok(buffered) = reading.buffered();
 
-  let watched = [
-    PollFd::new(reading.get_ref(), PollFlags::IN),
-    PollFd::from_borrowed_fd(scanner, PollFlags::IN),
-  ];
+  match buffered {
+    Buffered::Ready => return Ok(Ready::Greeter),
+    Buffered::Empty => {}
+  }
+
+  let Ok(descriptor) = fingerprint.fd();
+  let mut watched = vec![PollFd::new(reading, PollFlags::IN)];
+
+  match descriptor {
+    Some(scanner) => watched.push(PollFd::from_borrowed_fd(scanner, PollFlags::IN)),
+    None => {}
+  }
+
   let received = iterate(watched, |mut descriptors| {
     Ok(match poll(&mut descriptors, Some(&INTERVAL)) {
       Ok(0) | Err(Errno::INTR) => Step::Again(descriptors),
       Ok(_ready) => {
-        let [greeter, _scanner] = descriptors;
-        Step::Halt(Ok(match greeter.revents().is_empty().then_some(()) {
-          Some(()) => Ready::Fingerprint,
-          None => Ready::Greeter,
+        let greeter = descriptors.first().map(PollFd::revents);
+        Step::Halt(Ok(match greeter.filter(|flags| !flags.is_empty()) {
+          None => Ready::Fingerprint,
+          Some(_ready) => Ready::Greeter,
         }))
       }
       Err(fault) => Step::Halt(Err(io::Error::from(fault))),

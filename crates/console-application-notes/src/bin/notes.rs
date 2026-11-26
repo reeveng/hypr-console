@@ -54,13 +54,17 @@ use console_core_internal_programs::InternalProgram;
 use console_core_iteration::{Endless, Step, iterate};
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, toward_zero_i32, whole_u32};
-use console_core_shapes::{Edge, Font, Panel, Picture, Pixels, Round, Shape, Text, Weight};
-use console_draw_painting::Run;
-use console_draw_surface::standing::{Closed, PointerEvent, SurfaceError, Window};
-use console_draw_surface::{Activation, KeyPress, Keysym, Surface};
 use console_input_text::area::row_at;
 use console_input_text::{Row, TextArea, Typed, Way, between};
 use console_panel::keys::{Driving, Meaning, meaning};
+use console_panel::ui::canvas::{
+  Area, AreaLayout, Canvas, Interaction, ROW_RADIUS, RowTone, Style as CanvasStyle,
+};
+use console_panel::ui::painting::Run;
+use console_panel::ui::shapes::{Edge, Font, Panel, Picture, Pixels, Round, Shape, Text, Weight};
+use console_panel::ui::surface::standing::{Closed, PointerEvent, SurfaceError, Window};
+use console_panel::ui::surface::{Activation, KeyPress, Keysym, Surface};
+use console_panel::ui::{list, strip, theme};
 use console_panel::window::{self, Responder, Update, handle_input, merge};
 
 const TITLE: &str = "Notes";
@@ -75,17 +79,13 @@ const TRASHED: &str = "It goes to the trash";
 
 const ROW: u32 = (EM * 4).unsigned_abs();
 
-const HEADER: u32 = (EM * 5).unsigned_abs();
-
-const HEADING: u32 = (EM * 4 / 3).unsigned_abs();
+const HEADER: u32 = strip::CONTENT_TOP.unsigned_abs();
 
 const WORDS: u32 = EM.unsigned_abs();
 
 const SMALL: u32 = (EM * 5 / 6).unsigned_abs();
 
 const INSIDE: u32 = (EM * 2 / 3).unsigned_abs();
-
-const ROUND: u32 = (EM * 2 / 3).unsigned_abs();
 
 const CARET: u32 = 2;
 
@@ -464,6 +464,24 @@ impl App {
   }
 
   fn list_pointer(&mut self, event: PointerEvent, room: Size<u32>) -> Result<Update, Never> {
+    match event {
+      PointerEvent::Down { at } => {
+        let Ok(width) = fitted::<u32, i32>(room.width);
+        let Ok(header) = strip::window_area(width);
+        let Ok(close) = strip::close_area(header);
+
+        match close.contains_point(Point::from(at)) {
+          Ok(console_core_geometry::Containment::Inside) => return Ok(Update::Exit),
+          Ok(console_core_geometry::Containment::Outside) => {}
+        }
+      }
+      PointerEvent::Moved { .. }
+      | PointerEvent::Scrolled { .. }
+      | PointerEvent::Pinched { .. }
+      | PointerEvent::Up
+      | PointerEvent::Left => {}
+    }
+
     self.on_list(room, |list, shown| list.pointed(event, shown))
   }
 
@@ -1326,7 +1344,7 @@ fn rows_of(area: &TextArea, appearance: Appearance, room: Size<u32>) -> Result<V
   let wrap = |paragraph: u32, said: &str| -> Vec<String> {
     let Ok(style) = style_of(paragraph);
     let Ok((font, weight)) = appearance.styled(style);
-    let Ok(lines) = console_draw_painting::wrapped(
+    let Ok(lines) = console_panel::ui::painting::wrapped(
       Run {
         said,
         weight,
@@ -1467,7 +1485,7 @@ fn placed(layout: &Layout, rows: &[Row]) -> Result<Vec<Placement>, Never> {
 
 fn width_of(said: &str, style: Style, appearance: Appearance) -> Result<u32, Never> {
   let Ok((font, weight)) = appearance.styled(style);
-  let Ok(measured) = console_draw_painting::measure_text(
+  let Ok(measured) = console_panel::ui::painting::measure_text(
     Run {
       said,
       weight,
@@ -1484,7 +1502,7 @@ fn small_width(said: &str) -> Result<u32, Never> {
     family: LETTERS.to_string(),
     height: SMALL,
   };
-  let Ok(measured) = console_draw_painting::measure_text(
+  let Ok(measured) = console_panel::ui::painting::measure_text(
     Run {
       said,
       weight: Weight::Plain,
@@ -1545,7 +1563,7 @@ fn draw(app: &App, surface: &mut Surface) -> Result<(), Never> {
     View::Page(writing) => page_shapes(writing, &app.wearing, app.appearance, room),
   };
 
-  let Ok(painting) = console_draw_painting::painter(room, &shapes, "notes");
+  let Ok(painting) = console_panel::ui::painting::painter(room, &shapes, "notes");
 
   match surface.draw(painting) {
     Ok(()) => {}
@@ -1587,16 +1605,31 @@ fn words(
   }))
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ListControl {
+  Close,
+}
+
 fn list_shapes(list: &List, wearing: &Wearing, room: Size<u32>) -> Result<Vec<Shape>, Never> {
-  let Ok(ground) = background(room, wearing.panel);
-  let Ok(column) = appearance::column(room);
-  let Ok(header) = words(
-    TITLE,
-    (column.left, WORDS),
-    (HEADING, Weight::Bold),
-    (column.width, wearing.text),
+  let Ok(fill) = theme::Surface::Window.color(wearing);
+  let Ok(ground) = background(room, fill);
+  let Ok(width) = fitted::<u32, i32>(room.width);
+  let Ok(height) = fitted::<u32, i32>(room.height);
+  let root = Area {
+    origin: Point { x: 0, y: 0 },
+    size: Size { width, height },
+  };
+  let Ok(mut canvas) = Canvas::new(
+    root,
+    CanvasStyle::from(wearing),
+    Interaction {
+      focus: None,
+      hover: None,
+    },
   );
-  let mut shapes = vec![ground, header];
+  canvas.frame.shapes.push(ground);
+  let Ok(header) = strip::window_area(width);
+  let Ok(()) = strip::title_bar(&mut canvas, header, TITLE, ListControl::Close, wearing);
   let Ok(Visible(shown)) = shown(room);
   let Ok(shown_2) = console_core_number_conversion::index(shown);
   let Ok(last) = list.last();
@@ -1605,79 +1638,62 @@ fn list_shapes(list: &List, wearing: &Wearing, room: Size<u32>) -> Result<Vec<Sh
     .take(shown_2)
     .zip((0_u32..).map(|step| HEADER.saturating_add(step.saturating_mul(ROW))))
   {
-    let Ok(note) = list.note(row);
-
-    let (title, opening) = match note {
-      Some(note_2) => (note_2.title.as_str(), note_2.opening.as_str()),
-      None => (NEW_NOTE, ""),
-    };
-
-    let lit = (row == list.selected, list.prompt);
-
-    let (fill, ink, quiet) = match lit {
-      (true, Prompt::None) => (Some(wearing.pink), wearing.night, wearing.night),
-      (true, Prompt::Delete) => (Some(wearing.coral), wearing.night, wearing.night),
-      (false, _) => (None, wearing.text, wearing.soft),
-    };
-
-    let (heading, opening_2) = match lit {
-      (true, Prompt::Delete) => (
-        format!("Delete \u{201c}{title}\u{201d}?"),
-        TRASHED.to_string(),
-      ),
-      (true, Prompt::None) | (false, _) => (title.to_string(), opening.to_string()),
-    };
-
     let Ok(y) = fitted::<u32, i32>(top);
-    let Ok(x) = fitted::<u32, i32>(column.left);
-
-    match fill {
-      Some(fill_2) => shapes.push(Shape::Panel(Panel {
-        at: Point { x, y },
-        size: Size {
-          width: column.width,
-          height: ROW.saturating_sub(INSIDE.saturating_div(2)),
-        },
-        round: Round(ROUND),
-        fill: fill_2,
-        edge: Edge::None,
-      })),
-      None => {}
-    }
-
-    let inner = column.width.saturating_sub(INSIDE.saturating_mul(2));
-    let Ok(said) = words(
-      &heading,
-      (
-        column.left.saturating_add(INSIDE),
-        top.saturating_add(INSIDE),
-      ),
-      (WORDS, Weight::Bold),
-      (inner, ink),
-    );
-
-    shapes.push(said);
-
-    match ::core::primitive::bool::then_some(opening_2.is_empty(), ()) {
-      ::core::option::Option::Some(()) => {}
-      ::core::option::Option::None => {
-        let under = top
-          .saturating_add(INSIDE)
-          .saturating_add(WORDS)
-          .saturating_add(INSIDE.saturating_div(2));
-        let Ok(aside) = words(
-          &opening_2,
-          (column.left.saturating_add(INSIDE), under),
-          (SMALL, Weight::Plain),
-          (inner, quiet),
-        );
-
-        shapes.push(aside);
-      }
-    }
+    let area = Area {
+      origin: Point { y, ..header.origin },
+      size: Size { height: ROW.saturating_sub(strip::GAP.unsigned_abs()).cast_signed(), ..header.size },
+    };
+    let Ok(()) = note_row(&mut canvas, list, row, area, wearing);
   }
 
-  Ok(shapes)
+  Ok(canvas.frame.shapes)
+}
+
+fn note_row(
+  canvas: &mut Canvas<ListControl>,
+  list: &List,
+  row: u32,
+  area: Area,
+  wearing: &Wearing,
+) -> Result<(), Never> {
+  let Ok(note) = list.note(row);
+  let (title, opening) = match note {
+    Some(record) => (record.title.as_str(), record.opening.as_str()),
+    None => (NEW_NOTE, ""),
+  };
+  let tone = match ((row == list.selected).then_some(()), list.prompt) {
+    (Some(()), Prompt::None) => RowTone::Focused,
+    (Some(()), Prompt::Delete) => RowTone::Destructive,
+    (None, _) => RowTone::Normal,
+  };
+
+  let (heading, detail) = match tone {
+    RowTone::Destructive => (format!("Delete “{title}”?"), TRASHED),
+    RowTone::Focused | RowTone::Normal => (title.to_owned(), opening),
+  };
+
+  let Ok(colors) = tone.colors(wearing);
+  let Ok(()) = canvas.panel(area, colors.fill, ROW_RADIUS, None);
+  let Ok(inset) = fitted::<u32, i32>(INSIDE);
+  let text_area = Area {
+    origin: Point {
+      x: area.origin.x.saturating_add(inset),
+      ..area.origin
+    },
+    size: Size {
+      width: area.size.width.saturating_sub(inset.saturating_mul(2)),
+      ..area.size
+    },
+  };
+  list::label(
+    canvas,
+    text_area,
+    list::Label {
+      title: &heading,
+      detail,
+    },
+    &colors,
+  )
 }
 
 fn page_shapes(

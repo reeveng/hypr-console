@@ -10,6 +10,7 @@ name = "console_core_percent_decoding"
 path = "src/lib.rs"
 
 [dependencies]
+console-core-bytes.workspace = true
 console-core-never.workspace = true
 
 [lints]

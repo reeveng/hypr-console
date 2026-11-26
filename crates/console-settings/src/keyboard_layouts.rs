@@ -2,8 +2,7 @@ use std::fmt;
 
 use console_core_localization::text;
 use console_core_never::Never;
-use console_input_alphabets::{self as alphabets, Alphabet};
-use console_input_language as language;
+use console_input_alphabets::Alphabet;
 use console_panel::page::{Aside, Handler, NOW, Row, Showing};
 
 use crate::choosing::KeyboardMenu;
@@ -51,9 +50,13 @@ pub fn rows(
       }
     }
     KeyboardMenu::Install | KeyboardMenu::Remove => {
-      for alphabet in &alphabets::EVERY {
+      for alphabet in &console_input_alphabets::EVERY {
         let present = installed.iter().any(|other| other.key == alphabet.key);
-        let action = match (menu, present, alphabet.key == alphabets::LATIN) {
+        let action = match (
+          menu,
+          present,
+          alphabet.key == console_input_alphabets::LATIN,
+        ) {
           (KeyboardMenu::Install, false, _) => install,
           (KeyboardMenu::Remove, true, false) => remove,
           _unavailable => continue,
@@ -85,14 +88,14 @@ fn installed_rows(
       None => "",
     };
     let Ok(choose) = Handler::and_stay(move |showing| {
-      let selected = language::select(alphabet).map_err(LayoutFault::Select);
+      let selected = console_input_language::select(alphabet).map_err(LayoutFault::Select);
       let Ok(()) = finish(selected, showing, &close);
     });
     let Ok(row) = Row::new(alphabet.says, Aside(mark), choose);
     rows.push(row);
   }
 
-  match bool::then_some(installed.len() < alphabets::EVERY.len(), ()) {
+  match bool::then_some(installed.len() < console_input_alphabets::EVERY.len(), ()) {
     Some(()) => {
       let Ok(row) = link(
         Word::InstallKeyboardLayout,
@@ -108,7 +111,7 @@ fn installed_rows(
     bool::then_some(
       installed
         .iter()
-        .any(|alphabet| alphabet.key != alphabets::LATIN),
+        .any(|alphabet| alphabet.key != console_input_alphabets::LATIN),
       (),
     )
   } {
@@ -142,7 +145,7 @@ fn opening(
 }
 
 enum LayoutFault {
-  Select(language::SelectError),
+  Select(console_input_language::SelectError),
   Save,
 }
 
@@ -179,23 +182,23 @@ fn finish(
 fn install(alphabet: &Alphabet) -> Result<(), LayoutFault> {
   save_installation(alphabet, Installation::Present)?;
 
-  language::select(alphabet).map_err(LayoutFault::Select)
+  console_input_language::select(alphabet).map_err(LayoutFault::Select)
 }
 
 fn remove(alphabet: &Alphabet) -> Result<(), LayoutFault> {
-  let Ok(active) = language::active();
+  let Ok(active) = console_input_language::active();
   let selected = match bool::then_some(active.key == alphabet.key, ()) {
     Some(()) => {
-      let Ok(latin) = alphabets::latin();
+      let Ok(latin) = console_input_alphabets::latin();
 
       latin
     }
     None => active,
   };
 
-  language::select(selected).map_err(LayoutFault::Select)?;
+  console_input_language::select(selected).map_err(LayoutFault::Select)?;
   save_installation(alphabet, Installation::Absent)?;
-  let Ok(()) = language::reload_screen();
+  let Ok(()) = console_input_language::reload_screen();
 
   Ok(())
 }
@@ -207,7 +210,7 @@ enum Installation {
 
 fn save_installation(alphabet: &Alphabet, installation: Installation) -> Result<(), LayoutFault> {
   let install = matches!(installation, Installation::Present);
-  let Ok(installed) = alphabets::current();
+  let Ok(installed) = console_input_alphabets::current();
   let present = installed.iter().any(|other| other.key == alphabet.key);
 
   match bool::then_some(present == install, ()) {
@@ -217,9 +220,9 @@ fn save_installation(alphabet: &Alphabet, installation: Installation) -> Result<
     None => {}
   }
 
-  let Ok(keys) = alphabets::toggle(&installed, alphabet.key);
-  let Ok(()) = alphabets::choose(&keys);
-  let Ok(updated) = alphabets::current();
+  let Ok(keys) = console_input_alphabets::toggle(&installed, alphabet.key);
+  let Ok(()) = console_input_alphabets::choose(&keys);
+  let Ok(updated) = console_input_alphabets::current();
 
   match bool::then_some(
     updated.iter().any(|other| other.key == alphabet.key) == install,
@@ -236,8 +239,8 @@ mod tests {
 
   #[test]
   fn the_dropdown_separates_installed_choices_from_installable_layouts() {
-    let Ok(installed) = alphabets::read("latin,thai");
-    let Ok(latin) = alphabets::latin();
+    let Ok(installed) = console_input_alphabets::read("latin,thai");
+    let Ok(latin) = console_input_alphabets::latin();
     let rendered = |menu| {
       let Ok(rows) = rows(menu, &installed, latin, |_| {}, |_, _| {});
 

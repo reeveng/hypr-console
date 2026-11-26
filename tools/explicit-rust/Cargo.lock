@@ -187,6 +187,7 @@ name = "console-actor"
 version = "0.1.0"
 dependencies = [
  "console-core-atomic-writes",
+ "console-core-bytes",
  "console-core-logging",
  "console-core-never",
  "console-core-number-conversion",
@@ -202,9 +203,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "console-core-bytes"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+ "console-core-number-conversion",
+]
+
+[[package]]
 name = "console-core-checksums"
 version = "0.1.0"
 dependencies = [
+ "console-core-bytes",
  "console-core-never",
  "console-core-number-conversion",
 ]
@@ -214,6 +224,7 @@ name = "console-core-logging"
 version = "0.1.0"
 dependencies = [
  "console-core-atomic-writes",
+ "console-core-bytes",
  "console-core-checksums",
  "console-core-never",
  "console-core-places",
@@ -247,6 +258,7 @@ dependencies = [
 name = "console-core-state-machine"
 version = "0.1.0"
 dependencies = [
+ "console-core-bytes",
  "console-core-checksums",
  "console-core-never",
  "console-core-number-conversion",
@@ -1399,6 +1411,15 @@ dependencies = [
  "clippy_utils",
  "console-actor",
  "console-core-state-machine",
+ "dylint_linting",
+ "dylint_testing",
+]
+
+[[package]]
+name = "explicit106_no_import_alias"
+version = "0.1.0"
+dependencies = [
+ "clippy_utils",
  "dylint_linting",
  "dylint_testing",
 ]

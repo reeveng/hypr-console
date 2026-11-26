@@ -122,7 +122,11 @@ fn rows(paste: &SyncSender<String>) -> Result<Vec<Row>, Never> {
       rows.push(empty);
       ClearHistory::Unavailable
     }
-    ([_, ..], Capture::Paused | Capture::Recording) => ClearHistory::Available,
+    ([_, ..], Capture::Paused | Capture::Recording) => {
+      let Ok(heading) = Row::naming("Recent copies", Aside(""));
+      rows.push(heading);
+      ClearHistory::Available
+    }
   };
 
   for entry in entries {
@@ -133,7 +137,8 @@ fn rows(paste: &SyncSender<String>) -> Result<Vec<Row>, Never> {
   match clear_history {
     ClearHistory::Available => {
       let Ok(clear) = clear_row();
-      rows.push(clear);
+      let Ok(spaced) = clear.with_space_above();
+      rows.push(spaced);
     }
     ClearHistory::Unavailable => {}
   }

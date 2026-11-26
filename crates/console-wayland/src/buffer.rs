@@ -180,6 +180,24 @@ impl ShmBuffer {
     Ok(pixels)
   }
 
+  #[cfg(feature = "surface")]
+  pub(crate) fn take_pixels(&mut self) -> io::Result<Vec<u8>> {
+    let mut pixels = match self.pixels.take() {
+      Some(pixels) => return Ok(pixels),
+      None => self.memory.allocate_pixels()?,
+    };
+    self.memory.read_pixels_at(&mut pixels, 0)?;
+
+    Ok(pixels)
+  }
+
+  #[cfg(feature = "surface")]
+  pub(crate) fn retained_memory(&mut self) -> Result<&Shared, Never> {
+    self.pixels = None;
+
+    Ok(&self.memory)
+  }
+
   pub fn painted_buffer(&self) -> io::Result<&wl_buffer::WlBuffer> {
     match self.pixels.as_deref() {
       Some(pixels) => self.memory.write_pixels(pixels)?,

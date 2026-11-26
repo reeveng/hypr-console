@@ -7,7 +7,7 @@ use console_core_geometry::Size;
 use console_core_markdown::{CodeBlockKind, Event, Parser, Tag, TagEnd};
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, whole_u32};
-use console_core_shapes::Pixels;
+use console_panel::ui::shapes::Pixels;
 use merman::svg::SvgPipeline;
 use merman::{OperationControl, RenderOutput, RenderRequest, Renderer, SvgRequest};
 

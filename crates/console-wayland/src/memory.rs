@@ -78,6 +78,10 @@ impl Shared {
     self.held.read_exact_at(pixels, offset)
   }
 
+  pub(crate) fn write_pixels_at(&self, pixels: &[u8], offset: u64) -> io::Result<()> {
+    self.held.write_all_at(pixels, offset)
+  }
+
   pub(crate) fn write_pixels(&self, pixels: &[u8]) -> io::Result<()> {
     let Ok(length) = index(self.length);
 

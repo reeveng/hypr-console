@@ -969,11 +969,9 @@ fn decode_hex(data: &[u8]) -> Result<impl Iterator<Item = u8> + '_, Never> {
           Ok(ByteSpacing::NonWhitespace) => {}
         }
 
-        let nibble = match byte {
-          b'0'..=b'9' => byte.wrapping_sub(b'0'),
-          b'a'..=b'f' => byte.wrapping_sub(b'a').wrapping_add(10),
-          b'A'..=b'F' => byte.wrapping_sub(b'A').wrapping_add(10),
-          _invalid_hex_digit => break,
+        let nibble = match console_core_bytes::hex::decode_digit(byte) {
+          Ok(digit) => digit,
+          Err(_invalid_hex_digit) => break,
         };
 
         match pending_nibble.take() {

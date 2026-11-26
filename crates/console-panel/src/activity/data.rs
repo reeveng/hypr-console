@@ -92,6 +92,7 @@ pub trait Source {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Action {
   Page(Page),
+  PageArrow(Page),
   Scope(Scope),
   Kind(Kind),
   Chart { day: u32, slot: u32 },

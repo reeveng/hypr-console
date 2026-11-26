@@ -5,10 +5,6 @@ use std::fmt;
 use console_core_geometry::{Point, Size};
 use console_core_number_conversion::fitted;
 
-use crate::{
-  client as wayland_client, protocols as wayland_protocols,
-  protocols_wlr as wayland_protocols_wlr,
-};
 use wayland_client::backend::WaylandError;
 use wayland_client::protocol::wl_pointer::{Axis, AxisSource, ButtonState};
 use wayland_client::protocol::{wl_output, wl_registry, wl_seat};

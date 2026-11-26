@@ -21,7 +21,6 @@ console-core-geometry.workspace = true
 console-core-iteration.workspace = true
 console-core-never.workspace = true
 console-core-number-conversion.workspace = true
-console-draw-surface.workspace = true
 console-core-logging = { workspace = true, features = ["std"] }
 console-core-places.workspace = true
 console-panel.workspace = true

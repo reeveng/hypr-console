@@ -46,13 +46,9 @@ impl Int24 {
   }
 
   pub const fn from_be_bytes(bytes: [u8; 3]) -> Result<Self, Never> {
-    let [first, second, third] = bytes;
-    let sign = match first & 0x80 {
-      0 => 0,
-      _negative => 0xff,
-    };
+    let Ok(value) = console_core_bytes::endian::i24_be(bytes);
 
-    Ok(Self(i32::from_be_bytes([sign, first, second, third])))
+    Ok(Self(value))
   }
 }
 

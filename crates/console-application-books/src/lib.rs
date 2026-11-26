@@ -35,4 +35,7 @@ pub mod progress;
 pub mod reading;
 
 pub use console_core_epub_files::publication;
-pub use console_core_markup_tokens as markup;
+
+pub mod markup {
+  pub use console_core_markup_tokens::*;
+}

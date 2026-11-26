@@ -39,12 +39,9 @@ console-content-types.workspace = true
 console-pictures.workspace = true
 console-music-player.workspace = true
 console-program-lifetime.workspace = true
-console-core-shapes.workspace = true
 console-core-state-machine.workspace = true
 
 [dev-dependencies]
-console-draw-painting.workspace = true
-console-draw-surface.workspace = true
 console-core-ini-files.workspace = true
 console-waiting.workspace = true
 console-settings.workspace = true

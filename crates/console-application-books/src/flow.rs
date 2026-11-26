@@ -18,7 +18,7 @@
 //! A picture is named by the path the markup gives, which is relative to the
 //! chapter; [`resolved`] turns it into the name the book's zip knows it by.
 
-use console_core_markup_tokens::{self as markup, Token};
+use console_core_markup_tokens::Token;
 use console_core_never::Never;
 
 pub use console_core_epub_files::{Relative, resolve};
@@ -126,8 +126,8 @@ impl BlockBuilder {
         let Ok(()) = self.line_break();
       }
       Element::Picture => {
-        let Ok(source) = markup::attribute(attributes, "src");
-        let Ok(linked) = markup::attribute(attributes, "href");
+        let Ok(source) = console_core_markup_tokens::attribute(attributes, "src");
+        let Ok(linked) = console_core_markup_tokens::attribute(attributes, "href");
 
         match (source.or(linked), self.hidden) {
           (Some(named), 0) => {
@@ -165,7 +165,7 @@ impl BlockBuilder {
 }
 
 pub fn blocks(page: &str) -> Result<Vec<Block>, Never> {
-  let Ok(tokens) = markup::tokenize(page);
+  let Ok(tokens) = console_core_markup_tokens::tokenize(page);
   let mut builder = BlockBuilder::default();
 
   for piece in &tokens {

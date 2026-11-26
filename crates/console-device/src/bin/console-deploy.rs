@@ -14,7 +14,7 @@ use std::{fmt, io};
 
 use console_core_arguments::read;
 use console_core_atomic_writes::{Unread, Unwritten};
-use console_core_external_programs::Program as ExternalProgram;
+use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_device::deploying::{
   self, Alive, Deploy, DeployingEffect, DeployingEvent, Deployment, Holder,
@@ -224,7 +224,7 @@ fn here() -> Result<String, LockError> {
 }
 
 fn today() -> Result<String, Never> {
-  let Ok(asking) = ExternalProgram::Date.arguments(&[]);
+  let Ok(asking) = Program::Date.arguments(&[]);
 
   Ok(
     match console_core_external_programs::capture_output(&asking) {

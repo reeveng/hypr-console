@@ -84,11 +84,9 @@ const fn band(digits: Digits) -> Result<u8, Never> {
 }
 
 const fn hex(byte: u8) -> Result<u8, Never> {
-  Ok(match byte {
-    b'0'..=b'9' => u8::saturating_sub(byte, b'0'),
-    b'a'..=b'f' => u8::saturating_add(u8::saturating_sub(byte, b'a'), 10),
-    b'A'..=b'F' => u8::saturating_add(u8::saturating_sub(byte, b'A'), 10),
-    _ => 0,
+  Ok(match console_core_bytes::hex::decode_digit(byte) {
+    Ok(digit) => digit,
+    Err(_not_hex) => 0,
   })
 }
 

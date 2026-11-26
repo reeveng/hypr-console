@@ -3,14 +3,15 @@
 use std::collections::BTreeMap;
 use std::io::{self, Write};
 use std::net::Shutdown;
-use std::os::unix::net::UnixStream;
 use std::process::Stdio;
 use std::time::Duration;
 
 use console_core_internal_programs::InternalProgram;
+use console_operating_system_linux::unix_stream::{Within, connect};
 use serde_json::{Value, json};
 
 const MAX_REPLY_BYTES: u32 = 300 * 1024;
+const DEADLINE: Duration = Duration::from_millis(250);
 
 enum ClipboardReply {
   Copied,
@@ -51,14 +52,12 @@ fn exchange(request: Value) -> io::Result<ClipboardReply> {
   let Ok(runtime) = console_core_places::runtime();
   let directory = runtime.ok_or_else(|| io::Error::other("no clipboard runtime directory"))?;
   let path = directory.join("console-clipboard/history.sock");
-  let mut connection = UnixStream::connect(path)?;
-  let timeout = Some(Duration::from_millis(250));
-  connection.set_read_timeout(timeout)?;
-  connection.set_write_timeout(timeout)?;
   let encoded = serde_json::to_vec(&request)?;
-  connection.write_all(&encoded)?;
+  let connection = connect(&path)?;
+  let mut timed = Within::new(&connection, DEADLINE)?;
+  timed.write_all(&encoded)?;
   connection.shutdown(Shutdown::Write)?;
-  let reply = console_core_bounded_reads::bytes(connection, MAX_REPLY_BYTES)?;
+  let reply = console_core_bounded_reads::bytes(timed, MAX_REPLY_BYTES)?;
   decode_reply(&reply)
 }
 

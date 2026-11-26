@@ -12,9 +12,9 @@
 //! version it cannot read, and is initialized as if nothing had been saved --
 //! losing a page somebody was on is a smaller fault than refusing to start.
 
-use alloc::vec::Vec;
 use core::cmp::Ordering;
 
+use console_core_bytes::Bytes;
 use console_core_checksums::crc32;
 use console_core_never::Never;
 
@@ -36,7 +36,7 @@ pub trait SerializableMachine: Machine<State: Serializable> {
   }
 }
 
-pub fn snapshot<M: SerializableMachine>(state: &M::State) -> Result<Vec<u8>, Never> {
+pub fn snapshot<M: SerializableMachine>(state: &M::State) -> Result<Bytes, Never> {
   let Ok(mut encoder) = Encoder::new();
   let Ok(()) = encoder.bytes(&MARK);
   let Ok(()) = encoder.byte(M::VERSION.0);
@@ -46,7 +46,7 @@ pub fn snapshot<M: SerializableMachine>(state: &M::State) -> Result<Vec<u8>, Nev
 
   bytes.extend_from_slice(&sum.to_be_bytes());
 
-  Ok(bytes)
+  Ok(Bytes::from(bytes))
 }
 
 pub fn restore<M: SerializableMachine>(bytes: &[u8]) -> Result<M::State, ParseError> {

@@ -39,7 +39,9 @@ console-core-screen-orientation.workspace = true
 console-core-shapes = { workspace = true, optional = true }
 console-core-text-encodings.workspace = true
 console-core-words.workspace = true
+console-operating-system-linux.workspace = true
 serde_json = "1"
+serde = { version = "1", features = ["derive"] }
 rustix = { workspace = true, features = ["net"] }
 console-wayland = { path = "../console-wayland", optional = true }
 wayland-scanner = { version = "0.31", optional = true }

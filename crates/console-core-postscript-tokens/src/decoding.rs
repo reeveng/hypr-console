@@ -164,12 +164,7 @@ pub fn hexadecimal(body: &[u8], out: &mut impl Extend<u8>) -> Result<(), ScanErr
 }
 
 pub(crate) fn hex_digit(byte: u8) -> Result<u8, ScanError> {
-  match byte {
-    b'0'..=b'9' => Ok(byte.wrapping_sub(b'0')),
-    b'A'..=b'F' => Ok(byte.wrapping_sub(b'A').wrapping_add(10)),
-    b'a'..=b'f' => Ok(byte.wrapping_sub(b'a').wrapping_add(10)),
-    _other => Err(ScanError::SyntaxError),
-  }
+  console_core_bytes::hex::decode_digit(byte).map_err(|_| ScanError::SyntaxError)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

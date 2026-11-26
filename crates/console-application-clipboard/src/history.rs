@@ -2,6 +2,7 @@
 
 use std::collections::VecDeque;
 
+use console_core_bytes::Bytes;
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index};
 use serde::Deserialize;
@@ -110,7 +111,7 @@ impl serde::de::Visitor<'_> for LabelVisitor {
 #[derive(Clone, PartialEq, Eq)]
 pub struct Contents {
   pub format: Format,
-  pub bytes: Vec<u8>,
+  pub bytes: Bytes,
 }
 
 impl Contents {
@@ -201,7 +202,7 @@ impl History {
   }
 
   pub fn remember(&mut self, contents: Contents) -> Result<(), Never> {
-    match (self.capture, contents.bytes.as_slice()) {
+    match (self.capture, contents.bytes.as_ref()) {
       (Capture::Paused, _) | (Capture::Recording, []) => return Ok(()),
       (Capture::Recording, [_, ..]) => {}
     }
@@ -332,7 +333,7 @@ mod tests {
   fn text(bytes: &[u8]) -> Result<Contents, Never> {
     Ok(Contents {
       format: Format::Text,
-      bytes: bytes.to_vec(),
+      bytes: Bytes::from(bytes.to_vec()),
     })
   }
 
@@ -354,7 +355,7 @@ mod tests {
 
     let Ok(restored) = history.restore(oldest.id);
     let contents = restored.ok_or_else(|| io::Error::other("missing saved multiline text"))?;
-    assert_eq!(contents.bytes, b"first\nline");
+    assert_eq!(contents.bytes.as_ref(), b"first\nline");
 
     let Ok(()) = history.remember(single_line);
     let Ok(current) = history.previews();
@@ -387,7 +388,7 @@ mod tests {
     let Ok(restored) = history.restore(saved);
     let contents = restored.ok_or_else(|| io::Error::other("missing saved text"))?;
     assert_eq!(visible.len(), 1);
-    assert_eq!(contents.bytes, b"saved");
+    assert_eq!(contents.bytes.as_ref(), b"saved");
     let Ok(()) = history.clear();
     let Ok(()) = history.remember(next);
     let Ok(cleared) = history.restore(saved);

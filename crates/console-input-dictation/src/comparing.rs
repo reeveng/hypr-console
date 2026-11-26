@@ -46,6 +46,7 @@
 use std::path::{Path, PathBuf};
 
 use console_core_external_programs::Program as ExternalProgram;
+use console_core_bytes::Bytes;
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index};
 
@@ -1091,7 +1092,7 @@ fn write_report(state: &Comparing) -> Result<Effect<CompareEffect>, Never> {
 
   Ok(Effect::Write(FileWrite {
     path: PathBuf::from(at),
-    contents: format!("{}\n", state.report.join("\n")),
+    contents: Bytes::from(format!("{}\n", state.report.join("\n"))),
   }))
 }
 

@@ -311,18 +311,3 @@ mod tests {
     );
   }
 }
-
-pub(crate) fn workspace_position(
-  position: i64,
-  carrying: crate::Carrying,
-) -> Result<String, Never> {
-  let dispatcher = match carrying {
-    crate::Carrying::Window => "hl.dsp.window.move",
-    crate::Carrying::None => "hl.dsp.focus",
-  };
-
-  Ok(format!(
-    "function() local workspace = (function(...)\n{}\nend)({position}); hl.dispatch({dispatcher}({{ workspace = tostring(workspace) }})) end",
-    include_str!("workspace_position.lua").trim()
-  ))
-}

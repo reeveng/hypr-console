@@ -99,7 +99,7 @@ pub struct Text {
   pub ink: Oklch,
 }
 
-pub use console_core_pixel_buffers::StridedPixels as Pixels;
+pub type Pixels = console_core_pixel_buffers::StridedPixels;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Picture<P = Pixels> {
@@ -139,6 +139,40 @@ pub enum Shape {
   Cropped(Cropped),
   Line(Line),
   Clip(Clip),
+}
+
+pub fn hover_indicator(
+  at: Point<i32>,
+  size: Size<u32>,
+  (accent, edge): (Oklch, Oklch),
+) -> Result<[Shape; 2], Never> {
+  let Ok(wide) = width(size.width);
+  let Ok(tall) = width(size.height);
+  let inset = 6.min(wide.saturating_div(4));
+  let y = at.y.saturating_add(tall.saturating_sub(4).max(0));
+  let from = Point {
+    x: at.x.saturating_add(inset),
+    y,
+  };
+  let to = Point {
+    x: at.x.saturating_add(wide.saturating_sub(inset)),
+    y,
+  };
+
+  Ok([
+    Shape::Line(Line {
+      from,
+      to,
+      width: 4,
+      color: edge,
+    }),
+    Shape::Line(Line {
+      from,
+      to,
+      width: 2,
+      color: accent,
+    }),
+  ])
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

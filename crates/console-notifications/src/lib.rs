@@ -34,5 +34,8 @@ pub mod serving;
 pub mod showing;
 pub mod updating;
 
-pub use console_operating_system_linux::notification as delivery;
+pub mod delivery {
+  pub use console_operating_system_linux::notification::*;
+}
+
 pub use saying::{Application, notify};

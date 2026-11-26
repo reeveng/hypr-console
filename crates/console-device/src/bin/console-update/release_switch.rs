@@ -37,6 +37,7 @@ pub(super) enum Finalize {
 
 pub(super) enum LiveRevision {
   Requested,
+  FirstRelease,
   Other,
 }
 
@@ -121,6 +122,10 @@ impl SingleEffectMachine for ReleaseSwitch {
         State::Finalizing(Some(fault)),
         Some(SwitchEffect::Finalize(Finalize::FailedActivation)),
       ),
+      (State::CheckingFailure(fault), Report::Observed(LiveRevision::FirstRelease)) => {
+        let detail = format!("{fault}. Run sudo console-update to resume the first release.");
+        (State::Finished(Err(UpdateError::from(detail))), None)
+      }
       (State::RecordingRestore(fault), Report::RestoreRecorded) => {
         (State::Restoring(Some(fault)), Some(SwitchEffect::Restore))
       }
@@ -201,7 +206,7 @@ mod tests {
     let releases = console_core_temporary_directories::private("console-update-restore")?;
     let mut change = Switch {
       slot: "release-1-2".to_string(),
-      before: "a".repeat(40),
+      before: Some("a".repeat(40)),
       after: "b".repeat(40),
       direction: Direction::Apply,
     };
@@ -247,6 +252,24 @@ mod tests {
     assert_eq!(
       cleanup.effect,
       Some(SwitchEffect::Finalize(Finalize::FailedActivation))
+    );
+  }
+
+  #[test]
+  fn a_failed_first_release_after_activation_stays_pending_for_a_retry() {
+    let Ok(first) = ReleaseSwitch::initialize(&Direction::Apply, None);
+    let Ok(verify) = ReleaseSwitch::handle(first.state, Report::Activated(Ok(())));
+    let Ok(check) = ReleaseSwitch::handle(
+      verify.state,
+      Report::Verified(Err(UpdateError::from("health failed"))),
+    );
+    assert_eq!(check.effect, Some(SwitchEffect::ReadLiveRevision));
+
+    let Ok(retry) =
+      ReleaseSwitch::handle(check.state, Report::Observed(LiveRevision::FirstRelease));
+    assert!(retry.effect.is_none());
+    assert!(
+      matches!(retry.state, State::Finished(Err(fault)) if fault.to_string().contains("resume the first release"))
     );
   }
 

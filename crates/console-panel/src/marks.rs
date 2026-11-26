@@ -23,6 +23,8 @@
 
 pub const SHUT: &str = "\u{d7}";
 
+pub const RELOAD: &str = "↻";
+
 pub const BEFORE: &str = "\u{2039}";
 pub const AFTER: &str = "\u{203a}";
 

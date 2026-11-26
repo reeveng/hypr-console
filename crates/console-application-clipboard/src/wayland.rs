@@ -1,34 +1,37 @@
 //! Wayland offers, history, and pending pipe transfers belong to one event queue.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io;
 use std::os::fd::{AsFd, OwnedFd};
 use std::os::unix::net::UnixListener;
 use std::time::{Duration, Instant};
 
+use client::backend::{ObjectId, WaylandError};
+use client::globals::GlobalListContents;
+use client::protocol::{wl_registry, wl_seat};
+use client::{
+  Connection, Dispatch, EventQueue, Proxy, QueueHandle, delegate_noop, event_created_child,
+};
+use console_core_bytes::Bytes;
 use console_core_never::Never;
-use console_core_number_conversion::{fitted, index};
+use console_core_number_conversion::{fitted, fixed_index, index};
 use console_core_state_machine::Machine;
-use console_wayland::{client as wayland_client, protocols as wayland_protocols, registry};
+use console_wayland::{client, protocols, registry};
+use protocols::ext::data_control::v1::client::{
+  ext_data_control_device_v1::{self, ExtDataControlDeviceV1},
+  ext_data_control_manager_v1::ExtDataControlManagerV1,
+  ext_data_control_offer_v1::{self, ExtDataControlOfferV1},
+  ext_data_control_source_v1::{self, ExtDataControlSourceV1},
+};
 use rustix::event::{PollFd, PollFlags, Timespec, poll};
 use rustix::fs::{OFlags, fcntl_getfl, fcntl_setfl};
 use rustix::io::Errno;
 use rustix::pipe::{PipeFlags, pipe_with};
 use rustix::process::{DumpableBehavior, set_dumpable_behavior};
-use wayland_client::backend::{ObjectId, WaylandError};
-use wayland_client::globals::GlobalListContents;
-use wayland_client::protocol::{wl_registry, wl_seat};
-use wayland_client::{
-  Connection, Dispatch, EventQueue, Proxy, QueueHandle, delegate_noop, event_created_child,
-};
-use wayland_protocols::ext::data_control::v1::client::{
-  ext_data_control_device_v1 as device, ext_data_control_manager_v1 as manager,
-  ext_data_control_offer_v1 as offer, ext_data_control_source_v1 as source,
-};
 
 use crate::copying::{self, Copying};
 use crate::history::{Capture, Contents, Format, History, OWN_OFFER, PNG, format};
-use crate::ipc::{self, Reply, Request};
+use crate::ipc::{self, Peer, Reply, Request};
 
 const TRANSFER_TIME: Duration = Duration::from_secs(2);
 const PASTE_TIME: Duration = Duration::from_millis(150);
@@ -36,7 +39,8 @@ const MAX_WRITES: u32 = 8;
 
 struct Incoming {
   fd: OwnedFd,
-  contents: Contents,
+  format: Format,
+  bytes: Vec<u8>,
   until: Instant,
 }
 
@@ -89,8 +93,8 @@ impl From<bool> for Readiness {
 
 struct Clipboard {
   history: History,
-  selection: Option<offer::ExtDataControlOfferV1>,
-  primary: Option<offer::ExtDataControlOfferV1>,
+  selection: Option<ExtDataControlOfferV1>,
+  primary: Option<ExtDataControlOfferV1>,
   offered: HashMap<ObjectId, Vec<String>>,
   incoming: Option<Incoming>,
   published: HashMap<ObjectId, Published>,
@@ -127,7 +131,7 @@ fn paste_text(contents: &Contents) -> Result<Reply, Never> {
 }
 
 fn receive(
-  offer: &offer::ExtDataControlOfferV1,
+  offer: &ExtDataControlOfferV1,
   offered: &[String],
   now: Instant,
 ) -> io::Result<Option<Incoming>> {
@@ -144,7 +148,7 @@ fn receive(
 }
 
 fn receive_mime(
-  offer: &offer::ExtDataControlOfferV1,
+  offer: &ExtDataControlOfferV1,
   kind: Format,
   mime: &str,
   until: Instant,
@@ -155,10 +159,8 @@ fn receive_mime(
 
   Ok(Incoming {
     fd: read,
-    contents: Contents {
-      format: kind,
-      bytes: Vec::new(),
-    },
+    format: kind,
+    bytes: Vec::new(),
     until,
   })
 }
@@ -173,7 +175,10 @@ impl Incoming {
     let mut buffer = [0_u8; 64 * 1024];
 
     Ok(match rustix::io::read(&self.fd, &mut buffer) {
-      Ok(0) => Received::Complete(self.contents),
+      Ok(0) => Received::Complete(Contents {
+        format: self.format,
+        bytes: Bytes::from(self.bytes),
+      }),
       Ok(count) => {
         let Ok(filled) = self.append(buffer.get(..count));
         filled
@@ -187,8 +192,8 @@ impl Incoming {
   }
 
   fn append(mut self, bytes: Option<&[u8]>) -> Result<Received, Never> {
-    let Ok(written) = self.contents.length();
-    let Ok(limit) = self.contents.format.limit();
+    let Ok(written) = fitted::<_, u32>(self.bytes.len());
+    let Ok(limit) = self.format.limit();
     let remaining = limit.saturating_sub(written);
 
     let chunk = match bytes {
@@ -199,7 +204,7 @@ impl Incoming {
 
     Ok(match count.cmp(&remaining) {
       std::cmp::Ordering::Less | std::cmp::Ordering::Equal => {
-        self.contents.bytes.extend_from_slice(chunk);
+        self.bytes.extend_from_slice(chunk);
         Received::Pending(self)
       }
       std::cmp::Ordering::Greater => Received::Discarded,
@@ -257,7 +262,7 @@ impl Clipboard {
     })
   }
 
-  fn retire_offer(&mut self, retired: Option<offer::ExtDataControlOfferV1>) -> Result<(), Never> {
+  fn retire_offer(&mut self, retired: Option<ExtDataControlOfferV1>) -> Result<(), Never> {
     match retired {
       Some(previous) => {
         self.offered.remove(&previous.id());
@@ -269,7 +274,7 @@ impl Clipboard {
     Ok(())
   }
 
-  fn select(&mut self, new: Option<offer::ExtDataControlOfferV1>) -> Result<(), Never> {
+  fn select(&mut self, new: Option<ExtDataControlOfferV1>) -> Result<(), Never> {
     let previous = self.selection.take();
     let Ok(()) = self.retire_offer(previous);
 
@@ -493,7 +498,7 @@ impl Clipboard {
           return Ok(reply);
         }
         Received::Pending(next) => {
-          let Ok(length) = next.contents.length();
+          let Ok(length) = fitted::<_, u32>(next.bytes.len());
 
           match (length <= ipc::MAX_PASTE).then_some(()) {
             Some(()) => transfer = next,
@@ -540,7 +545,7 @@ impl Clipboard {
       Request::CopyText(text) => self.copy(
         Contents {
           format: Format::Text,
-          bytes: text.into_bytes(),
+          bytes: Bytes::from(text),
         },
         service,
         queue,
@@ -620,7 +625,7 @@ pub fn read_system_text(clock: impl Fn() -> Instant) -> Result<Option<String>, W
   let connection = console_wayland::connect()?;
   let (globals, mut queue) = registry::queue::<Clipboard>(&connection)?;
   let hand = queue.handle();
-  let manager: manager::ExtDataControlManagerV1 = globals.bind(&hand, 1..=1, ())?;
+  let manager: ExtDataControlManagerV1 = globals.bind(&hand, 1..=1, ())?;
   let seat = registry::seat(&globals, &hand, 1..=1)?;
   let _device = manager.get_data_device(&seat, &hand, ());
   let Ok(history) = History::new(Capture::Paused, 0);
@@ -639,7 +644,7 @@ pub fn watch(seed: u64, clock: impl Fn() -> Instant) -> Result<(), WatchError> {
   let connection = console_wayland::connect()?;
   let (globals, queue) = registry::queue::<Clipboard>(&connection)?;
   let hand = queue.handle();
-  let manager: manager::ExtDataControlManagerV1 = globals.bind(&hand, 1..=1, ())?;
+  let manager: ExtDataControlManagerV1 = globals.bind(&hand, 1..=1, ())?;
   let seat = registry::seat(&globals, &hand, 1..=1)?;
   let device = manager.get_data_device(&seat, &hand, ());
   let listener = ipc::listen()?;
@@ -659,8 +664,8 @@ pub fn watch(seed: u64, clock: impl Fn() -> Instant) -> Result<(), WatchError> {
 struct Service<'a> {
   connection: &'a Connection,
   listener: &'a UnixListener,
-  manager: &'a manager::ExtDataControlManagerV1,
-  device: &'a device::ExtDataControlDeviceV1,
+  manager: &'a ExtDataControlManagerV1,
+  device: &'a ExtDataControlDeviceV1,
 }
 
 impl Service<'_> {
@@ -677,8 +682,10 @@ impl Service<'_> {
     mut clipboard: Clipboard,
     clock: &impl Fn() -> Instant,
   ) -> Result<(), WatchError> {
+    let mut peers = VecDeque::new();
+
     while let Session::Connected = clipboard.session {
-      self.tick(&mut queue, &mut clipboard, clock)?;
+      self.tick(&mut queue, &mut clipboard, &mut peers, clock)?;
     }
 
     Err(Box::new(io::Error::other("clipboard device disconnected")))
@@ -688,9 +695,15 @@ impl Service<'_> {
     &self,
     queue: &mut EventQueue<Clipboard>,
     clipboard: &mut Clipboard,
+    peers: &mut VecDeque<Peer>,
     clock: &impl Fn() -> Instant,
   ) -> Result<(), WatchError> {
     clipboard.now = clock();
+    peers.retain(|peer| {
+      let Ok(expires) = peer.expires();
+
+      expires.is_some_and(|deadline| deadline > clipboard.now)
+    });
     queue.dispatch_pending(clipboard)?;
 
     match clipboard.session {
@@ -707,10 +720,10 @@ impl Service<'_> {
       None => return Ok(()),
     };
 
-    let (wayland, panel) = readiness(self.connection, self.listener, clipboard, flags)?;
+    let ready = readiness(self.connection, self.listener, clipboard, peers, flags)?;
     clipboard.now = clock();
 
-    match wayland {
+    match ready.wayland {
       Readiness::Ready => {
         read_events(read.read().map(|_count| ()))?;
         queue.dispatch_pending(clipboard)?;
@@ -719,32 +732,74 @@ impl Service<'_> {
       Readiness::Waiting => drop(read),
     }
 
-    let Ok(()) = self.answer_panel(panel, clipboard, &queue.handle(), clock);
+    match clipboard.session {
+      Session::Connected => {
+        let Ok(()) = self.advance_peer(ready.peer, peers, clipboard, &queue.handle(), clock);
+        let Ok(()) = self.accept_peer(ready.listener, peers, clipboard.now);
+      }
+      Session::Disconnected => {}
+    }
 
     Ok(())
   }
 
-  fn answer_panel(
+  fn accept_peer(
     &self,
-    panel: Readiness,
+    ready: Readiness,
+    peers: &mut VecDeque<Peer>,
+    now: Instant,
+  ) -> Result<(), Never> {
+    match ready {
+      Readiness::Ready => match Peer::accept(self.listener, now) {
+        Ok(peer) => peers.push_back(peer),
+        Err(fault) => console_core_logging::debug!("couldn’t accept clipboard request: {fault}"),
+      },
+      Readiness::Waiting => {}
+    }
+
+    Ok(())
+  }
+
+  fn advance_peer(
+    &self,
+    ready: Option<u64>,
+    peers: &mut VecDeque<Peer>,
     clipboard: &mut Clipboard,
     hand: &QueueHandle<Clipboard>,
     clock: &impl Fn() -> Instant,
   ) -> Result<(), Never> {
-    match (panel, &clipboard.session) {
-      (Readiness::Ready, Session::Connected) => {
-        let answered = ipc::answer(self.listener, clipboard, |state, request| {
-          state.request(request, self, hand, clock)
-        });
+    let at = match ready {
+      Some(at) => at,
+      None => return Ok(()),
+    };
+    let Ok(position) = index(at);
+    let peer = match peers.remove(position) {
+      Some(peer) => peer,
+      None => return Ok(()),
+    };
 
-        match answered {
-          Ok(()) => {}
-          Err(fault) => {
-            console_core_logging::debug!("couldn’t answer clipboard panel: {:?}", fault.kind())
-          }
-        }
-      }
-      (Readiness::Waiting, _) | (Readiness::Ready, Session::Disconnected) => {}
+    let Ok(expires) = peer.expires();
+
+    match expires.filter(|deadline| *deadline > clipboard.now) {
+      Some(_deadline) => {}
+      None => return Ok(()),
+    }
+
+    let Ok(first) = peer.request_bytes();
+    let used = peers.iter().fold(first, |total, other| {
+      let Ok(bytes) = other.request_bytes();
+
+      total.saturating_add(bytes)
+    });
+    let room = ipc::REQUEST_MEMORY.saturating_sub(used);
+    let completed = peer.ready(room, clipboard.now, clipboard, |state, request| {
+      state.request(request, self, hand, clock)
+    });
+
+    match completed {
+      Ok(Some(waiting)) => peers.push_back(waiting),
+      Ok(None) => {}
+      Err(fault) => console_core_logging::debug!("couldn’t answer clipboard request: {fault}"),
     }
 
     Ok(())
@@ -781,12 +836,23 @@ fn readiness(
   connection: &Connection,
   listener: &UnixListener,
   clipboard: &Clipboard,
+  peers: &VecDeque<Peer>,
   flags: PollFlags,
-) -> io::Result<(Readiness, Readiness)> {
+) -> io::Result<ReadyFds> {
+  let Ok(count) = fixed_index(peers.len());
+  let listener_flags = match (count < ipc::PEERS).then_some(()) {
+    Some(()) => PollFlags::IN,
+    None => PollFlags::empty(),
+  };
   let mut fds = vec![
     PollFd::new(connection, flags),
-    PollFd::new(listener, PollFlags::IN),
+    PollFd::new(listener, listener_flags),
   ];
+
+  for peer in peers {
+    let Ok((socket, interest)) = peer.socket();
+    fds.push(PollFd::new(socket, interest));
+  }
 
   match &clipboard.incoming {
     Some(incoming) => fds.push(PollFd::new(&incoming.fd, PollFlags::IN)),
@@ -797,35 +863,70 @@ fn readiness(
     fds.push(PollFd::new(&outgoing.fd, PollFlags::OUT));
   }
 
-  let deadline = (fds.len() > 2).then_some(Timespec {
-    tv_sec: 1,
-    tv_nsec: 0,
-  });
+  let transfer = (clipboard.incoming.is_some() || !clipboard.outgoing.is_empty())
+    .then_some(Duration::from_secs(1));
+  let deadline = peers
+    .iter()
+    .filter_map(|peer| {
+      let Ok(expires) = peer.expires();
+
+      expires
+    })
+    .map(|expires| expires.saturating_duration_since(clipboard.now))
+    .chain(transfer)
+    .min()
+    .map(Timespec::try_from)
+    .transpose()
+    .map_err(io::Error::other)?;
 
   match poll(&mut fds, deadline.as_ref()) {
-    Ok(_count) => ready_fds(&fds),
-    Err(Errno::INTR) => Ok((Readiness::Waiting, Readiness::Waiting)),
+    Ok(_count) => ready_fds(&fds, count),
+    Err(Errno::INTR) => Ok(ReadyFds {
+      wayland: Readiness::Waiting,
+      listener: Readiness::Waiting,
+      peer: None,
+    }),
     Err(fault) => Err(io::Error::from(fault)),
   }
 }
 
-fn ready_fds(fds: &[PollFd<'_>]) -> io::Result<(Readiness, Readiness)> {
+struct ReadyFds {
+  wayland: Readiness,
+  listener: Readiness,
+  peer: Option<u64>,
+}
+
+fn ready_fds(fds: &[PollFd<'_>], peers: u64) -> io::Result<ReadyFds> {
   match fds {
-    [wayland, panel, ..] => Ok((
-      Readiness::from(
-        wayland
-          .revents()
-          .intersects(PollFlags::IN | PollFlags::HUP | PollFlags::ERR),
-      ),
-      Readiness::from(panel.revents().contains(PollFlags::IN)),
-    )),
+    [wayland, listener, remainder @ ..] => {
+      let Ok(count) = index(peers);
+      let peer = remainder
+        .iter()
+        .take(count)
+        .position(|fd| !fd.revents().is_empty())
+        .map(|native| {
+          let Ok(at) = fixed_index(native);
+
+          at
+        });
+
+      Ok(ReadyFds {
+        wayland: Readiness::from(
+          wayland
+            .revents()
+            .intersects(PollFlags::IN | PollFlags::HUP | PollFlags::ERR),
+        ),
+        listener: Readiness::from(listener.revents().contains(PollFlags::IN)),
+        peer,
+      })
+    }
     [] | [_] => Err(io::Error::other(
       "clipboard poll is missing its session descriptors",
     )),
   }
 }
 
-delegate_noop!(Clipboard: ignore manager::ExtDataControlManagerV1);
+delegate_noop!(Clipboard: ignore ExtDataControlManagerV1);
 delegate_noop!(Clipboard: ignore wl_seat::WlSeat);
 
 impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for Clipboard {
@@ -840,7 +941,7 @@ impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for Clipboard {
   }
 }
 
-impl Dispatch<offer::ExtDataControlOfferV1, ()> for Clipboard {
+impl Dispatch<ExtDataControlOfferV1, ()> for Clipboard {
   #[cfg_attr(
     dylint_lib = "explicit016_no_wildcard_arm",
     expect(
@@ -850,14 +951,14 @@ impl Dispatch<offer::ExtDataControlOfferV1, ()> for Clipboard {
   )]
   fn event(
     clipboard: &mut Self,
-    offer: &offer::ExtDataControlOfferV1,
-    event: offer::Event,
+    offer: &ExtDataControlOfferV1,
+    event: ext_data_control_offer_v1::Event,
     _: &(),
     _: &Connection,
     _: &QueueHandle<Self>,
   ) {
     match event {
-      offer::Event::Offer { mime_type } => clipboard
+      ext_data_control_offer_v1::Event::Offer { mime_type } => clipboard
         .offered
         .entry(offer.id())
         .or_default()
@@ -867,7 +968,7 @@ impl Dispatch<offer::ExtDataControlOfferV1, ()> for Clipboard {
   }
 }
 
-impl Dispatch<device::ExtDataControlDeviceV1, ()> for Clipboard {
+impl Dispatch<ExtDataControlDeviceV1, ()> for Clipboard {
   #[cfg_attr(
     dylint_lib = "explicit016_no_wildcard_arm",
     expect(
@@ -877,35 +978,35 @@ impl Dispatch<device::ExtDataControlDeviceV1, ()> for Clipboard {
   )]
   fn event(
     clipboard: &mut Self,
-    device: &device::ExtDataControlDeviceV1,
-    event: device::Event,
+    device: &ExtDataControlDeviceV1,
+    event: ext_data_control_device_v1::Event,
     _: &(),
     _: &Connection,
     _: &QueueHandle<Self>,
   ) {
     match event {
-      device::Event::Selection { id } => {
+      ext_data_control_device_v1::Event::Selection { id } => {
         let Ok(()) = clipboard.select(id);
       }
-      device::Event::PrimarySelection { id } => {
+      ext_data_control_device_v1::Event::PrimarySelection { id } => {
         let previous = std::mem::replace(&mut clipboard.primary, id);
         let Ok(()) = clipboard.retire_offer(previous);
       }
-      device::Event::Finished => {
+      ext_data_control_device_v1::Event::Finished => {
         clipboard.session = Session::Disconnected;
         device.destroy();
       }
-      device::Event::DataOffer { .. } => {}
+      ext_data_control_device_v1::Event::DataOffer { .. } => {}
       _newer_protocol_event => {}
     }
   }
 
-  event_created_child!(Clipboard, device::ExtDataControlDeviceV1, [
-    device::EVT_DATA_OFFER_OPCODE => (offer::ExtDataControlOfferV1, ()),
+  event_created_child!(Clipboard, ExtDataControlDeviceV1, [
+    ext_data_control_device_v1::EVT_DATA_OFFER_OPCODE => (ExtDataControlOfferV1, ()),
   ]);
 }
 
-impl Dispatch<source::ExtDataControlSourceV1, ()> for Clipboard {
+impl Dispatch<ExtDataControlSourceV1, ()> for Clipboard {
   #[cfg_attr(
     dylint_lib = "explicit016_no_wildcard_arm",
     expect(
@@ -915,14 +1016,14 @@ impl Dispatch<source::ExtDataControlSourceV1, ()> for Clipboard {
   )]
   fn event(
     clipboard: &mut Self,
-    source: &source::ExtDataControlSourceV1,
-    event: source::Event,
+    source: &ExtDataControlSourceV1,
+    event: ext_data_control_source_v1::Event,
     _: &(),
     _: &Connection,
     _: &QueueHandle<Self>,
   ) {
     match event {
-      source::Event::Send { mime_type, fd } => {
+      ext_data_control_source_v1::Event::Send { mime_type, fd } => {
         match clipboard.start_send(source.id(), &mime_type, fd) {
           Ok(()) => {}
           Err(fault) => {
@@ -930,7 +1031,7 @@ impl Dispatch<source::ExtDataControlSourceV1, ()> for Clipboard {
           }
         }
       }
-      source::Event::Cancelled => {
+      ext_data_control_source_v1::Event::Cancelled => {
         let Ok(()) = clipboard.cancel(source.id());
         source.destroy();
       }
@@ -954,7 +1055,7 @@ mod tests {
       Published {
         contents: Contents {
           format: Format::Text,
-          bytes: payload.to_vec(),
+          bytes: Bytes::from(payload.to_vec()),
         },
         status: SourceStatus::Active,
       },

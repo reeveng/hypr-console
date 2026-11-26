@@ -31,7 +31,7 @@ use console_input_event_devices::{EventType, KeyCode};
 use console_core_internal_programs::InternalProgram;
 use console_core_never::Never;
 use console_core_state_machine::{Machine, Queue, Transition};
-use console_program_contract::{Command, Effect as Wanted, Elapsed, Event, Subscription, Timer};
+use console_program_contract::{Command, Elapsed, Event, Subscription, Timer};
 
 use crate::clock::Seconds;
 use crate::effect::Effect;
@@ -131,7 +131,7 @@ impl Machine for Return {
   type Input = ();
   type State = Coming;
   type Request = Event<ReturningEvent>;
-  type Effect = Wanted<Never>;
+  type Effect = console_program_contract::Effect<Never>;
 
   fn initialize(
     _input: &(),
@@ -154,9 +154,9 @@ impl Machine for Return {
   }
 }
 
-type Effects = Queue<Wanted<Never>>;
+type Effects = Queue<console_program_contract::Effect<Never>>;
 
-fn initial() -> Result<Transition<Coming, Wanted<Never>>, Never> {
+fn initial() -> Result<Transition<Coming, console_program_contract::Effect<Never>>, Never> {
   #[cfg_attr(
     dylint_lib = "explicit043_no_unmatched_listen",
     allow(
@@ -166,7 +166,9 @@ fn initial() -> Result<Transition<Coming, Wanted<Never>>, Never> {
   )]
   let Ok(opening) = Transition::new(
     Coming::default(),
-    vec![Wanted::Subscribe(Subscription::Timer(LOOK))],
+    vec![console_program_contract::Effect::Subscribe(
+      Subscription::Timer(LOOK),
+    )],
   );
 
   Ok(opening)
@@ -175,7 +177,7 @@ fn initial() -> Result<Transition<Coming, Wanted<Never>>, Never> {
 fn decide(
   state: &Coming,
   event: &Event<ReturningEvent>,
-) -> Result<Transition<Coming, Wanted<Never>>, Never> {
+) -> Result<Transition<Coming, console_program_contract::Effect<Never>>, Never> {
   let mut held = state.clone();
 
   let Ok(turn) = match event {
@@ -235,7 +237,7 @@ fn decide(
   Ok(turn)
 }
 
-fn way_out(effect: &Effect) -> Result<Vec<Wanted<Never>>, Never> {
+fn way_out(effect: &Effect) -> Result<Vec<console_program_contract::Effect<Never>>, Never> {
   Ok(match effect {
     Effect::Run(arguments) => {
       let Ok(desktop) = InternalProgram::SessionDesktop.path();
@@ -247,7 +249,7 @@ fn way_out(effect: &Effect) -> Result<Vec<Wanted<Never>>, Never> {
         ::core::option::Option::Some(()) => {
           let Ok(desktop_2) = Command::internal(InternalProgram::SessionDesktop, &[]);
 
-          vec![Wanted::Spawn(desktop_2)]
+          vec![console_program_contract::Effect::Spawn(desktop_2)]
         }
         ::core::option::Option::None => Vec::new(),
       }
@@ -377,10 +379,10 @@ mod tests {
     )
   }
 
-  fn started() -> Result<Vec<Wanted<Never>>, Never> {
+  fn started() -> Result<Vec<console_program_contract::Effect<Never>>, Never> {
     let Ok(desktop) = Command::internal(InternalProgram::SessionDesktop, &[]);
 
-    Ok(vec![Wanted::Spawn(desktop)])
+    Ok(vec![console_program_contract::Effect::Spawn(desktop)])
   }
 
   #[test]
@@ -472,7 +474,9 @@ mod tests {
 
     assert_eq!(
       said.initialized,
-      vec![Wanted::Subscribe(Subscription::Timer(LOOK))]
+      vec![console_program_contract::Effect::Subscribe(
+        Subscription::Timer(LOOK)
+      )]
     );
   }
 

@@ -1,3 +1,4 @@
+use console_core_bytes::Bytes;
 use harfrust::Shaper;
 use skrifa::raw::ReadError;
 #[cfg(feature = "monospace_fallback")]
@@ -27,7 +28,7 @@ mod system;
   )
 )]
 enum FontBytes {
-  Owned(Vec<u8>),
+  Owned(Bytes),
   Shared(Arc<dyn AsRef<[u8]> + Send + Sync>),
 }
 
@@ -45,7 +46,7 @@ impl FontBytes {
         Some(Self::Shared(Arc::clone(bytes)))
       }
       fontdb::Source::File(path) => match std::fs::read(path) {
-        Ok(bytes) => Some(Self::Owned(bytes)),
+        Ok(bytes) => Some(Self::Owned(Bytes::from(bytes))),
         Err(fault) => {
           console_core_logging::warn!("Cannot read font '{}': {fault}", path.display());
           None
@@ -56,7 +57,7 @@ impl FontBytes {
 
   fn bytes(&self) -> Result<&[u8], console_core_never::Never> {
     Ok(match self {
-      Self::Owned(bytes) => bytes.as_slice(),
+      Self::Owned(bytes) => bytes.as_ref(),
       Self::Shared(bytes) => bytes.as_ref().as_ref(),
     })
   }

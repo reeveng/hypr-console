@@ -7,6 +7,7 @@ license.workspace = true
 description = "Project Symphonia multimedia tag and metadata readers."
 
 [dependencies]
+console-core-bytes = { workspace = true, features = ["alloc"] }
 encoding_rs = "0.8.17"
 console-core-logging = { workspace = true, features = ["std"] }
 console-core-audio-decoding-interfaces = { path = "../console-core-audio-decoding-interfaces" }

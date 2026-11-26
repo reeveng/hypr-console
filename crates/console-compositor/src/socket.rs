@@ -24,11 +24,11 @@
 //! a hung compositor is a pad that stops reading sticks as well.
 
 use std::io::Write;
-use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use console_core_words::Words;
+use console_operating_system_linux::unix_stream::{Within, connect};
 
 pub const PATIENCE: Duration = Duration::from_secs(1);
 
@@ -150,22 +150,15 @@ pub fn send(line: &str) -> Result<Vec<u8>, SocketError> {
 }
 
 pub fn send_at(at: &Path, line: &str) -> Result<Vec<u8>, SocketError> {
-  let mut stream =
-    UnixStream::connect(at).map_err(|fault| SocketError::Unreachable(at.to_path_buf(), fault))?;
-
-  stream
-    .set_read_timeout(Some(PATIENCE))
+  let stream = connect(at).map_err(|fault| SocketError::Unreachable(at.to_path_buf(), fault))?;
+  let mut timed = Within::new(&stream, PATIENCE)
     .map_err(|fault| SocketError::Unreachable(at.to_path_buf(), fault))?;
 
-  stream
-    .set_write_timeout(Some(PATIENCE))
-    .map_err(|fault| SocketError::Unreachable(at.to_path_buf(), fault))?;
-
-  stream
+  timed
     .write_all(line.as_bytes())
     .map_err(|fault| SocketError::Unwritten(at.to_path_buf(), fault))?;
 
-  console_core_bounded_reads::bytes(stream, ANSWER_BYTES)
+  console_core_bounded_reads::bytes(timed, ANSWER_BYTES)
     .map_err(std::io::Error::from)
     .map_err(|fault| SocketError::Unread(at.to_path_buf(), fault))
 }

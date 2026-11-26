@@ -26,8 +26,8 @@ use console_core_color::palette::{self, Wearing};
 use console_core_geometry::Size;
 use console_core_never::Never;
 use console_core_web_engine::FrameLayout;
-use console_draw_painting::Frame;
 use console_input_key_symbols::Keysym;
+use console_panel::ui::painting::Frame;
 use criterion::Criterion;
 
 use renderer::Renderer;

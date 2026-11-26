@@ -22,17 +22,19 @@ use std::path::Path;
 use std::process::ExitCode;
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use rustix::event::{PollFd, PollFlags, poll};
+use rustix::event::{PollFd, PollFlags, Timespec, poll};
 
 use console_core_arguments::{Command, Operands};
+use console_core_bounded_reads::{Line, LineEnding, LinePart, ReadError};
 use console_core_internal_programs::InternalProgram;
 use console_core_iteration::Step;
 use console_core_never::Never;
+use console_core_number_conversion::{fixed_index, index};
 use console_panel::card::{Card, Door, Finalizer, refusal};
 use console_panel::completion::Progress;
-use console_panel::handoff::{self, CLOSE, HostRequest, Request};
+use console_panel::handoff::{self, CLOSE, HostRequest, REQUEST_BYTES, Request};
 use console_panel::left_open::{self, Journal, LeftOpen};
 use console_panel::picker::{self, Again, ResidentLease};
 use console_panel::surface;
@@ -44,6 +46,9 @@ pub mod notification_panel;
 mod notification_rows;
 
 const ACCEPTS_PER_TURN: u8 = 16;
+const PENDING_REQUESTS: u64 = 32;
+const REQUEST_TIME: Duration = Duration::from_secs(1);
+const CLOSE_BYTES: u32 = 256;
 
 const PREPARED_PANELS: u32 = 3;
 
@@ -163,6 +168,7 @@ enum Owner {
   StandIn {
     writer: UnixStream,
     reader: BufReader<UnixStream>,
+    closing: Line,
   },
   Resident {
     lease: ResidentLease,
@@ -325,9 +331,9 @@ pub fn serve() -> Result<(), Never> {
   console_core_logging::info!("holding the panels, listening at {}", at.display());
 
   let Ok(()) = put_back();
-
-  let held_until_stopped =
-    console_core_iteration::iterate((None::<Up>, &mut resources), |(mut up, held_resources)| {
+  let held_until_stopped = console_core_iteration::iterate(
+    (None::<Up>, &mut resources, VecDeque::new()),
+    |(mut up, held_resources, mut pending)| {
       let held = up.as_ref().map(|up_2| {
         let Ok(reader) = up_2.owner.reader();
 
@@ -341,6 +347,7 @@ pub fn serve() -> Result<(), Never> {
         (&listening, resident.as_ref().map(|(_, socket)| socket)),
         stopping.as_ref(),
         held,
+        &mut pending,
       );
 
       match gone {
@@ -350,14 +357,17 @@ pub fn serve() -> Result<(), Never> {
           return Ok(Step::Halt(()));
         }
         PanelRequest::ForAPanel => {
-          let Ok(()) = accept_pending(&mut up, &listening, held_resources);
+          let Ok(()) = accept_pending(&mut pending, &listening);
         }
         PanelRequest::FromResident => match resident.as_ref() {
           Some((_, socket)) => {
-            let Ok(()) = accept_pending(&mut up, socket, held_resources);
+            let Ok(()) = accept_pending(&mut pending, socket);
           }
           None => {}
         },
+        PanelRequest::Incoming(position) => {
+          let Ok(()) = read_incoming(&mut pending, &mut up, position, held_resources);
+        }
         PanelRequest::ByThePanel => {
           let Ok(said) = a_word(&mut up);
 
@@ -375,8 +385,9 @@ pub fn serve() -> Result<(), Never> {
         PanelRequest::None => {}
       }
 
-      Ok(Step::Again((up, held_resources)))
-    });
+      Ok(Step::Again((up, held_resources, pending)))
+    },
+  );
 
   match held_until_stopped {
     Ok(()) => {}
@@ -456,6 +467,7 @@ fn put_back() -> Result<(), Never> {
 enum PanelRequest {
   ForAPanel,
   FromResident,
+  Incoming(u64),
   ByThePanel,
   PanelGone,
   ToStop,
@@ -466,6 +478,7 @@ enum PanelRequest {
 enum Watching {
   Door,
   Resident,
+  Incoming(u64),
   Stopping,
   Panel,
   Gone,
@@ -477,11 +490,28 @@ struct Descriptors<'a> {
   pending: &'a [u8],
 }
 
+struct Incoming {
+  reader: BufReader<UnixStream>,
+  frame: Line,
+  expires: Instant,
+}
+
+#[cfg_attr(
+  dylint_lib = "explicit039_no_reading_the_clock",
+  expect(
+    explicit039_no_reading_the_clock,
+    reason = "the poll owner expires incomplete requests using its socket deadline"
+  )
+)]
 fn wait_for_request(
   (listening, resident): (&UnixListener, Option<&UnixListener>),
   stopping: Option<&OwnedFd>,
   up: Option<Descriptors<'_>>,
+  pending: &mut VecDeque<Incoming>,
 ) -> Result<PanelRequest, Never> {
+  let now = Instant::now();
+  pending.retain(|request| request.expires > now);
+
   match ::core::primitive::bool::then_some(
     up.as_ref()
       .is_some_and(|up_2| up_2.pending.contains(&b'\n')),
@@ -491,17 +521,8 @@ fn wait_for_request(
     ::core::option::Option::None => {}
   }
 
-  let mut which: Vec<Watching> = vec![Watching::Door];
-  let mut watch: Vec<PollFd<'_>> =
-    vec![PollFd::from_borrowed_fd(listening.as_fd(), PollFlags::IN)];
-
-  match resident {
-    Some(socket) => {
-      which.push(Watching::Resident);
-      watch.push(PollFd::from_borrowed_fd(socket.as_fd(), PollFlags::IN));
-    }
-    None => {}
-  }
+  let mut which = Vec::new();
+  let mut watch = Vec::new();
 
   match stopping {
     Some(stopping_2) => {
@@ -513,6 +534,9 @@ fn wait_for_request(
 
   match up {
     Some(up_3) => {
+      which.push(Watching::Gone);
+      watch.push(PollFd::from_borrowed_fd(up_3.gone, PollFlags::IN));
+
       match up_3.panel {
         Some(panel) => {
           which.push(Watching::Panel);
@@ -520,14 +544,48 @@ fn wait_for_request(
         }
         None => {}
       }
-
-      which.push(Watching::Gone);
-      watch.push(PollFd::from_borrowed_fd(up_3.gone, PollFlags::IN));
     }
     None => {}
   }
 
-  match poll(&mut watch, None) {
+  for (at, request) in pending.iter().enumerate() {
+    let Ok(position) = fixed_index(at);
+    which.push(Watching::Incoming(position));
+    watch.push(PollFd::new(request.reader.get_ref(), PollFlags::IN));
+  }
+
+  let Ok(count) = fixed_index(pending.len());
+
+  match (count < PENDING_REQUESTS).then_some(()) {
+    Some(()) => {
+      which.push(Watching::Door);
+      watch.push(PollFd::new(listening, PollFlags::IN));
+
+      match resident {
+        Some(socket) => {
+          which.push(Watching::Resident);
+          watch.push(PollFd::new(socket, PollFlags::IN));
+        }
+        None => {}
+      }
+    }
+    None => {}
+  }
+
+  let next_expiry = pending.iter().map(|request| request.expires).min();
+  let timeout = match next_expiry
+    .map(|expires| Timespec::try_from(expires.saturating_duration_since(now)))
+    .transpose()
+  {
+    Ok(timeout) => timeout,
+    Err(fault) => {
+      console_core_logging::warn!("setting the panel request timeout: {fault}");
+
+      return Ok(PanelRequest::ToStop);
+    }
+  };
+
+  match poll(&mut watch, timeout.as_ref()) {
     Ok(_) => {}
     Err(rustix::io::Errno::INTR) => return Ok(PanelRequest::None),
     Err(fault) => {
@@ -546,6 +604,7 @@ fn wait_for_request(
   Ok(match said {
     Some(Watching::Door) => PanelRequest::ForAPanel,
     Some(Watching::Resident) => PanelRequest::FromResident,
+    Some(Watching::Incoming(at)) => PanelRequest::Incoming(at),
     Some(Watching::Stopping) => PanelRequest::ToStop,
     Some(Watching::Panel) => PanelRequest::ByThePanel,
     Some(Watching::Gone) => PanelRequest::PanelGone,
@@ -560,7 +619,7 @@ enum Free {
 }
 
 fn no_one_is_there(at: &Path) -> io::Result<Free> {
-  match UnixStream::connect(at) {
+  match console_operating_system_linux::unix_stream::connect(at) {
     Ok(_answered) => Ok(Free::Occupied),
     Err(fault) => match (
       fault.kind() == io::ErrorKind::NotFound,
@@ -612,12 +671,26 @@ fn clean_socket(at: &Path) -> Result<(), Never> {
   Ok(())
 }
 
+#[cfg_attr(
+  dylint_lib = "explicit039_no_reading_the_clock",
+  expect(
+    explicit039_no_reading_the_clock,
+    reason = "the host records the deadline as each IPC peer is accepted"
+  )
+)]
 fn accept_pending(
-  up: &mut Option<Up>,
+  pending: &mut VecDeque<Incoming>,
   listening: &UnixListener,
-  resources: &mut PanelResources,
 ) -> Result<(), Never> {
   for _ in 0..ACCEPTS_PER_TURN {
+    let Ok(count) = fixed_index(pending.len());
+    let expires = match (count < PENDING_REQUESTS)
+      .then(|| Instant::now().checked_add(REQUEST_TIME))
+      .flatten()
+    {
+      Some(expires) => expires,
+      None => break,
+    };
     let asking = match listening.accept() {
       Ok((asking, _address)) => asking,
       Err(fault) => match (
@@ -633,42 +706,86 @@ fn accept_pending(
         }
       },
     };
-    let Ok(()) = asked_of(up, asking, resources);
+
+    match asking.set_nonblocking(true) {
+      Ok(()) => {
+        let Ok(frame) = Line::new(REQUEST_BYTES, LineEnding::Required);
+        pending.push_back(Incoming {
+          reader: BufReader::new(asking),
+          frame,
+          expires,
+        });
+      }
+      Err(fault) => console_core_logging::warn!("setting a panel request nonblocking: {fault}"),
+    }
   }
 
   Ok(())
 }
 
-fn asked_of(
+fn read_incoming(
+  pending: &mut VecDeque<Incoming>,
   up: &mut Option<Up>,
-  asking: UnixStream,
+  at: u64,
   resources: &mut PanelResources,
 ) -> Result<(), Never> {
-  let mut reader = BufReader::new(asking);
-  let mut line = String::new();
-
-  match reader.read_line(&mut line) {
-    Ok(0) => return Ok(()),
-    Err(_the_read_failed) => return Ok(()),
-    Ok(_) => {}
-  }
-
-  let request = match line.strip_suffix('\n') {
-    Some(packet) => packet.trim_end(),
+  let Ok(position) = index(at);
+  let mut request = match pending.remove(position) {
+    Some(request) => request,
     None => return Ok(()),
   };
-  let Ok(asked) = handoff::read_host(request);
+
+  let Ok(frame) = incoming_frame(&mut request.reader, &mut request.frame);
+
+  match frame {
+    Frame::Waiting => {
+      pending.push_back(request);
+
+      return Ok(());
+    }
+    Frame::Closed => return Ok(()),
+    Frame::Ready => {}
+  }
+
+  let Ok(bytes) = request.frame.bytes();
+  let word = match std::str::from_utf8(bytes) {
+    Ok(word) => word.trim_end(),
+    Err(_invalid_utf8) => return Ok(()),
+  };
+  let Ok(asked) = handoff::read_host(word);
 
   match asked {
-    Some(HostRequest::StandIn(client)) => stand_in(up, client, reader, resources),
+    Some(HostRequest::StandIn(client)) => stand_in(up, client, request.reader, resources),
     Some(HostRequest::Resident(sent)) => resident(up, sent, resources),
     Some(HostRequest::Dismiss) => dismiss(up, resources),
     None => {
-      console_core_logging::warn!("{:?} is not a request", line.trim_end());
+      console_core_logging::warn!("unrecognized panel request");
 
       Ok(())
     }
   }
+}
+
+enum Frame {
+  Waiting,
+  Ready,
+  Closed,
+}
+
+fn incoming_frame(reader: &mut impl BufRead, frame: &mut Line) -> Result<Frame, Never> {
+  Ok(match frame.read_part(reader) {
+    Ok(LinePart::Complete) => Frame::Ready,
+    Ok(LinePart::Partial) => Frame::Waiting,
+    Ok(LinePart::End) => Frame::Closed,
+    Err(ReadError::Io(fault)) => match (fault.kind() == io::ErrorKind::WouldBlock
+      || fault.kind() == io::ErrorKind::Interrupted)
+      .then_some(())
+    {
+      Some(()) => Frame::Waiting,
+      None => Frame::Closed,
+    },
+    Err(ReadError::TooLong { .. } | ReadError::NotUtf8(_)) => Frame::Closed,
+  })
 }
 
 fn stand_in(
@@ -686,13 +803,18 @@ fn stand_in(
     }
   };
   let Ok(known) = one(&asked.who);
+  let Ok(closing) = Line::new(CLOSE_BYTES, LineEnding::Required);
 
   match known {
     Some(panel) => put_up(
       up,
       asked,
       panel,
-      Owner::StandIn { writer, reader },
+      Owner::StandIn {
+        writer,
+        reader,
+        closing,
+      },
       resources,
     ),
     None => {
@@ -944,25 +1066,36 @@ enum Word {
 }
 
 fn a_word(up: &mut Option<Up>) -> Result<Word, Never> {
-  let mut line = String::new();
-
   let up_3 = match up {
     Some(up_2) => up_2,
     None => return Ok(Word::None),
   };
 
-  let reader = match &mut up_3.owner {
-    Owner::StandIn { reader, .. } => reader,
+  let (reader, closing) = match &mut up_3.owner {
+    Owner::StandIn {
+      reader, closing, ..
+    } => (reader, closing),
     Owner::Resident { .. } => return Ok(Word::None),
   };
 
-  Ok(match reader.read_line(&mut line) {
-    Ok(0) => Word::Closed,
-    Err(_the_read_failed) => Word::Closed,
-    Ok(_) => match ::core::primitive::bool::then_some(line.trim() == CLOSE, ()) {
-      ::core::option::Option::Some(()) => Word::Close,
-      ::core::option::Option::None => Word::None,
-    },
+  let Ok(frame) = incoming_frame(reader, closing);
+
+  Ok(match frame {
+    Frame::Closed => Word::Closed,
+    Frame::Waiting => Word::None,
+    Frame::Ready => {
+      let Ok(bytes) = closing.bytes();
+      let word = match std::str::from_utf8(bytes) {
+        Ok(line) => match (line.trim() == CLOSE).then_some(()) {
+          Some(()) => Word::Close,
+          None => Word::None,
+        },
+        Err(_invalid_utf8) => Word::Closed,
+      };
+      let Ok(()) = closing.clear();
+
+      word
+    }
   })
 }
 
@@ -1053,10 +1186,13 @@ fn finish(up: Up, finished: Finish) -> Result<(), Never> {
 fn say(writer: &UnixStream, progress: Progress) -> Result<(), Never> {
   let mut writing = writer;
   let Ok(word) = progress.word();
+  let frame = format!("{word}\n");
 
-  match writeln!(writing, "{word}") {
+  match writing.write_all(frame.as_bytes()) {
     Ok(()) => {}
-    Err(_the_panel_that_asked_has_gone) => return Ok(()),
+    Err(_cannot_finish_frame) => {
+      let _closed = writer.shutdown(std::net::Shutdown::Both);
+    }
   }
 
   Ok(())
@@ -1223,6 +1359,7 @@ mod tests {
         gone: while_it_is_up.as_fd(),
         pending: reader.buffer(),
       }),
+      &mut VecDeque::new(),
     );
 
     assert_eq!(heard, Ok(PanelRequest::ByThePanel));
@@ -1250,6 +1387,7 @@ mod tests {
         gone: while_it_is_up.as_fd(),
         pending: &[],
       }),
+      &mut VecDeque::new(),
     );
     remove_socket(&at)?;
 
@@ -1260,6 +1398,45 @@ mod tests {
              reading a word from it instead is a host stuck until the next press, which then \
              closes a menu that is not there rather than opening one"
     );
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_partial_panel_request_survives_while_a_second_peer_is_read() -> io::Result<()> {
+    let flags = rustix::pipe::PipeFlags::CLOEXEC | rustix::pipe::PipeFlags::NONBLOCK;
+    let (older, slow) = rustix::pipe::pipe_with(flags)?;
+    let (newer, fast) = rustix::pipe::pipe_with(flags)?;
+    let mut first = BufReader::new(std::fs::File::from(older));
+    let mut second = BufReader::new(std::fs::File::from(newer));
+    let mut stalled = std::fs::File::from(slow);
+    let mut healthy = std::fs::File::from(fast);
+    let Ok(mut partial) = Line::new(REQUEST_BYTES, LineEnding::Required);
+    let Ok(mut complete) = Line::new(REQUEST_BYTES, LineEnding::Required);
+
+    stalled.write_all(b"dis")?;
+    assert!(matches!(
+      incoming_frame(&mut first, &mut partial),
+      Ok(Frame::Waiting)
+    ));
+    assert!(matches!(
+      incoming_frame(&mut first, &mut partial),
+      Ok(Frame::Waiting)
+    ));
+    healthy.write_all(b"dismiss\n")?;
+    assert!(matches!(
+      incoming_frame(&mut second, &mut complete),
+      Ok(Frame::Ready)
+    ));
+
+    stalled.write_all(b"miss\n")?;
+    assert!(matches!(
+      incoming_frame(&mut first, &mut partial),
+      Ok(Frame::Ready)
+    ));
+    let Ok(older_frame) = partial.bytes();
+    let Ok(newer_frame) = complete.bytes();
+    assert_eq!(older_frame, newer_frame);
 
     Ok(())
   }

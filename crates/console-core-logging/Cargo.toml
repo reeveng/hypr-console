@@ -10,6 +10,7 @@ description = "Library diagnostics with a process-wide output chosen by the host
 std = [
   "dep:console-core-atomic-writes",
   "dep:console-core-checksums",
+  "dep:console-core-bytes",
   "dep:console-core-places",
   "dep:rustix",
   "dep:serde_json",
@@ -20,6 +21,7 @@ std = [
 console-core-never.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
+console-core-bytes = { workspace = true, features = ["alloc"], optional = true }
 console-core-atomic-writes = { workspace = true, optional = true }
 console-core-checksums = { workspace = true, optional = true }
 console-core-places = { workspace = true, optional = true }

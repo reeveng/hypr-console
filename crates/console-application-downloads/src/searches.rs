@@ -11,7 +11,7 @@ use console_operating_system_linux::program_lifetime::{Forked, ProcessIdentity};
 use console_operating_system_linux::program_runtime::commands::{self, Linux, Timing};
 use console_program_contract::{Command, Effect, Event, ExitStatus};
 use console_program_lifetime::Insistence;
-use console_program_runtime::commands::{self as execution, Completion, Streams};
+use console_program_runtime::commands::{Completion, Streams};
 
 use crate::looking::{self, Looked};
 use crate::standing::{
@@ -21,9 +21,7 @@ use crate::store::{self, Kind, Scratch};
 
 mod lifecycle;
 
-use lifecycle::{
-  Destination, Effect as SearchEffect, Key, Lifecycle, Request as SearchRequest, State,
-};
+use lifecycle::{Destination, Key, Lifecycle, State};
 
 #[derive(Clone)]
 pub(crate) struct Searches(SyncSender<Request>);
@@ -160,12 +158,12 @@ fn boot(requests: Receiver<Request>, wake: &SyncSender<Request>) -> Result<(), N
         tab,
         kind,
         query,
-      }) => Some(SearchRequest::Start {
+      }) => Some(lifecycle::Request::Start {
         key: Key { tab, id: query.id },
         destination: Destination { panel, kind },
         word: query.word,
       }),
-      Request::Cancel { tab, id } => Some(SearchRequest::Cancel(Key { tab, id })),
+      Request::Cancel { tab, id } => Some(lifecycle::Request::Cancel(Key { tab, id })),
       Request::Ready => None,
       Request::Close => break,
     };
@@ -188,14 +186,14 @@ fn boot(requests: Receiver<Request>, wake: &SyncSender<Request>) -> Result<(), N
     }
   }
 
-  let Ok(_closed) = drive(state, SearchRequest::Close, &mut workers, wake);
+  let Ok(_closed) = drive(state, lifecycle::Request::Close, &mut workers, wake);
 
   Ok(())
 }
 
 fn drive(
   current: State,
-  input: SearchRequest,
+  input: lifecycle::Request,
   running: &mut Workers,
   wake: &SyncSender<Request>,
 ) -> Result<State, Never> {
@@ -224,23 +222,23 @@ fn drive(
 impl Workers {
   fn perform(
     &mut self,
-    effect: SearchEffect,
+    effect: lifecycle::Effect,
     wake: &SyncSender<Request>,
-  ) -> Result<Option<SearchRequest>, Never> {
+  ) -> Result<Option<lifecycle::Request>, Never> {
     Ok(match effect {
-      SearchEffect::Launch { key, kind, word } => match self.start(key, kind, word, wake) {
+      lifecycle::Effect::Launch { key, kind, word } => match self.start(key, kind, word, wake) {
         Ok(()) => None,
-        Err(fault) => Some(SearchRequest::Finished {
+        Err(fault) => Some(lifecycle::Request::Finished {
           key,
           result: Err(SearchFailure::Process(fault.to_string())),
         }),
       },
-      SearchEffect::Interrupt(key) => {
+      lifecycle::Effect::Interrupt(key) => {
         let Ok(()) = self.cancel(key);
 
         None
       }
-      SearchEffect::Publish {
+      lifecycle::Effect::Publish {
         key,
         destination,
         result,
@@ -255,7 +253,7 @@ impl Workers {
 
         None
       }
-      SearchEffect::ReapAll => {
+      lifecycle::Effect::ReapAll => {
         let Ok(()) = self.close();
 
         None
@@ -306,7 +304,7 @@ impl Workers {
     }
   }
 
-  fn finished(&mut self) -> Result<Vec<SearchRequest>, Never> {
+  fn finished(&mut self) -> Result<Vec<lifecycle::Request>, Never> {
     let mut reports = Vec::new();
 
     for job in std::mem::take(&mut self.jobs) {
@@ -322,7 +320,7 @@ impl Workers {
         )),
       };
       let Ok(()) = joined(job.worker);
-      reports.push(SearchRequest::Finished {
+      reports.push(lifecycle::Request::Finished {
         key: job.key,
         result,
       });
@@ -382,7 +380,7 @@ fn start_finder(kind: Kind, word: &str) -> std::io::Result<(Forked, Scratch)> {
   let Ok(flag) = kind.flag();
   let Ok(command) = Command::internal(FIND, &[flag, store::REPORT.spelling, at, "--", word]);
   let Ok(mut platform) = Linux::new(Timing::Background);
-  let invocation = execution::resolve(&mut platform, &command)?;
+  let invocation = console_program_runtime::commands::resolve(&mut platform, &command)?;
   let child = platform.fork(&invocation, Streams::COLLECT)?;
 
   Ok((child, scratch))
@@ -541,7 +539,7 @@ mod tests {
     for key in [first_key, fresh_key, other_key] {
       let Ok(launched) = Lifecycle::transition(
         state,
-        SearchRequest::Start {
+        lifecycle::Request::Start {
           key,
           destination: Destination {
             panel: booted.actor.clone(),
@@ -552,19 +550,24 @@ mod tests {
       );
       assert!(matches!(
         launched.effects.as_slice(),
-        [SearchEffect::Launch { .. }]
+        [lifecycle::Effect::Launch { .. }]
       ));
       state = launched.state;
     }
 
-    let Ok(cancelling) = drive(state, SearchRequest::Cancel(first_key), &mut workers, &wake);
+    let Ok(cancelling) = drive(
+      state,
+      lifecycle::Request::Cancel(first_key),
+      &mut workers,
+      &wake,
+    );
     let cancelled = heard_first.recv_timeout(Duration::from_secs(2))?;
 
     assert_eq!(cancelled, ExitStatus::Failure(None));
     assert!(matches!(heard_fresh.try_recv(), Err(TryRecvError::Empty)));
     assert!(matches!(heard_other.try_recv(), Err(TryRecvError::Empty)));
 
-    let Ok(closed) = drive(cancelling, SearchRequest::Close, &mut workers, &wake);
+    let Ok(closed) = drive(cancelling, lifecycle::Request::Close, &mut workers, &wake);
     assert!(matches!(closed, State::Closed));
     assert!(workers.jobs.is_empty());
     let followed = heard_fresh.try_recv()?;
@@ -586,7 +589,7 @@ mod tests {
     let Ok(initial) = Lifecycle::initial_transition(&(), None);
     let Ok(launched) = Lifecycle::transition(
       initial.state,
-      SearchRequest::Start {
+      lifecycle::Request::Start {
         key,
         destination: Destination {
           panel: booted.actor,
@@ -597,7 +600,7 @@ mod tests {
     );
     let Ok(stale) = Lifecycle::transition(
       launched.state,
-      SearchRequest::Finished {
+      lifecycle::Request::Finished {
         key: Key {
           id: SearchId(1),
           ..key
@@ -609,18 +612,18 @@ mod tests {
 
     let Ok(first) = Lifecycle::transition(
       stale.state,
-      SearchRequest::Finished {
+      lifecycle::Request::Finished {
         key,
         result: Err(SearchFailure::InvalidReply),
       },
     );
     assert!(
-      matches!(first.effects.as_slice(), [SearchEffect::Publish { key: published, .. }] if *published == key)
+      matches!(first.effects.as_slice(), [lifecycle::Effect::Publish { key: published, .. }] if *published == key)
     );
 
     let Ok(duplicate) = Lifecycle::transition(
       first.state,
-      SearchRequest::Finished {
+      lifecycle::Request::Finished {
         key,
         result: Err(SearchFailure::InvalidReply),
       },

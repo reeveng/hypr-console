@@ -22,7 +22,7 @@ use crate::ascii;
 use crate::library::folder;
 use crate::library::{self, Kind};
 use crate::looking::{self, Song};
-use crate::management::{Job, Request as Manage, Status, Work};
+use crate::management::{Job, Request, Status, Work};
 use crate::player::{self, Order, Over, Playing, Sound};
 use crate::update::{Closes, Music, MusicEffect, MusicEvent, Standing, closes};
 use crate::{album_art, albums, review};
@@ -35,9 +35,7 @@ use console_panel::page::{
   Showing,
 };
 use console_panel::running;
-use console_program_contract::{
-  Command as RunCommand, Effect, Event, EventGroup, ExitStatus, Notification,
-};
+use console_program_contract::{Effect, Event, EventGroup, ExitStatus, Notification};
 
 const TALL: u32 = 8;
 
@@ -107,7 +105,7 @@ fn carry(
   held: &Panel,
   effect: &Effect<MusicEffect>,
   showing: &dyn Showing,
-) -> Result<Option<Manage>, Never> {
+) -> Result<Option<Request>, Never> {
   match effect {
     Effect::Custom(MusicEffect::Replace(row)) => {
       let Ok(row_2) = fitted(*row);
@@ -163,7 +161,7 @@ fn play_track(path: &Path, showing: &dyn Showing) -> Result<(), Never> {
   let folder = folder()?;
   let words = player::opening_words(path, &folder)?;
   let args: Vec<_> = words.iter().map(String::as_str).collect();
-  let Ok(command) = RunCommand::internal(
+  let Ok(command) = console_program_contract::Command::internal(
     console_core_internal_programs::InternalProgram::MusicPlayer,
     &args,
   );
@@ -172,7 +170,7 @@ fn play_track(path: &Path, showing: &dyn Showing) -> Result<(), Never> {
 
   let onward = player::onward_for(path)?;
   let args_2: Vec<_> = onward.iter().skip(1).map(String::as_str).collect();
-  let Ok(command_2) = RunCommand::internal(crate::update::ONWARD, &args_2);
+  let Ok(command_2) = console_program_contract::Command::internal(crate::update::ONWARD, &args_2);
   let Ok(task) = console_panel::tasks::Task::of(command_2);
   showing.run(task);
 
@@ -505,7 +503,7 @@ fn played(held: &Panel, song: &Song, folder: &Path) -> Result<Row, Never> {
   let shows = shown_in_the_files(held, &song.path)?;
   let Ok(offering) = console_panel::page::shown_or_selected(says, &song.path, shows);
 
-  let Ok(row) = Row::new(says, Aside(&aside), plays);
+  let Ok(row) = Row::stacked_action(Picture::None, says, Aside(&aside), plays);
   let Ok(key) = player::on_bus(&song.path);
   let Ok(row_2) = row.selectable(&key);
 
@@ -618,7 +616,7 @@ fn library_rows(held: &Panel, purpose: Holds) -> Result<LoadedRows, Never> {
 
       MusicEvent::Arrived { unread }
     }
-    Holds::Management => MusicEvent::Manage(Manage::Opened),
+    Holds::Management => MusicEvent::Manage(Request::Opened),
   };
   let visible = included(catalog)?;
   let mut rows = music_rows(held, &folder, visible)?;
@@ -658,7 +656,8 @@ fn convert_music_row() -> Result<Row, Never> {
   use console_panel::page::Subject;
   use console_panel::tasks::Task;
 
-  let Ok(command) = RunCommand::internal(DownloadsFormat, &["--music-library"]);
+  let Ok(command) =
+    console_program_contract::Command::internal(DownloadsFormat, &["--music-library"]);
   let requested = command.clone();
   let Ok(does) = Handler::and_stay(move |showing| {
     let convert = requested.clone();

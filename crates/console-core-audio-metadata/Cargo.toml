@@ -11,6 +11,7 @@ name = "console_core_audio_metadata"
 path = "src/lib.rs"
 
 [dependencies]
+console-core-bytes.workspace = true
 console-core-audio-decoding-advanced-audio-coding = { path = "../console-core-audio-decoding-advanced-audio-coding" }
 console-core-audio-decoding-interfaces = { path = "../console-core-audio-decoding-interfaces" }
 console-core-mpeg-audio-frames.workspace = true

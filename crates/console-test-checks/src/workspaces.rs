@@ -184,10 +184,8 @@ fn pink() -> Result<String, Why> {
 }
 
 fn two_workspaces(stage: &mut Desktop) -> Result<(), Why> {
-  let Ok(window) = Program::Alacritty.name();
-
-  stage.open(window)?;
-  stage.open(window)?;
+  stage.open(r#"hyprctl eval 'hl.exec_cmd("alacritty", {workspace = "1"})'"#)?;
+  stage.open(r#"hyprctl eval 'hl.exec_cmd("alacritty", {workspace = "9"})'"#)?;
 
   Ok(())
 }

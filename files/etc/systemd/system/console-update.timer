@@ -1,5 +1,5 @@
 [Unit]
-Description=Check for a Legion Go release each hour
+Description=Check for a Console release each hour
 
 [Timer]
 OnCalendar=hourly

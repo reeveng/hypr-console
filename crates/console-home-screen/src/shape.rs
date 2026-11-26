@@ -48,7 +48,6 @@
 use console_core_geometry::Point;
 use console_core_never::Never;
 use console_core_words::Words;
-use console_screen::Shape as Standing;
 
 use crate::Spot;
 
@@ -83,10 +82,10 @@ impl Shape {
     size: Size::Normal,
   };
 
-  pub fn usual(standing: Standing) -> Result<Shape, Never> {
+  pub fn usual(standing: console_screen::Shape) -> Result<Shape, Never> {
     Ok(match standing {
-      Standing::Wider => Shape::USUAL,
-      Standing::Taller => Shape::USUAL_TALLER,
+      console_screen::Shape::Wider => Shape::USUAL,
+      console_screen::Shape::Taller => Shape::USUAL_TALLER,
     })
   }
 
@@ -94,21 +93,25 @@ impl Shape {
 
   pub const ROWS: std::ops::RangeInclusive<u32> = 2..=10;
 
-  pub fn columns_for(standing: Standing) -> Result<std::ops::RangeInclusive<u32>, Never> {
+  pub fn columns_for(
+    standing: console_screen::Shape,
+  ) -> Result<std::ops::RangeInclusive<u32>, Never> {
     Ok(match standing {
-      Standing::Wider => 3..=9,
-      Standing::Taller => 2..=6,
+      console_screen::Shape::Wider => 3..=9,
+      console_screen::Shape::Taller => 2..=6,
     })
   }
 
-  pub fn rows_for(standing: Standing) -> Result<std::ops::RangeInclusive<u32>, Never> {
+  pub fn rows_for(
+    standing: console_screen::Shape,
+  ) -> Result<std::ops::RangeInclusive<u32>, Never> {
     Ok(match standing {
-      Standing::Wider => 2..=6,
-      Standing::Taller => 3..=10,
+      console_screen::Shape::Wider => 2..=6,
+      console_screen::Shape::Taller => 3..=10,
     })
   }
 
-  pub fn fitted_to(self, standing: Standing) -> Result<Shape, Never> {
+  pub fn fitted_to(self, standing: console_screen::Shape) -> Result<Shape, Never> {
     let Ok(across) = Shape::columns_for(standing);
     let Ok(down) = Shape::rows_for(standing);
     let Ok(columns) = clamped(self.columns, across);
@@ -180,7 +183,7 @@ impl Shape {
     }
   }
 
-  pub fn read(said: &str, standing: Standing) -> Result<Shape, Never> {
+  pub fn read(said: &str, standing: console_screen::Shape) -> Result<Shape, Never> {
     let usual = Shape::usual(standing)?;
 
     let said_2 = said
@@ -202,12 +205,15 @@ pub const NAMED: &str = "home-screen";
 
 pub const NAMED_TALLER: &str = "home-screen-taller";
 
-pub fn at(home: &std::path::Path, standing: Standing) -> Result<std::path::PathBuf, Never> {
+pub fn at(
+  home: &std::path::Path,
+  standing: console_screen::Shape,
+) -> Result<std::path::PathBuf, Never> {
   let Ok(ours) = console_core_places::Base::Configuration.application_under(home);
 
   Ok(match standing {
-    Standing::Wider => ours.join(NAMED),
-    Standing::Taller => ours.join(NAMED_TALLER),
+    console_screen::Shape::Wider => ours.join(NAMED),
+    console_screen::Shape::Taller => ours.join(NAMED_TALLER),
   })
 }
 
@@ -509,9 +515,9 @@ mod tests {
 
   const ROOM: (i32, i32) = (1024, 600);
 
-  const ROOMS: [((i32, i32), Standing); 2] = [
-    ((1024, 600), Standing::Wider),
-    ((600, 1024), Standing::Taller),
+  const ROOMS: [((i32, i32), console_screen::Shape); 2] = [
+    ((1024, 600), console_screen::Shape::Wider),
+    ((600, 1024), console_screen::Shape::Taller),
   ];
 
   #[test]
@@ -841,28 +847,34 @@ mod tests {
     let Ok(shape) = deep.sized(Size::Bigger);
     let Ok(written) = shape.serialize();
 
-    assert_eq!(Shape::read(&written, Standing::Wider), Ok(shape));
+    assert_eq!(
+      Shape::read(&written, console_screen::Shape::Wider),
+      Ok(shape)
+    );
   }
 
   #[test]
   fn what_the_file_does_not_say_is_the_usual_answer() {
-    let Ok(seven) = Shape::read("columns 7", Standing::Wider);
+    let Ok(seven) = Shape::read("columns 7", console_screen::Shape::Wider);
 
-    assert_eq!(Shape::read("", Standing::Wider), Ok(Shape::USUAL));
+    assert_eq!(
+      Shape::read("", console_screen::Shape::Wider),
+      Ok(Shape::USUAL)
+    );
     assert_eq!(seven.columns, 7);
     assert_eq!(seven.rows, Shape::USUAL.rows);
     assert_eq!(
-      Shape::read("columns seven", Standing::Wider),
+      Shape::read("columns seven", console_screen::Shape::Wider),
       Ok(Shape::USUAL),
       "not a number"
     );
     assert_eq!(
-      Shape::read("wallpaper yes", Standing::Wider),
+      Shape::read("wallpaper yes", console_screen::Shape::Wider),
       Ok(Shape::USUAL),
       "not ours"
     );
     assert_eq!(
-      Shape::read("size enormous", Standing::Wider),
+      Shape::read("size enormous", console_screen::Shape::Wider),
       Ok(Shape::USUAL),
       "not a rung"
     );
@@ -886,10 +898,10 @@ mod tests {
       Shape::USUAL.with_rows(99).map(|shape| shape.rows),
       Ok(*Shape::ROWS.end())
     );
-    let Ok(wide) = Shape::columns_for(Standing::Wider);
+    let Ok(wide) = Shape::columns_for(console_screen::Shape::Wider);
 
     assert_eq!(
-      Shape::read("columns 200", Standing::Wider).map(|shape| shape.columns),
+      Shape::read("columns 200", console_screen::Shape::Wider).map(|shape| shape.columns),
       Ok(*wide.end())
     );
   }
@@ -905,7 +917,10 @@ mod tests {
 
   #[test]
   fn the_shape_is_written_under_her_own_home() {
-    let Ok(at) = at(std::path::Path::new("/home/someone"), Standing::Wider);
+    let Ok(at) = at(
+      std::path::Path::new("/home/someone"),
+      console_screen::Shape::Wider,
+    );
 
     assert!(
       at.starts_with("/home/someone/.config/console"),
@@ -916,8 +931,8 @@ mod tests {
 
   #[test]
   fn a_grid_read_back_is_one_that_fits_the_way_the_screen_stands() {
-    let Ok(wide) = Shape::read("columns 10\nrows 10\n", Standing::Wider);
-    let Ok(tall) = Shape::read("columns 10\nrows 10\n", Standing::Taller);
+    let Ok(wide) = Shape::read("columns 10\nrows 10\n", console_screen::Shape::Wider);
+    let Ok(tall) = Shape::read("columns 10\nrows 10\n", console_screen::Shape::Taller);
 
     assert_eq!((wide.columns, wide.rows), (9, 6));
     assert_eq!((tall.columns, tall.rows), (6, 10));
@@ -925,12 +940,12 @@ mod tests {
 
   #[test]
   fn a_screen_stood_on_its_end_starts_with_the_grid_turned() {
-    let Ok(taller) = Shape::read("", Standing::Taller);
+    let Ok(taller) = Shape::read("", console_screen::Shape::Taller);
 
     assert_eq!(taller.columns, Shape::USUAL.rows);
     assert_eq!(taller.rows, Shape::USUAL.columns);
     assert_eq!(
-      Shape::read("columns 4", Standing::Taller).map(|shape| shape.rows),
+      Shape::read("columns 4", console_screen::Shape::Taller).map(|shape| shape.rows),
       Ok(Shape::USUAL.columns)
     );
   }
@@ -938,8 +953,8 @@ mod tests {
   #[test]
   fn each_way_up_keeps_its_own_grid_and_the_wide_one_keeps_the_file_it_always_had() {
     let home = std::path::Path::new("/home/someone");
-    let Ok(wider) = at(home, Standing::Wider);
-    let Ok(taller) = at(home, Standing::Taller);
+    let Ok(wider) = at(home, console_screen::Shape::Wider);
+    let Ok(taller) = at(home, console_screen::Shape::Taller);
 
     assert_ne!(wider, taller);
     assert_eq!(

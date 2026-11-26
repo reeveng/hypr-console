@@ -9,7 +9,7 @@ use std::process::Stdio;
 
 use console_core_atomic_writes::whole_with_folders_and_permissions;
 use console_core_external_programs::Program;
-use rustix::fs::{Mode, OFlags, open as open_file};
+use rustix::fs::{Mode, OFlags};
 
 use crate::{APP_ID, Command, Paths, Result, dashboard, private_directory, xdg};
 
@@ -124,7 +124,7 @@ fn start_recorder(paths: &Paths) -> Result<()> {
   }
 
   private_directory(&paths.runtime)?;
-  let log = open_file(
+  let log = rustix::fs::open(
     paths.runtime.join("recorder.log"),
     OFlags::CREATE | OFlags::WRONLY | OFlags::APPEND | OFlags::CLOEXEC,
     Mode::RUSR | Mode::WUSR,

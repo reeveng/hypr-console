@@ -47,6 +47,31 @@ impl<Tag> Pending<Tag> {
     Ok(())
   }
 
+  pub(crate) fn len(&self) -> Result<u64, Never> {
+    console_core_number_conversion::fixed_index(self.waiting.len())
+  }
+
+  pub(crate) fn earliest<Key: Ord>(
+    &self,
+    key: impl Fn(&Tag) -> Key,
+  ) -> Result<Option<(u32, Key)>, Never> {
+    Ok(
+      self
+        .waiting
+        .iter()
+        .map(|(serial, waiting)| (*serial, key(waiting)))
+        .min_by(|(_, left), (_, right)| left.cmp(right)),
+    )
+  }
+
+  pub(crate) fn remove(&mut self, serial: u32) -> Result<Option<Tag>, Never> {
+    Ok(self.waiting.remove(&serial))
+  }
+
+  pub(crate) fn take(&mut self) -> Result<impl Iterator<Item = Tag>, Never> {
+    Ok(std::mem::take(&mut self.waiting).into_values())
+  }
+
   pub fn received(&mut self, message: Message) -> Result<Received<Tag>, Never> {
     Ok(match message.kind {
       Kind::Call => Received::Call(message),

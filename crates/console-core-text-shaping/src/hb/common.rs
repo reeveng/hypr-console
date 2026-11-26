@@ -144,11 +144,9 @@ impl FromStr for Direction {
   }
 }
 
-type LanguageBytes = Vec<u8>;
-
 /// A language tag.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
-pub struct Language(LanguageBytes);
+pub struct Language(console_core_bytes::Bytes);
 
 impl Language {
   /// Creates a new language from the given bytes.
@@ -172,7 +170,7 @@ impl Language {
 
   fn from_bytes(bytes: &[u8]) -> Self {
     match bytes.is_empty() {
-      true => Language(Vec::new()),
+      true => Language(console_core_bytes::Bytes::default()),
       false => {
         let mut bytes = bytes.to_vec();
 
@@ -190,7 +188,7 @@ impl Language {
           }
         }
 
-        Language(bytes)
+        Language(console_core_bytes::Bytes::from(bytes))
       }
     }
   }

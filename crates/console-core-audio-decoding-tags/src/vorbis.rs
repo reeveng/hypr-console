@@ -12,7 +12,6 @@ use crate::{flac, utf8_with_replacement};
 
 const PICTURE_KEY: &str = "metadata_block_picture";
 
-const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 const KEYS: &[(&str, StandardTagKey)] = &[
   ("album artist", StandardTagKey::AlbumArtist),
@@ -192,45 +191,17 @@ pub fn read_comment_no_framing<B: ReadBytes>(
   Ok(())
 }
 
-fn unpack(symbols: &[u8]) -> Result<Option<Vec<u8>>, Never> {
-  let mut decoded = Vec::new();
-
-  for group in symbols.chunks(4) {
-    match group {
-      [a, b, c, d] => decoded.extend([
-        a.wrapping_shl(2) | b.wrapping_shr(4),
-        (b & 0x0f).wrapping_shl(4) | c.wrapping_shr(2),
-        (c & 0x03).wrapping_shl(6) | d,
-      ]),
-      [a, b, c] => decoded.extend([
-        a.wrapping_shl(2) | b.wrapping_shr(4),
-        (b & 0x0f).wrapping_shl(4) | c.wrapping_shr(2),
-      ]),
-      [a, b] => decoded.push(a.wrapping_shl(2) | b.wrapping_shr(4)),
-      _ => return Ok(None),
-    }
-  }
-
-  Ok(Some(decoded))
-}
-
 fn base64_decode(encoded: &str) -> Result<Option<Vec<u8>>, Never> {
-  let symbols: Option<Vec<u8>> = encoded
-    .trim_end_matches('=')
-    .bytes()
-    .map(|byte| {
-      ALPHABET
-        .iter()
-        .zip(0u8..)
-        .find(|(symbol, _)| **symbol == byte)
-        .map(|(_, value)| value)
-    })
-    .collect();
+  let unpadded = encoded.trim_end_matches('=');
 
-  match symbols {
-    Some(symbols_2) => unpack(&symbols_2),
-    None => Ok(None),
-  }
+  Ok(match console_core_bytes::base64::decode_unpadded(unpadded.as_bytes()) {
+    Ok(bytes) => {
+      let Ok(decoded) = bytes.into_vec();
+
+      Some(decoded)
+    }
+    Err(_not_base64) => None,
+  })
 }
 
 #[cfg(test)]

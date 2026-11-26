@@ -93,11 +93,11 @@ use console_draw_painting::{Frame, Lines, Run, at_most, measure_text, onto};
 use console_draw_surface::layer_focus::Selection;
 use console_draw_surface::scale::Scale;
 use console_draw_surface::standing::{Anchor, Closed, Keyboard, Margin, Room, Under, Wanted};
-use console_draw_surface::{KeyboardEvent, PointerEvent, Surface, SurfaceError};
+use console_draw_surface::{KeyboardEvent, PointerCursor, PointerEvent, Surface, SurfaceError};
 use console_notifications::reading::serialize;
 use console_notifications::saying::Expiry;
 use console_notifications::serving::{
-  self, Armed, Closed as NotificationClosed, Holding, Modified, Target, Turn, Why, closed_signals,
+  self, Armed, Holding, Modified, Target, Turn, Why, closed_signals,
 };
 use console_notifications::showing::{self, CardContent, Measured, Stack, Wearing};
 use console_onscreen::focus;
@@ -441,6 +441,7 @@ fn turned<'a>(
     None => {}
   }
 
+  let Ok(()) = show_pointer(running.surface, &mut stack, asked.wearing);
   let Ok(wanted) = snapshot(running.surface, &stack);
 
   match ::core::primitive::bool::then_some(running.drew.as_ref() == Some(&wanted), ()) {
@@ -659,8 +660,8 @@ fn ran_out(
     let Ok(ran_out) = holding.ran_out(&armed);
 
     match ran_out {
-      NotificationClosed::No => {}
-      NotificationClosed::Yes => {
+      serving::Closed::No => {}
+      serving::Closed::Yes => {
         let Ok(said) = closed_signals(&[armed.id], Why::RanOut);
 
         for closed in &said {
@@ -944,6 +945,35 @@ fn popup_at(stack: &Stack, (x, y): (f64, f64)) -> Result<Option<Target>, Never> 
   let Ok(down) = console_core_number_conversion::toward_zero_i32(y);
 
   stack.on(Point { x: across, y: down })
+}
+
+fn show_pointer(
+  surface: &mut Surface,
+  stack: &mut Stack,
+  wearing: &Wearing,
+) -> Result<(), Never> {
+  let Ok(pointer) = surface.pointer_pixel();
+  let target = pointer.and_then(|at| {
+    stack
+      .touching
+      .iter()
+      .find(|region| region.panel.covers(at) == Ok(console_core_shapes::Covers::Yes))
+  });
+  let cursor = match target {
+    Some(region) => {
+      let Ok(indicator) = console_core_shapes::hover_indicator(
+        region.panel.at,
+        region.panel.size,
+        (wearing.pink, wearing.panel),
+      );
+      stack.shapes.extend(indicator);
+
+      PointerCursor::Hand
+    }
+    None => PointerCursor::Default,
+  };
+
+  surface.set_pointer_cursor(cursor)
 }
 
 fn hovered(running: &mut Running<'_>, hit: Option<Target>) -> Result<(), Never> {

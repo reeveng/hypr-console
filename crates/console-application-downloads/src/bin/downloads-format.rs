@@ -31,7 +31,7 @@ use console_application_downloads::same::{self, Wants};
 use console_application_downloads::store::{self, Kind};
 use console_core_never::Never;
 use console_music_player::selection::Selection;
-use console_notifications::saying::Content as Notification;
+use console_notifications::saying::Content;
 
 const THERE: &str = "there";
 
@@ -413,7 +413,10 @@ fn put_in_place(
       (current == revision).then_some(())
     }
     Err(fault) => {
-      console_core_logging::warn!("checking {} after conversion: {fault}", files.original.display());
+      console_core_logging::warn!(
+        "checking {} after conversion: {fault}",
+        files.original.display()
+      );
 
       return Ok(Made::None);
     }
@@ -525,7 +528,10 @@ fn run_output(arguments: &[OsString]) -> std::io::Result<String> {
 
   match done.status.success().then_some(()) {
     Some(()) => String::from_utf8(done.stdout).map_err(std::io::Error::other),
-    None => Err(std::io::Error::other(format!("format probe exited with {}", done.status))),
+    None => Err(std::io::Error::other(format!(
+      "format probe exited with {}",
+      done.status
+    ))),
   }
 }
 
@@ -589,7 +595,7 @@ fn notify(converted: Converted, where_: &[PathBuf]) -> Result<(), Never> {
       let Ok(()) = console_notifications::saying::report(
         console_notifications::Application("Downloads"),
         KIND,
-        Notification {
+        Content {
           summary: &format!("Couldn't convert {}", folders.join(" and ")),
           body: &said,
         },

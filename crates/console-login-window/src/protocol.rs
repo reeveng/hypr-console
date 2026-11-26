@@ -7,7 +7,77 @@
 //! is not a login, and nothing a module says can end a line early because a
 //! newline in it is written as a space.
 
+use std::io::{self, BufReader, Read};
+use std::os::fd::{AsFd, BorrowedFd};
+
+use console_core_bounded_reads::{Line, LineEnding, LinePart, ReadError};
 use console_core_never::Never;
+use rustix::fs::{OFlags, fcntl_getfl, fcntl_setfl};
+
+pub const REQUEST_BYTES: u32 = 32;
+pub const REPLY_BYTES: u32 = 8_192;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Buffered {
+  Ready,
+  Empty,
+}
+
+pub struct Reader<R> {
+  input: BufReader<R>,
+  frame: Line,
+}
+
+impl<R: Read + AsFd> Reader<R> {
+  pub fn new(pipe: R, limit: u32) -> io::Result<Self> {
+    let flags = fcntl_getfl(&pipe)?;
+    fcntl_setfl(&pipe, flags | OFlags::NONBLOCK)?;
+    let Ok(frame) = Line::new(limit, LineEnding::Required);
+
+    Ok(Self {
+      input: BufReader::new(pipe),
+      frame,
+    })
+  }
+
+  pub fn buffered(&self) -> Result<Buffered, Never> {
+    Ok(match self.input.buffer().is_empty().then_some(()) {
+      Some(()) => Buffered::Empty,
+      None => Buffered::Ready,
+    })
+  }
+
+  pub fn read(&mut self) -> io::Result<Option<String>> {
+    match self.frame.read_part(&mut self.input) {
+      Ok(LinePart::Complete) => {
+        let Ok(bytes) = self.frame.bytes();
+        let line = std::str::from_utf8(bytes).map_err(io::Error::other)?;
+        let text = line.to_owned();
+        let Ok(()) = self.frame.clear();
+
+        Ok(Some(text))
+      }
+      Ok(LinePart::Partial) => Ok(None),
+      Ok(LinePart::End) => Err(io::Error::from(io::ErrorKind::UnexpectedEof)),
+      Err(ReadError::Io(fault)) => match (fault.kind() == io::ErrorKind::WouldBlock
+        || fault.kind() == io::ErrorKind::Interrupted)
+        .then_some(())
+      {
+        Some(()) => Ok(None),
+        None => Err(fault),
+      },
+      Err(fault @ (ReadError::TooLong { .. } | ReadError::NotUtf8(_))) => {
+        Err(io::Error::from(fault))
+      }
+    }
+  }
+}
+
+impl<R: Read + AsFd> AsFd for Reader<R> {
+  fn as_fd(&self) -> BorrowedFd<'_> {
+    self.input.get_ref().as_fd()
+  }
+}
 
 #[derive(Clone, PartialEq, Eq)]
 pub enum FromGreeter {
@@ -117,6 +187,30 @@ pub fn line_to_greeter(message: &ToGreeter) -> Result<String, Never> {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use std::io::Write;
+
+  #[test]
+  fn a_partial_greeter_request_survives_an_empty_poll_turn() -> io::Result<()> {
+    let (from_greeter, to_window) = rustix::pipe::pipe_with(rustix::pipe::PipeFlags::CLOEXEC)?;
+    let mut reader = Reader::new(std::fs::File::from(from_greeter), REQUEST_BYTES)?;
+    let mut writer = std::fs::File::from(to_window);
+
+    writer.write_all(b"ter")?;
+    let first_part = reader.read()?;
+    let wait = reader.read()?;
+    assert_eq!(first_part, None);
+    assert_eq!(wait, None);
+
+    writer.write_all(b"minal\nfingerprint\n")?;
+    let first = reader.read()?;
+    let Ok(buffered) = reader.buffered();
+    let second = reader.read()?;
+    assert_eq!(first.as_deref(), Some("terminal"));
+    assert_eq!(buffered, Buffered::Ready);
+    assert_eq!(second.as_deref(), Some("fingerprint"));
+
+    Ok(())
+  }
 
   #[test]
   fn every_line_reads_back_as_what_was_written() {

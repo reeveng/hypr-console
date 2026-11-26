@@ -31,6 +31,7 @@ pub mod notifications;
 pub mod panels;
 pub mod preferences;
 pub mod reading;
+pub mod retained;
 pub mod settings;
 pub mod showing;
 pub mod state;

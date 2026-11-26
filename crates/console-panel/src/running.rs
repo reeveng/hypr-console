@@ -34,7 +34,7 @@ use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_operating_system_linux::program_runtime::commands::{Linux, Timing};
 use console_program_contract::{Command, Executable};
-use console_program_runtime::commands::{self as execution_commands, Launch, Platform, Streams};
+use console_program_runtime::commands::{Launch, Platform, Streams};
 
 pub use console_operating_system_linux::program_runtime::commands::reap_in_background;
 
@@ -48,7 +48,7 @@ pub fn run_command_output(command: &Command) -> Result<String, Never> {
   let Ok(mut platform) = Linux::new(Timing::Background);
 
   Ok(
-    match execution_commands::run(&mut platform, command, Streams::COLLECT) {
+    match console_program_runtime::commands::run(&mut platform, command, Streams::COLLECT) {
       Ok(answer) => answer.output.trim().to_string(),
       Err(_would_not_start) => String::new(),
     },

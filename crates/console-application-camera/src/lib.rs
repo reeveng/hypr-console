@@ -112,7 +112,7 @@ fn copy_png(png: &[u8]) -> io::Result<()> {
 }
 
 #[cfg(feature = "camera")]
-pub fn save_photo(pixels: &console_core_shapes::Pixels) -> io::Result<PathBuf> {
+pub fn save_photo(pixels: &console_panel::ui::shapes::Pixels) -> io::Result<PathBuf> {
   let Ok(size) = pixels.size();
   let png =
     console_core_png_files::encoded_rgba(size, &pixels.bytes).map_err(io::Error::other)?;

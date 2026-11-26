@@ -83,6 +83,7 @@ use console_core_text_encodings::decode;
 use console_core_words::Words;
 
 mod answer;
+mod batch;
 #[cfg(feature = "color-transform")]
 pub mod color_transform;
 pub mod events;
@@ -99,6 +100,11 @@ pub mod theme_borders;
 pub mod thumbnails;
 #[cfg(feature = "toplevel-mapping")]
 mod toplevel_mapping;
+pub mod workspace_snapshot;
+
+pub use batch::ask_together;
+
+pub type BatchError = batch::Error;
 
 pub use lua::{
   BindingFlag, Coordinates, FullscreenMode, LaunchRules, MonitorRule, WindowChange, quote,
@@ -201,7 +207,16 @@ impl fmt::Display for HyprctlError {
 
 impl std::error::Error for HyprctlError {}
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+#[allow(
+  unknown_lints,
+  reason = "the input rule checks serde before cfg_attr expands"
+)]
+#[expect(
+  explicit064_no_unvalidated_input,
+  reason = "the versioned event client limits the complete snapshot frame before deserializing this record"
+)]
 pub struct Workspace {
   pub id: i64,
   pub named: String,
@@ -963,7 +978,6 @@ pub enum Carrying {
 pub enum WorkspaceTarget {
   Relative(i32),
   Number(i64),
-  Position(i64),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1057,11 +1071,7 @@ impl Action {
     let Ok(lua) = self.dispatcher();
 
     match self {
-      Action::MoveWorkspace {
-        target: WorkspaceTarget::Position(_),
-        ..
-      }
-      | Action::Tile(TileChange::Place { .. }) => request(Request::Script, &format!("({lua})()")),
+      Action::Tile(TileChange::Place { .. }) => request(Request::Script, &format!("({lua})()")),
       Action::MoveWorkspace { .. }
       | Action::Focus(_)
       | Action::Tile(
@@ -1081,9 +1091,6 @@ impl Action {
         let target_2 = match target {
           WorkspaceTarget::Relative(step) => format!("{step:+}"),
           WorkspaceTarget::Number(number) => number.to_string(),
-          WorkspaceTarget::Position(position) => {
-            return lua::workspace_position(position, carrying);
-          }
         };
 
         onto(&target_2, carrying)
@@ -1226,7 +1233,16 @@ impl Layer {
   }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+#[allow(
+  unknown_lints,
+  reason = "the input rule checks serde before cfg_attr expands"
+)]
+#[expect(
+  explicit064_no_unvalidated_input,
+  reason = "the versioned event client limits the complete snapshot frame before deserializing this record"
+)]
 pub struct Monitor {
   pub named: String,
   pub size: Option<(i64, i64)>,
@@ -1290,26 +1306,38 @@ pub fn monitors(monitors: &serde_json::Value) -> Result<Vec<Monitor>, Never> {
   )
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Floating {
   Yes,
   No,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Pinned {
   Yes,
   No,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Filling {
   None,
   Maximized,
   Screen,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+#[allow(
+  unknown_lints,
+  reason = "the input rule checks serde before cfg_attr expands"
+)]
+#[expect(
+  explicit064_no_unvalidated_input,
+  reason = "the versioned event client limits the complete snapshot frame before deserializing this record"
+)]
 pub struct Window {
   pub address: String,
   pub title: String,

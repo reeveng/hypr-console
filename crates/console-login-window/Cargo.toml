@@ -18,6 +18,7 @@ console-bus.workspace = true
 console-core-logging = { workspace = true, features = ["std"] }
 console-operating-system-linux.workspace = true
 console-core-arguments.workspace = true
+console-core-bounded-reads.workspace = true
 console-applications.workspace = true
 console-core-external-programs.workspace = true
 console-core-atomic-writes.workspace = true

@@ -12,18 +12,21 @@ use console_core_geometry::{Point, Rectangle, Size};
 use console_core_highlight::{Actions, Heading, Press, Resolution, under};
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
-use console_core_shapes::{Clip, Edge, Line, Panel, Round, Shape, Text};
 use console_core_web_engine::DownloadState;
-use console_draw_painting::{self as drawing, Frame, Run};
-use console_draw_surface::KeyPress;
 use console_input_key_symbols::Keysym;
-use console_input_text::TextField;
+use console_input_text::{InputDeletion, TextField};
 use console_panel::strip::{TabFace, Tabs};
-use console_panel::{marks, strip};
+use console_panel::ui::painting::{self, Frame, Run};
+use console_panel::ui::shapes::{Edge, Line, Panel, Round, Shape, Text, hover_indicator};
+use console_panel::ui::surface::{
+  Composition, Hover, InputContent, KeyPress, PointerCursor, RepaintHover, Surrounding,
+  TextInputChange, TextInputState,
+};
+use console_panel::ui::{field, marks, strip, theme};
 
 use crate::reader::{Mode, TextSize};
 use crate::renderer::Renderer;
-use crate::settings::{Alignment, Settings, Visibility as SettingsVisibility, label_at};
+use crate::settings::{self, Alignment, Settings, label_at};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Control {
@@ -41,6 +44,12 @@ enum Control {
   Downloads,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum HoverTarget {
+  Chrome(Control, Rectangle<i32>),
+  Settings(Rectangle<i32>),
+}
+
 const CONTROLS: [Control; 6] = [
   Control::Back,
   Control::Forward,
@@ -52,10 +61,10 @@ const CONTROLS: [Control; 6] = [
 const ADDRESS: u32 = 3;
 const SETTINGS: u32 = 4;
 const CORNER_RADIUS: u32 = 5;
-const TAB_TOP: i32 = 4;
-const ADDRESS_TOP: i32 = TAB_TOP + strip::HEIGHT + strip::GAP;
-const ADDRESS_HEIGHT: i32 = 34;
-const BROWSER_MARGIN: i32 = 8;
+const TAB_TOP: i32 = strip::WINDOW_TOP;
+const ADDRESS_TOP: i32 = strip::CONTENT_TOP;
+const ADDRESS_HEIGHT: i32 = field::HEIGHT;
+const BROWSER_MARGIN: i32 = strip::WINDOW_INSET;
 pub(crate) const HEIGHT: u32 = (ADDRESS_TOP + ADDRESS_HEIGHT + 6).unsigned_abs();
 pub(crate) const MAX_TABS: u64 = 6;
 pub(crate) const CONTROL: u32 = 1;
@@ -180,9 +189,9 @@ pub(crate) enum EntryMode {
 pub struct Toolbar {
   palette: Wearing,
   font: Font,
-  line_height: u32,
   renderers: &'static [Renderer],
   address: TextField,
+  preedit: Option<Composition>,
   layout: [Rectangle<i32>; CONTROLS.len()],
   tabs: Vec<TabLabel>,
   tab_controls: Vec<Control>,
@@ -197,20 +206,12 @@ pub struct Toolbar {
   prompt: Option<&'static str>,
   settings: Settings,
   pointer: Option<Point<i32>>,
+  hover: Hover<HoverTarget>,
 }
 
 impl Toolbar {
   pub fn with_renderers(renderers: &'static [Renderer]) -> Result<Self, palette::PaletteError> {
-    let wearing = match Wearing::worn() {
-      Ok(installed) => installed,
-      Err(fault) => {
-        console_core_logging::debug!("browser toolbar using its shipped palette: {fault}");
-        let Ok(shipped) = palette::read(include_str!(
-          "../../../files/usr/local/lib/console/palette.sh"
-        ));
-        Wearing::out_of(&shipped)?
-      }
-    };
+    let wearing = theme::current()?;
     let Ok(toolbar) = Self::with_palette(renderers, wearing);
 
     Ok(toolbar)
@@ -222,8 +223,6 @@ impl Toolbar {
     wearing: Wearing,
   ) -> core::result::Result<Self, console_core_never::Never> {
     let Ok(font) = TextStyle::Footnote.font();
-    let Ok(metrics) = measured("WebKit", &font);
-    let line_height = metrics.height;
     let Ok(placement) = layout(Size {
       width: 1100,
       height: HEIGHT,
@@ -232,9 +231,9 @@ impl Toolbar {
     Ok(Self {
       palette: wearing,
       font,
-      line_height,
       renderers,
       address: TextField::default(),
+      preedit: None,
       layout: placement,
       tabs: Vec::new(),
       tab_controls: Vec::new(),
@@ -249,6 +248,7 @@ impl Toolbar {
       prompt: None,
       settings: Settings::default(),
       pointer: None,
+      hover: Hover::default(),
     })
   }
 
@@ -343,6 +343,7 @@ impl Toolbar {
   pub fn blur(&mut self, committed: &str) -> Result<(), Never> {
     self.focus = None;
     self.editing = Editing::Inactive;
+    self.preedit = None;
     self.prompt = None;
     let Ok(_) = self.address(committed);
 
@@ -358,6 +359,7 @@ impl Toolbar {
   pub(crate) fn edit(&mut self) -> Result<(), Never> {
     self.focus = Some(ADDRESS);
     self.editing = Editing::Selected;
+    self.preedit = None;
 
     Ok(())
   }
@@ -380,7 +382,7 @@ impl Toolbar {
     })
   }
 
-  pub(crate) fn settings_visibility(&self) -> Result<SettingsVisibility, Never> {
+  pub(crate) fn settings_visibility(&self) -> Result<settings::Visibility, Never> {
     self.settings.visibility()
   }
 
@@ -401,31 +403,69 @@ impl Toolbar {
     &mut self,
     point: Option<Point<i32>>,
   ) -> core::result::Result<ToolbarChange, console_core_never::Never> {
-    let Ok(tooltip_control) = self.tooltip_control(self.pointer);
-    let Ok(own_tooltip_control) = self.tooltip_control(point);
-    let change = ToolbarChange::from(tooltip_control != own_tooltip_control);
     self.pointer = point;
+    let Ok(target) = self.hover_target();
+    let Ok(feedback) = self.hover.observe(target);
 
-    Ok(change)
+    Ok(match feedback {
+      Some(RepaintHover) => ToolbarChange::Different,
+      None => ToolbarChange::Unchanged,
+    })
   }
 
-  #[must_use]
-  fn tooltip_control(
-    &self,
-    point: Option<Point<i32>>,
-  ) -> core::result::Result<Option<Control>, console_core_never::Never> {
-    let Ok(settings) = self.at(Control::Settings);
-    let Ok(downloads) = self.at(Control::Downloads);
-    let checked_value = match point {
-      Some(explicit_value) => explicit_value,
+  fn hover_target(&self) -> Result<Option<HoverTarget>, Never> {
+    let point = match self.pointer {
+      Some(point) => point,
       None => return Ok(None),
     };
-    let Ok(hit) = under(checked_value, &[settings, downloads]);
+    let Ok(settings) = self.settings.visibility();
 
-    Ok(match hit {
-      Some(0) => Some(Control::Settings),
-      Some(1) => Some(Control::Downloads),
-      Some(_) | None => None,
+    match settings {
+      settings::Visibility::Visible => {
+        let Ok(area) = self.settings.hover_area(point);
+
+        return Ok(area.map(HoverTarget::Settings));
+      }
+      settings::Visibility::Hidden => {}
+    }
+
+    let Ok(tab) = under(point, &self.tab_layout);
+    let (frames, controls, index) = match tab {
+      Some(index) => (
+        self.tab_layout.as_slice(),
+        self.tab_controls.as_slice(),
+        Some(index),
+      ),
+      None => {
+        let Ok(index) = under(point, &self.layout);
+
+        (self.layout.as_slice(), CONTROLS.as_slice(), index)
+      }
+    };
+    let target = index.and_then(|number| {
+      let Ok(position) = console_core_number_conversion::index(number);
+
+      controls
+        .get(position)
+        .copied()
+        .zip(frames.get(position).copied())
+    });
+
+    Ok(match (target, self.status.back, self.status.forward) {
+      (Some((Control::Back, _)), ButtonAvailability::Disabled, _)
+      | (Some((Control::Forward, _)), _, ButtonAvailability::Disabled)
+      | (None, _, _) => None,
+      (Some((control, area)), _, _) => Some(HoverTarget::Chrome(control, area)),
+    })
+  }
+
+  pub(crate) fn pointer_cursor(&self) -> Result<PointerCursor, Never> {
+    let Ok(target) = self.hover_target();
+
+    Ok(match target {
+      Some(HoverTarget::Chrome(Control::Address, _)) => PointerCursor::Text,
+      Some(HoverTarget::Chrome(_, _) | HoverTarget::Settings(_)) => PointerCursor::Hand,
+      None => PointerCursor::Default,
     })
   }
 
@@ -436,7 +476,7 @@ impl Toolbar {
       &self.palette,
       &self.font,
       &self.status,
-      self.renderers,
+      (self.renderers, self.pointer),
     ) {
       Ok(()) => {}
       Err(fault) => console_core_logging::error!("could not paint browser settings: {fault}"),
@@ -531,7 +571,12 @@ impl Toolbar {
   }
 
   pub fn tap(&mut self, at: Point<i32>, committed: &str) -> Result<Action, Never> {
-    match matches!(self.settings.visibility(), Ok(SettingsVisibility::Visible)).then_some(()) {
+    match matches!(
+      self.settings.visibility(),
+      Ok(settings::Visibility::Visible)
+    )
+    .then_some(())
+    {
       Some(()) => {
         let Ok(tap) = self.settings.tap(at, &self.status);
 
@@ -575,6 +620,75 @@ impl Toolbar {
     }
   }
 
+  pub(crate) fn text_input_state(&self) -> Result<Option<TextInputState>, Never> {
+    match self.editing {
+      Editing::Inactive => return Ok(None),
+      Editing::Draft | Editing::Selected => {}
+    }
+
+    let Ok((before, after)) = self.address_parts();
+    let Ok(cursor) = fitted::<_, u32>(before.len());
+    let Ok(draft) = field::Draft::new(field::TextParts { before, after }, self.preedit.as_ref());
+    let Ok(input) = self.address_field(field::Content::Value(&draft.text), draft.editing);
+    let Ok(caret) = input.caret();
+    Ok(Some(TextInputState {
+      content: InputContent::Plain(Some(Surrounding {
+        text: format!("{before}{after}"),
+        cursor,
+      })),
+      cursor: caret,
+      identity: match self.prompt {
+        Some(_) => 2,
+        None => 1,
+      },
+    }))
+  }
+
+  pub(crate) fn text_input(&mut self, change: TextInputChange) -> Result<(), Never> {
+    let committed = match change.commit.as_deref() {
+      Some(committed) => committed,
+      None => "",
+    };
+
+    match (self.editing, committed) {
+      (Editing::Inactive, _) => return Ok(()),
+      (Editing::Selected, "") => {
+        self.preedit = change.preedit;
+        return Ok(());
+      }
+      (Editing::Draft, _) => {}
+      (Editing::Selected, _) => {
+        self.address = TextField::default();
+        self.editing = Editing::Draft;
+      }
+    }
+
+    self.preedit = change.preedit;
+    let Ok(_) = self.address.apply_input(
+      InputDeletion {
+        before: change.delete_before,
+        after: change.delete_after,
+      },
+      committed,
+    );
+    Ok(())
+  }
+
+  fn address_parts(&self) -> Result<(&str, &str), Never> {
+    match self.editing {
+      Editing::Selected => Ok(("", "")),
+      Editing::Draft | Editing::Inactive => {
+        let Ok(text) = self.address.text();
+        let Ok(before) = self.address.before_caret();
+        let after = match text.get(before.len()..) {
+          Some(after) => after,
+          None => "",
+        };
+        Ok((before, after))
+      }
+    }
+  }
+
   pub fn text(&mut self, text: &str) -> Result<(), Never> {
     match self.editing {
       Editing::Inactive => return Ok(()),
@@ -584,6 +698,8 @@ impl Toolbar {
         self.editing = Editing::Draft;
       }
     }
+
+    self.preedit = None;
 
     for character in text.chars().filter(|character| !character.is_control()) {
       let Ok(_) = self.address.insert(character);
@@ -598,7 +714,12 @@ impl Toolbar {
       _ => {}
     }
 
-    match matches!(self.settings.visibility(), Ok(SettingsVisibility::Visible)).then_some(()) {
+    match matches!(
+      self.settings.visibility(),
+      Ok(settings::Visibility::Visible)
+    )
+    .then_some(())
+    {
       Some(()) => {
         let Ok(own_key) = self.settings.key(key, mods, &self.status);
 
@@ -697,6 +818,7 @@ impl Toolbar {
   }
 
   fn edit_key(&mut self, key: Keysym, mods: u32) -> Result<Action, Never> {
+    self.preedit = None;
     Ok(match (mods, key, self.editing) {
       (CONTROL, Keysym::a, _) => {
         self.editing = Editing::Selected;
@@ -750,7 +872,7 @@ impl Toolbar {
     })
   }
 
-  pub fn paint(&mut self, pixels: &mut [u8], frame: Frame) -> Result<(), drawing::Cannot> {
+  pub fn paint(&mut self, pixels: &mut [u8], frame: Frame) -> Result<(), painting::Cannot> {
     let Ok(layout) = layout(frame.points);
     self.layout = layout;
     let Ok(width) = positive(frame.points.width);
@@ -759,7 +881,8 @@ impl Toolbar {
       origin: Point { x: 0, y: 0 },
       size: Size { width, height },
     };
-    let Ok(backdrop) = panel(bounds, 0, self.palette.panel, Edge::None);
+    let Ok(ground) = theme::Surface::Window.color(&self.palette);
+    let Ok(backdrop) = panel(bounds, 0, ground, Edge::None);
     let mut shapes = vec![backdrop];
     let Ok(()) = self.paint_button(&mut shapes, Control::Back, self.status.back);
     let Ok(()) = self.paint_button(&mut shapes, Control::Forward, self.status.forward);
@@ -774,6 +897,7 @@ impl Toolbar {
     let Ok(()) = self.paint_button(&mut shapes, Control::Settings, ButtonAvailability::Enabled);
     let Ok(()) = self.paint_tabs(&mut shapes, width);
     let Ok(()) = self.paint_address(&mut shapes);
+    let Ok(()) = self.paint_hover(&mut shapes);
     let Ok(()) = self.paint_tooltip(&mut shapes, width);
 
     match (self.status.loading, self.status.progress) {
@@ -807,7 +931,7 @@ impl Toolbar {
       _ => {}
     }
 
-    drawing::onto(pixels, frame, &shapes)
+    painting::onto(pixels, frame, &shapes)
   }
 
   fn focus_edge(&self, focused: FocusMark) -> Result<Edge, Never> {
@@ -833,7 +957,11 @@ impl Toolbar {
       | (Some(2), Control::Reload)
       | (Some(SETTINGS), Control::Settings) => FocusMark::Focused,
       (_, Control::Settings) => {
-        match matches!(self.settings.visibility(), Ok(SettingsVisibility::Visible)).then_some(())
+        match matches!(
+          self.settings.visibility(),
+          Ok(settings::Visibility::Visible)
+        )
+        .then_some(())
         {
           Some(()) => FocusMark::Focused,
           None => FocusMark::Passive,
@@ -868,14 +996,15 @@ impl Toolbar {
       ::core::option::Option::None => {}
     }
 
-    let color = match (control, availability, self.download_status) {
+    let ink = match (control, availability, self.download_status) {
       (Control::Downloads, _, Some(DownloadState::Started | DownloadState::Saved)) => {
-        self.palette.pink
+        theme::Ink::Accent
       }
-      (Control::Downloads, _, Some(DownloadState::Failed)) => self.palette.coral,
-      (_, ButtonAvailability::Enabled, _) => self.palette.text,
-      (_, ButtonAvailability::Disabled, _) => self.palette.edge,
+      (Control::Downloads, _, Some(DownloadState::Failed)) => theme::Ink::Error,
+      (_, ButtonAvailability::Enabled, _) => theme::Ink::Text,
+      (_, ButtonAvailability::Disabled, _) => theme::Ink::Disabled,
     };
+    let Ok(color) = ink.color(&self.palette);
     let x = place
       .origin
       .x
@@ -981,15 +1110,27 @@ impl Toolbar {
     width: i32,
   ) -> core::result::Result<(), console_core_never::Never> {
     {
-      let Ok(tooltip_control) = self.tooltip_control(self.pointer);
-      let (control, label) = match (tooltip_control, self.settings.visibility()) {
-        (Some(Control::Settings), Ok(SettingsVisibility::Hidden)) => {
-          (Control::Settings, "Settings")
-        }
-        (Some(Control::Downloads), Ok(SettingsVisibility::Hidden)) => {
+      let Ok(target) = self.hover_target();
+      let (control, label) = match target {
+        Some(HoverTarget::Chrome(Control::Settings, _)) => (Control::Settings, "Settings"),
+        Some(HoverTarget::Chrome(Control::Downloads, _)) => {
           (Control::Downloads, self.download_tooltip.as_str())
         }
-        _ => return Ok(()),
+        Some(HoverTarget::Chrome(
+          Control::Back
+          | Control::Forward
+          | Control::Reload
+          | Control::Address
+          | Control::Close
+          | Control::Tab(_)
+          | Control::PreviousTab
+          | Control::NextTab
+          | Control::NewTab
+          | Control::CloseTab,
+          _,
+        ))
+        | Some(HoverTarget::Settings(_))
+        | None => return Ok(()),
       };
 
       let Ok(button) = self.at(control);
@@ -1030,6 +1171,22 @@ impl Toolbar {
         Alignment::Center,
       );
     };
+
+    Ok(())
+  }
+
+  fn paint_hover(&self, shapes: &mut Vec<Shape>) -> Result<(), Never> {
+    let Ok(target) = self.hover_target();
+
+    match target {
+      Some(HoverTarget::Chrome(_, area)) => {
+        let Ok(size) = console_panel::canvas::AreaLayout::pixel_size(area);
+        let Ok(indicator) =
+          hover_indicator(area.origin, size, (self.palette.pink, self.palette.night));
+        shapes.extend(indicator);
+      }
+      Some(HoverTarget::Settings(_)) | None => {}
+    }
 
     Ok(())
   }
@@ -1223,11 +1380,11 @@ impl Toolbar {
     let Ok(()) = strip::paint_control(shapes, frame, label, state, &self.palette);
 
     match state {
-      strip::Control::Ready | strip::Control::Focused => {
+      strip::Control::Ready | strip::Control::Primary | strip::Control::Focused => {
         self.tab_controls.push(control);
         self.tab_layout.push(frame);
       }
-      strip::Control::Unavailable => {}
+      strip::Control::Unavailable | strip::Control::Loading => {}
     }
 
     Ok(())
@@ -1291,147 +1448,55 @@ impl Toolbar {
     console_core_number_conversion::fixed_index(self.tabs.len())
   }
 
+  fn address_field<'a>(
+    &self,
+    content: field::Content<'a>,
+    editing: field::Editing,
+  ) -> Result<field::Field<'a>, Never> {
+    let Ok(place) = self.at(Control::Address);
+    Ok(field::Field {
+      area: console_panel::canvas::Area {
+        origin: place.origin,
+        size: place.size,
+      },
+      trailing: 0,
+      content,
+      editing,
+    })
+  }
+
   fn paint_address(&self, shapes: &mut Vec<Shape>) -> Result<(), Never> {
-    let Ok(field) = self.at(Control::Address);
-    let focused = match self.focus {
-      Some(ADDRESS) => FocusMark::Focused,
-      Some(_) | None => FocusMark::Passive,
-    };
-    let Ok(edge) = self.focus_edge(focused);
-
-    {
-      let Ok(shape) = panel(field, CORNER_RADIUS, self.palette.night, edge);
-      shapes.push(shape);
-    }
-
-    let left = field.origin.x.saturating_add(9);
-    let wide = field.size.width.saturating_sub(18).max(0);
-    let Ok(text) = self.address.text();
-    let Ok(before) = self.address.before_caret();
-    let caret = match self.editing {
-      Editing::Draft => {
-        let Ok(prefix) = measured(before, &self.font);
-        let Ok(width) = positive(prefix.width);
-
-        width
+    let Ok(stored) = self.address.text();
+    let draft = match (self.editing, self.preedit.as_ref()) {
+      (Editing::Draft, _) | (Editing::Selected, Some(_)) => {
+        let Ok((before, after)) = self.address_parts();
+        let Ok(draft) =
+          field::Draft::new(field::TextParts { before, after }, self.preedit.as_ref());
+        Some(draft)
       }
-      Editing::Inactive | Editing::Selected => 0,
+      (Editing::Selected, None) | (Editing::Inactive, _) => None,
     };
-    let shift = caret.saturating_sub(wide.saturating_sub(1)).max(0);
-    let said = match (text, self.editing, self.prompt) {
-      ("", _, Some(prompt)) => prompt,
-      ("", Editing::Inactive, None) => "Address or search",
-      _ => text,
-    };
-    let ink = match ::core::primitive::bool::then_some(said == text, ()) {
-      ::core::option::Option::Some(()) => self.palette.text,
-      ::core::option::Option::None => self.palette.soft,
-    };
-    let available = wide.unsigned_abs();
-    let Ok(line_height) = positive(self.line_height);
-    let vertical = field.origin.y.saturating_add(
-      field
-        .size
-        .height
-        .saturating_sub(line_height)
-        .wrapping_div(2),
-    );
-    let Ok(original) = measured(said, &self.font);
-    let displayed = match ::core::primitive::bool::then_some(
-      self.editing != Editing::Inactive || original.width <= available,
-      (),
-    ) {
-      ::core::option::Option::Some(()) => std::borrow::Cow::Borrowed(said),
-      ::core::option::Option::None => {
-        let Ok(ellipsis) = measured("…", &self.font);
-        let Ok(shortened) = drawing::at_most(
-          Run {
-            said,
-            weight: Weight::Plain,
-            width: available.saturating_sub(ellipsis.width),
+    let (shown, editing) = match draft {
+      Some(field::Draft { ref text, editing }) => (text.as_str(), editing),
+      None => {
+        let mode = match (self.editing, self.focus) {
+          (Editing::Selected, _) => field::Editing::Selected,
+          (_, Some(ADDRESS)) => field::Editing::Active {
+            caret: None,
+            preedit: None,
           },
-          &self.font,
-          drawing::Lines(1),
-        );
-        std::borrow::Cow::Owned(shortened)
+          (_, Some(_) | None) => field::Editing::Inactive,
+        };
+        (stored, mode)
       }
     };
-    shapes.push(Shape::Clip(Clip::To {
-      at: Point {
-        x: left,
-        y: field.origin.y,
-      },
-      size: Size {
-        width: available,
-        height: field.size.height.unsigned_abs(),
-      },
-    }));
-
-    match self.editing {
-      Editing::Selected => {
-        let Ok(selection) = measured(text, &self.font);
-        let Ok(wide_2) = positive(selection.width.min(available));
-
-        {
-          let Ok(shape) = panel(
-            Rectangle {
-              origin: Point {
-                x: left,
-                y: vertical,
-              },
-              size: Size {
-                width: wide_2,
-                height: line_height,
-              },
-            },
-            2,
-            self.palette.fill,
-            Edge::None,
-          );
-          shapes.push(shape);
-        }
-      }
-      Editing::Inactive | Editing::Draft => {}
-    }
-
-    {
-      let Ok(shape) = words(
-        &displayed,
-        &self.font,
-        Point {
-          x: left.saturating_sub(shift),
-          y: vertical,
-        },
-        u32::MAX,
-        ink,
-      );
-      shapes.push(shape);
-    }
-
-    match self.editing {
-      Editing::Draft => {
-        let Ok(shape) = panel(
-          Rectangle {
-            origin: Point {
-              x: left.saturating_add(caret).saturating_sub(shift),
-              y: vertical,
-            },
-            size: Size {
-              width: 1,
-              height: line_height,
-            },
-          },
-          0,
-          self.palette.pink,
-          Edge::None,
-        );
-        shapes.push(shape);
-      }
-      Editing::Inactive | Editing::Selected => {}
-    }
-
-    shapes.push(Shape::Clip(Clip::Lifted));
-
+    let content = match (shown, self.prompt) {
+      ("", Some(prompt)) => field::Content::Placeholder(prompt),
+      ("", None) => field::Content::Placeholder("Address or search"),
+      (written, _) => field::Content::Value(written),
+    };
+    let Ok(field) = self.address_field(content, editing);
+    let Ok(_caret) = field.paint(shapes, &self.palette);
     Ok(())
   }
 }
@@ -1449,8 +1514,9 @@ struct TabBar {
 }
 
 fn tab_bar(width: i32) -> Result<TabBar, Never> {
-  let right = width.saturating_sub(BROWSER_MARGIN);
-  let close = right.saturating_sub(strip::HEIGHT);
+  let Ok(header) = strip::window_area(width);
+  let Ok(close) = strip::close_area(header);
+  let Ok(right) = console_panel::ui::canvas::AreaLayout::right(header);
   let size = 34.min(
     width
       .saturating_sub(BROWSER_MARGIN.saturating_mul(2))
@@ -1458,6 +1524,8 @@ fn tab_bar(width: i32) -> Result<TabBar, Never> {
       .saturating_div(7),
   );
   let next = close
+    .origin
+    .x
     .saturating_sub(size.saturating_mul(3))
     .saturating_sub(strip::GAP);
   let start = BROWSER_MARGIN
@@ -1497,7 +1565,7 @@ fn layout(size: Size<u32>) -> Result<[Rectangle<i32>; CONTROLS.len()], Never> {
   };
   let button_width = spacing.saturating_sub(4);
   let right = width.saturating_sub(BROWSER_MARGIN);
-  let address_left = 8i32.saturating_add(3i32.saturating_mul(spacing));
+  let address_left = BROWSER_MARGIN.saturating_add(3i32.saturating_mul(spacing));
   let settings_left = right
     .saturating_sub(32)
     .saturating_sub(button_width)
@@ -1514,16 +1582,14 @@ fn layout(size: Size<u32>) -> Result<[Rectangle<i32>; CONTROLS.len()], Never> {
     .saturating_sub(8)
     .max(0);
 
-  let Ok(close) = tab_button(TabPlacement {
-    x: right.saturating_sub(strip::HEIGHT),
-    width: strip::HEIGHT,
-  });
+  let Ok(header) = strip::window_area(width);
+  let Ok(close) = strip::close_area(header);
 
   Ok([
-    placed(8, button_width),
-    placed(8i32.saturating_add(spacing), button_width),
+    placed(BROWSER_MARGIN, button_width),
+    placed(BROWSER_MARGIN.saturating_add(spacing), button_width),
     placed(
-      8i32.saturating_add(2i32.saturating_mul(spacing)),
+      BROWSER_MARGIN.saturating_add(2i32.saturating_mul(spacing)),
       button_width,
     ),
     placed(address_left, address_width),
@@ -1568,7 +1634,7 @@ pub(crate) fn words(
 }
 
 pub(crate) fn measured(text: &str, font: &Font) -> Result<Size<u32>, Never> {
-  drawing::measure_text(
+  painting::measure_text(
     Run {
       said: text,
       weight: Weight::Plain,
@@ -1673,7 +1739,7 @@ mod tests {
     );
     assert_eq!(
       toolbar.settings_visibility(),
-      Ok(SettingsVisibility::Visible)
+      Ok(settings::Visibility::Visible)
     );
     assert_eq!(
       toolbar.key(Keysym::F9, 0, address),
@@ -1694,7 +1760,7 @@ mod tests {
     );
     assert_eq!(
       toolbar.settings_visibility(),
-      Ok(SettingsVisibility::Visible)
+      Ok(settings::Visibility::Visible)
     );
     Ok(())
   }
@@ -1774,7 +1840,7 @@ mod tests {
         .ok_or("missing tab label")?;
       assert!(!label.said.is_empty());
       assert_eq!(label.said == original, id == 1);
-      let Ok(size) = drawing::measure_text(
+      let Ok(size) = painting::measure_text(
         Run {
           said: &label.said,
           weight: label.weight,
@@ -1893,13 +1959,65 @@ mod tests {
   fn the_close_button_uses_the_same_action_for_navigation_and_a_tap()
   -> Result<(), palette::PaletteError> {
     let mut toolbar = Toolbar::with_renderers(&[Renderer::WebKit, Renderer::Chromium])?;
+    let Ok(back) = toolbar.at(Control::Back);
+    assert_eq!(
+      toolbar.hover(Some(back.origin)),
+      Ok(ToolbarChange::Unchanged)
+    );
+    assert_eq!(toolbar.pointer_cursor(), Ok(PointerCursor::Default));
+    let Ok(address) = toolbar.at(Control::Address);
+    assert_eq!(
+      toolbar.hover(Some(address.origin)),
+      Ok(ToolbarChange::Different)
+    );
+    assert_eq!(toolbar.pointer_cursor(), Ok(PointerCursor::Text));
     assert_eq!(toolbar.key(Keysym::F6, 0, ""), Ok(Action::Handled));
     assert_eq!(toolbar.key(Keysym::Right, 0, ""), Ok(Action::Handled));
     assert_eq!(toolbar.key(Keysym::Up, 0, ""), Ok(Action::Handled));
     assert_eq!(toolbar.key(Keysym::Return, 0, ""), Ok(Action::Close));
     let Ok(close) = toolbar.at(Control::Close);
+    assert_eq!(
+      toolbar.hover(Some(close.origin)),
+      Ok(ToolbarChange::Different)
+    );
+    assert_eq!(
+      toolbar.hover(Some(close.origin)),
+      Ok(ToolbarChange::Unchanged)
+    );
+    assert_eq!(toolbar.pointer_cursor(), Ok(PointerCursor::Hand));
     assert_eq!(toolbar.tap(close.origin, ""), Ok(Action::Close));
+    assert_eq!(toolbar.hover(None), Ok(ToolbarChange::Different));
 
+    Ok(())
+  }
+
+  #[test]
+  fn an_input_method_replaces_the_selected_address_on_commit() -> Result<(), palette::PaletteError>
+  {
+    let mut toolbar = Toolbar::with_renderers(Renderer::ALL.as_slice())?;
+    let Ok(_) = toolbar.address("https://example.org/");
+    let Ok(()) = toolbar.edit();
+    let Ok(()) = toolbar.text_input(TextInputChange {
+      preedit: Some(Composition {
+        text: "字".to_owned(),
+        cursor_begin: 3,
+        cursor_end: 3,
+      }),
+      ..TextInputChange::default()
+    });
+    assert_eq!(toolbar.address.text(), Ok("https://example.org/"));
+    assert!(matches!(
+      toolbar.text_input_state(),
+      Ok(Some(TextInputState {
+        cursor: Some(_),
+        ..
+      }))
+    ));
+    let Ok(()) = toolbar.text_input(TextInputChange {
+      commit: Some("字".to_owned()),
+      ..TextInputChange::default()
+    });
+    assert_eq!(toolbar.address.text(), Ok("字"));
     Ok(())
   }
 

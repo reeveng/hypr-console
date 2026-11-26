@@ -1,5 +1,5 @@
-//! Build only the executables listed for the Legion Go and archive them with
-//! the commit that supplied the manifest.
+//! Build the common Console executables and each machine profile's executables.
+//! Archive them with the commit that supplied the manifest.
 
 use std::collections::BTreeSet;
 use std::convert::Infallible;
@@ -40,7 +40,10 @@ fn main() -> ExitCode {
   }
 }
 
-fn programs(path: &Path, wanted: &str) -> Result<BTreeSet<String>, Box<dyn Error>> {
+fn programs(
+  path: &Path,
+  desired: impl Fn(&str) -> bool,
+) -> Result<BTreeSet<String>, Box<dyn Error>> {
   let manifest = fs::read_to_string(path)?;
   let mut names = BTreeSet::new();
   let mut section = None;
@@ -52,7 +55,7 @@ fn programs(path: &Path, wanted: &str) -> Result<BTreeSet<String>, Box<dyn Error
       .trim();
 
     match (entry.as_bytes(), section) {
-      ([b'[', ..], _) => section = (entry == wanted).then_some(()),
+      ([b'[', ..], _) => section = desired(entry).then_some(()),
       ([], _) | (_, None) => {}
       ([first, rest @ ..], Some(())) => {
         let valid = first.is_ascii_lowercase()
@@ -75,13 +78,7 @@ fn programs(path: &Path, wanted: &str) -> Result<BTreeSet<String>, Box<dyn Error
     }
   }
 
-  match names.is_empty().then_some(()) {
-    Some(()) => Err(Box::<dyn Error>::from(format!(
-      "No {wanted} entries in {}",
-      path.display()
-    ))),
-    None => Ok(names),
-  }
+  Ok(names)
 }
 
 fn checked(command: &mut Command) -> Result<(), Box<dyn Error>> {
@@ -136,8 +133,16 @@ fn bundle() -> Result<(), Box<dyn Error>> {
     .try_into()
     .map_err(|_| "Usage: console-bundle OUTPUT.tar.gz")?;
   let output = std::path::absolute(destination)?;
-  let mut names = programs(Path::new("desktop.conf"), "[build]")?;
-  let machine_programs = programs(Path::new("machines.conf"), "[legion-go.build]")?;
+  let mut names = programs(Path::new("desktop.conf"), |section| section == "[build]")?;
+
+  match names.is_empty().then_some(()) {
+    Some(()) => return Err("No [build] entries in desktop.conf".into()),
+    None => {}
+  }
+
+  let machine_programs = programs(Path::new("machines.conf"), |section| {
+    section.ends_with(".build]")
+  })?;
   names.extend(machine_programs);
 
   let Ok(mut git) = Tool::Git.command();
@@ -153,12 +158,13 @@ fn bundle() -> Result<(), Box<dyn Error>> {
   }
 
   let Ok(mut build) = Tool::Cargo.command();
-  build
-    .env(
-      "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS",
-      "-C target-cpu=x86-64-v3",
-    )
-    .args(["build", "--locked", "--release", "--target-dir", "target"]);
+  build.env("RUSTFLAGS", "-C target-cpu=x86-64").args([
+    "build",
+    "--locked",
+    "--release",
+    "--target-dir",
+    "target",
+  ]);
 
   for program in &names {
     build.args(["--bin", program]);
@@ -168,7 +174,7 @@ fn bundle() -> Result<(), Box<dyn Error>> {
   let Ok(mut console) = Tool::Console.command();
   checked(console.arg("--help"))?;
 
-  let staging = PathBuf::from("target/legion-go-release");
+  let staging = PathBuf::from("target/console-release");
   fs::create_dir_all(&staging)?;
   write_revision(&staging, &revision.stdout)?;
 

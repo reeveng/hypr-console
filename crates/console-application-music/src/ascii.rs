@@ -6,8 +6,8 @@
 
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index, toward_zero_u8, whole_u32};
-use console_core_shapes::Pixels;
 use console_core_size::Size;
+use console_panel::ui::shapes::Pixels;
 use std::num::NonZero;
 use std::path::Path;
 

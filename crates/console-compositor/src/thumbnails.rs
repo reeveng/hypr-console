@@ -21,25 +21,27 @@ use console_core_number_conversion::{fitted, index};
 use console_core_shapes::Pixels;
 use console_wayland::buffer::ShmBuffer;
 use console_wayland::memory::Shared;
-use console_wayland::{client as wayland_client, protocols as wayland_protocols, registry};
+use console_wayland::{client, protocols, registry};
 
 use crate::toplevel_mapping::{
-  hyprland_toplevel_mapping_manager_v1 as mapper,
-  hyprland_toplevel_window_mapping_handle_v1 as mapped,
+  hyprland_toplevel_mapping_manager_v1::HyprlandToplevelMappingManagerV1,
+  hyprland_toplevel_window_mapping_handle_v1::{self, HyprlandToplevelWindowMappingHandleV1},
 };
-use wayland_client::globals::GlobalListContents;
-use wayland_client::protocol::{wl_buffer, wl_registry, wl_shm, wl_shm_pool};
-use wayland_client::{Connection, Dispatch, EventQueue, QueueHandle, WEnum, event_created_child};
-use wayland_protocols::ext::foreign_toplevel_list::v1::client::{
-  ext_foreign_toplevel_handle_v1 as handle, ext_foreign_toplevel_list_v1 as list,
+use client::globals::GlobalListContents;
+use client::protocol::{wl_buffer, wl_registry, wl_shm, wl_shm_pool};
+use client::{Connection, Dispatch, EventQueue, QueueHandle, WEnum, event_created_child};
+use protocols::ext::foreign_toplevel_list::v1::client::{
+  ext_foreign_toplevel_handle_v1::{self, ExtForeignToplevelHandleV1},
+  ext_foreign_toplevel_list_v1::{self, ExtForeignToplevelListV1},
 };
-use wayland_protocols::ext::image_capture_source::v1::client::{
-  ext_foreign_toplevel_image_capture_source_manager_v1 as sources,
-  ext_image_capture_source_v1 as source,
+use protocols::ext::image_capture_source::v1::client::{
+  ext_foreign_toplevel_image_capture_source_manager_v1::ExtForeignToplevelImageCaptureSourceManagerV1,
+  ext_image_capture_source_v1::ExtImageCaptureSourceV1,
 };
-use wayland_protocols::ext::image_copy_capture::v1::client::{
-  ext_image_copy_capture_frame_v1 as frame, ext_image_copy_capture_manager_v1 as copier,
-  ext_image_copy_capture_session_v1 as session,
+use protocols::ext::image_copy_capture::v1::client::{
+  ext_image_copy_capture_frame_v1::{self, ExtImageCopyCaptureFrameV1},
+  ext_image_copy_capture_manager_v1::{self, ExtImageCopyCaptureManagerV1},
+  ext_image_copy_capture_session_v1::{self, ExtImageCopyCaptureSessionV1},
 };
 
 const OPAQUE: u8 = 255;
@@ -52,9 +54,9 @@ pub struct Capture {
 
 #[derive(Debug)]
 pub enum Unpictured {
-  Compositor(wayland_client::ConnectError),
+  Compositor(client::ConnectError),
   Global(&'static str),
-  Protocol(wayland_client::DispatchError),
+  Protocol(client::DispatchError),
   Memory(io::Error),
 }
 
@@ -87,7 +89,7 @@ enum Outcome {
 }
 
 struct Listed {
-  handle: handle::ExtForeignToplevelHandleV1,
+  handle: ExtForeignToplevelHandleV1,
   address: Option<String>,
 }
 
@@ -101,8 +103,8 @@ struct Taking {
 
 struct Globals {
   shm: wl_shm::WlShm,
-  sources: sources::ExtForeignToplevelImageCaptureSourceManagerV1,
-  copier: copier::ExtImageCopyCaptureManagerV1,
+  sources: ExtForeignToplevelImageCaptureSourceManagerV1,
+  copier: ExtImageCopyCaptureManagerV1,
 }
 
 const HALF: u32 = 32;
@@ -115,10 +117,10 @@ pub fn take(widest: u32) -> Result<Vec<Capture>, Unpictured> {
 
   let shm = registry::shared_memory(&globals, &hand).map_err(|_| Unpictured::Global("wl_shm"))?;
   let sources = globals
-    .bind::<sources::ExtForeignToplevelImageCaptureSourceManagerV1, _, _>(&hand, 1..=1, ())
+    .bind::<ExtForeignToplevelImageCaptureSourceManagerV1, _, _>(&hand, 1..=1, ())
     .map_err(|_| Unpictured::Global("ext_foreign_toplevel_image_capture_source_manager_v1"))?;
   let copier = globals
-    .bind::<copier::ExtImageCopyCaptureManagerV1, _, _>(&hand, 1..=1, ())
+    .bind::<ExtImageCopyCaptureManagerV1, _, _>(&hand, 1..=1, ())
     .map_err(|_| Unpictured::Global("ext_image_copy_capture_manager_v1"))?;
   let bound = Globals {
     shm,
@@ -126,10 +128,10 @@ pub fn take(widest: u32) -> Result<Vec<Capture>, Unpictured> {
     copier,
   };
   let listing = globals
-    .bind::<list::ExtForeignToplevelListV1, _, _>(&hand, 1..=1, ())
+    .bind::<ExtForeignToplevelListV1, _, _>(&hand, 1..=1, ())
     .map_err(|_| Unpictured::Global("ext_foreign_toplevel_list_v1"))?;
   let addresses = globals
-    .bind::<mapper::HyprlandToplevelMappingManagerV1, _, _>(&hand, 1..=1, ())
+    .bind::<HyprlandToplevelMappingManagerV1, _, _>(&hand, 1..=1, ())
     .map_err(|_| Unpictured::Global("hyprland_toplevel_mapping_manager_v1"))?;
 
   let mut taking = Taking {
@@ -148,7 +150,7 @@ pub fn take(widest: u32) -> Result<Vec<Capture>, Unpictured> {
 
   queue.roundtrip(&mut taking).map_err(Unpictured::Protocol)?;
 
-  let wanted: Vec<(handle::ExtForeignToplevelHandleV1, String)> = taking
+  let wanted: Vec<(ExtForeignToplevelHandleV1, String)> = taking
     .listed
     .iter()
     .filter_map(|listed| {
@@ -191,13 +193,16 @@ fn picture(
   queue: &mut EventQueue<Taking>,
   taking: &mut Taking,
   bound: &Globals,
-  window: &handle::ExtForeignToplevelHandleV1,
+  window: &ExtForeignToplevelHandleV1,
 ) -> Result<Option<Captured>, Unpictured> {
   let hand = queue.handle();
   let source = bound.sources.create_source(window, &hand, ());
-  let session = bound
-    .copier
-    .create_session(&source, copier::Options::empty(), &hand, ());
+  let session = bound.copier.create_session(
+    &source,
+    ext_image_copy_capture_manager_v1::Options::empty(),
+    &hand,
+    (),
+  );
 
   taking.size = None;
   taking.formats.clear();
@@ -243,7 +248,7 @@ fn copied(
   queue: &mut EventQueue<Taking>,
   taking: &mut Taking,
   bound: &Globals,
-  session: &session::ExtImageCopyCaptureSessionV1,
+  session: &ExtImageCopyCaptureSessionV1,
   copying: Copying,
 ) -> Result<Option<Captured>, Unpictured> {
   let hand = queue.handle();
@@ -404,7 +409,7 @@ macro_rules! nothing_to_hear {
                 fn event(
                     _taking: &mut Self,
                     _object: &$object,
-                    _event: <$object as wayland_client::Proxy>::Event,
+                    _event: <$object as client::Proxy>::Event,
                     _held: &(),
                     _connection: &Connection,
                     _hand: &QueueHandle<Self>,
@@ -419,10 +424,10 @@ nothing_to_hear!(
   wl_shm::WlShm,
   wl_shm_pool::WlShmPool,
   wl_buffer::WlBuffer,
-  sources::ExtForeignToplevelImageCaptureSourceManagerV1,
-  source::ExtImageCaptureSourceV1,
-  copier::ExtImageCopyCaptureManagerV1,
-  mapper::HyprlandToplevelMappingManagerV1,
+  ExtForeignToplevelImageCaptureSourceManagerV1,
+  ExtImageCaptureSourceV1,
+  ExtImageCopyCaptureManagerV1,
+  HyprlandToplevelMappingManagerV1,
 );
 
 impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for Taking {
@@ -437,7 +442,7 @@ impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for Taking {
   }
 }
 
-impl Dispatch<list::ExtForeignToplevelListV1, ()> for Taking {
+impl Dispatch<ExtForeignToplevelListV1, ()> for Taking {
   #[cfg_attr(
     dylint_lib = "explicit016_no_wildcard_arm",
     allow(
@@ -447,14 +452,14 @@ impl Dispatch<list::ExtForeignToplevelListV1, ()> for Taking {
   )]
   fn event(
     taking: &mut Self,
-    _list: &list::ExtForeignToplevelListV1,
-    event: list::Event,
+    _list: &ExtForeignToplevelListV1,
+    event: ext_foreign_toplevel_list_v1::Event,
     _held: &(),
     _connection: &Connection,
     _hand: &QueueHandle<Self>,
   ) {
     match event {
-      list::Event::Toplevel { toplevel } => taking.listed.push(Listed {
+      ext_foreign_toplevel_list_v1::Event::Toplevel { toplevel } => taking.listed.push(Listed {
         handle: toplevel,
         address: None,
       }),
@@ -462,12 +467,12 @@ impl Dispatch<list::ExtForeignToplevelListV1, ()> for Taking {
     }
   }
 
-  event_created_child!(Taking, list::ExtForeignToplevelListV1, [
-      list::EVT_TOPLEVEL_OPCODE => (handle::ExtForeignToplevelHandleV1, ()),
+  event_created_child!(Taking, ExtForeignToplevelListV1, [
+      ext_foreign_toplevel_list_v1::EVT_TOPLEVEL_OPCODE => (ExtForeignToplevelHandleV1, ()),
   ]);
 }
 
-impl Dispatch<handle::ExtForeignToplevelHandleV1, ()> for Taking {
+impl Dispatch<ExtForeignToplevelHandleV1, ()> for Taking {
   #[cfg_attr(
     dylint_lib = "explicit016_no_wildcard_arm",
     allow(
@@ -477,39 +482,39 @@ impl Dispatch<handle::ExtForeignToplevelHandleV1, ()> for Taking {
   )]
   fn event(
     taking: &mut Self,
-    window: &handle::ExtForeignToplevelHandleV1,
-    event: handle::Event,
+    window: &ExtForeignToplevelHandleV1,
+    event: ext_foreign_toplevel_handle_v1::Event,
     _held: &(),
     _connection: &Connection,
     _hand: &QueueHandle<Self>,
   ) {
     match event {
-      handle::Event::Closed => taking.listed.retain(|listed| listed.handle != *window),
+      ext_foreign_toplevel_handle_v1::Event::Closed => {
+        taking.listed.retain(|listed| listed.handle != *window)
+      }
       _ => {}
     }
   }
 }
 
-impl Dispatch<mapped::HyprlandToplevelWindowMappingHandleV1, handle::ExtForeignToplevelHandleV1>
-  for Taking
-{
+impl Dispatch<HyprlandToplevelWindowMappingHandleV1, ExtForeignToplevelHandleV1> for Taking {
   fn event(
     taking: &mut Self,
-    mapping: &mapped::HyprlandToplevelWindowMappingHandleV1,
-    event: mapped::Event,
-    window: &handle::ExtForeignToplevelHandleV1,
+    mapping: &HyprlandToplevelWindowMappingHandleV1,
+    event: hyprland_toplevel_window_mapping_handle_v1::Event,
+    window: &ExtForeignToplevelHandleV1,
     _connection: &Connection,
     _hand: &QueueHandle<Self>,
   ) {
     let address = match event {
-      mapped::Event::WindowAddress {
+      hyprland_toplevel_window_mapping_handle_v1::Event::WindowAddress {
         address_hi,
         address,
       } => Some(format!(
         "0x{:x}",
         u64::from(address_hi).wrapping_shl(HALF) | u64::from(address)
       )),
-      mapped::Event::Failed => None,
+      hyprland_toplevel_window_mapping_handle_v1::Event::Failed => None,
     };
 
     for listed in taking
@@ -524,7 +529,7 @@ impl Dispatch<mapped::HyprlandToplevelWindowMappingHandleV1, handle::ExtForeignT
   }
 }
 
-impl Dispatch<session::ExtImageCopyCaptureSessionV1, ()> for Taking {
+impl Dispatch<ExtImageCopyCaptureSessionV1, ()> for Taking {
   #[cfg_attr(
     dylint_lib = "explicit016_no_wildcard_arm",
     allow(
@@ -534,25 +539,27 @@ impl Dispatch<session::ExtImageCopyCaptureSessionV1, ()> for Taking {
   )]
   fn event(
     taking: &mut Self,
-    _session: &session::ExtImageCopyCaptureSessionV1,
-    event: session::Event,
+    _session: &ExtImageCopyCaptureSessionV1,
+    event: ext_image_copy_capture_session_v1::Event,
     _held: &(),
     _connection: &Connection,
     _hand: &QueueHandle<Self>,
   ) {
     match event {
-      session::Event::BufferSize { width, height } => taking.size = Some((width, height)),
-      session::Event::ShmFormat {
+      ext_image_copy_capture_session_v1::Event::BufferSize { width, height } => {
+        taking.size = Some((width, height))
+      }
+      ext_image_copy_capture_session_v1::Event::ShmFormat {
         format: WEnum::Value(format),
       } => taking.formats.push(format),
-      session::Event::Done => taking.session = Outcome::Succeeded,
-      session::Event::Stopped => taking.session = Outcome::Failed,
+      ext_image_copy_capture_session_v1::Event::Done => taking.session = Outcome::Succeeded,
+      ext_image_copy_capture_session_v1::Event::Stopped => taking.session = Outcome::Failed,
       _ => {}
     }
   }
 }
 
-impl Dispatch<frame::ExtImageCopyCaptureFrameV1, ()> for Taking {
+impl Dispatch<ExtImageCopyCaptureFrameV1, ()> for Taking {
   #[cfg_attr(
     dylint_lib = "explicit016_no_wildcard_arm",
     allow(
@@ -562,15 +569,15 @@ impl Dispatch<frame::ExtImageCopyCaptureFrameV1, ()> for Taking {
   )]
   fn event(
     taking: &mut Self,
-    _frame: &frame::ExtImageCopyCaptureFrameV1,
-    event: frame::Event,
+    _frame: &ExtImageCopyCaptureFrameV1,
+    event: ext_image_copy_capture_frame_v1::Event,
     _held: &(),
     _connection: &Connection,
     _hand: &QueueHandle<Self>,
   ) {
     match event {
-      frame::Event::Ready => taking.frame = Outcome::Succeeded,
-      frame::Event::Failed { .. } => taking.frame = Outcome::Failed,
+      ext_image_copy_capture_frame_v1::Event::Ready => taking.frame = Outcome::Succeeded,
+      ext_image_copy_capture_frame_v1::Event::Failed { .. } => taking.frame = Outcome::Failed,
       _ => {}
     }
   }

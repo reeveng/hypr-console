@@ -48,7 +48,7 @@
 //! to whoever does that half.
 
 use std::collections::BTreeSet;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufReader, Write};
 use std::net::Shutdown;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
@@ -56,6 +56,7 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, TrySendError, sync
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::Duration;
 
+use console_core_bounded_reads::{Line, LineEnding, LinePart};
 use console_core_iteration::{Step, iterate};
 use console_core_never::Never;
 use console_core_reconnect::{Round, keep};
@@ -63,6 +64,7 @@ use console_program_contract::{Change, EventGroup};
 
 use super::place;
 use super::wire::{self, Message};
+use crate::unix_stream::{connect as connect_stream, receive_line};
 
 pub struct Subscriber {
   subscriptions: Subscriptions,
@@ -111,6 +113,7 @@ enum Connection {
 type Reconnect = Weak<Mutex<Wanted>>;
 
 const WRITE_DEADLINE: Duration = Duration::from_millis(150);
+const REPLY_DEADLINE: Duration = Duration::from_secs(1);
 const DELIVERY_RETRY: Duration = Duration::from_millis(25);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -304,21 +307,7 @@ fn interest(desired: &Reconnect) -> Result<Interest, Never> {
 }
 
 fn open_connection(socket: &Path) -> std::io::Result<UnixStream> {
-  use rustix::net::{
-    AddressFamily, SocketAddrUnix, SocketFlags, SocketType, connect, socket_with,
-  };
-
-  let address = SocketAddrUnix::new(socket)?;
-  let descriptor = socket_with(
-    AddressFamily::UNIX,
-    SocketType::STREAM,
-    SocketFlags::NONBLOCK | SocketFlags::CLOEXEC,
-    None,
-  )?;
-  connect(&descriptor, &address)?;
-
-  let stream = UnixStream::from(descriptor);
-  stream.set_nonblocking(false)?;
+  let stream = connect_stream(socket)?;
   stream.set_write_timeout(Some(WRITE_DEADLINE))?;
 
   Ok(stream)
@@ -418,16 +407,40 @@ fn read_events(
     Delivery::Closed => return retired(desired),
   }
 
-  'reading: for read in BufReader::new(reading).lines() {
-    let line = match read {
-      Ok(line) => line,
+  let mut input = BufReader::new(reading);
+  let Ok(mut frame) = Line::new(wire::REPLY_BYTES, LineEnding::Required);
+
+  #[cfg_attr(
+    dylint_lib = "explicit054_no_loop",
+    expect(
+      explicit054_no_loop,
+      reason = "this worker owns a persistent subscription and closes it on source errors or when delivery is retired"
+    )
+  )]
+  'reading: loop {
+    match receive_line(&mut input, &mut frame, None, REPLY_DEADLINE) {
+      Ok(LinePart::Complete) => {}
+      Ok(LinePart::End | LinePart::Partial) => break 'reading,
       Err(fault) => {
         console_core_logging::debug!("console-events: reading from the pool: {fault}");
 
         break 'reading;
       }
+    }
+
+    let Ok(bytes) = frame.bytes();
+    let line = match std::str::from_utf8(bytes) {
+      Ok(line) => match line.strip_suffix('\r') {
+        Some(stripped) => stripped,
+        None => line,
+      },
+      Err(fault) => {
+        console_core_logging::debug!("console-events: decoding a reply from the pool: {fault}");
+
+        break 'reading;
+      }
     };
-    let Ok(message) = wire::decoded(&line);
+    let Ok(message) = wire::decoded(line);
 
     match message {
       Some(Message::Publish(change)) => {

@@ -10,11 +10,13 @@ name = "console_bus"
 path = "src/lib.rs"
 
 [dependencies]
+console-core-bytes = { workspace = true, features = ["alloc"] }
 console-core-external-programs.workspace = true
 console-core-never.workspace = true
 console-core-iteration.workspace = true
 console-core-number-conversion.workspace = true
 console-core-synchronization.workspace = true
+console-operating-system-linux.workspace = true
 console-program-contract.workspace = true
 rustix = { workspace = true, features = ["net"] }
 

@@ -33,7 +33,7 @@ use console_core_portable_document_rasterizer::{
   RenderCache, RenderError, RenderSettings, ScaleFactor, render,
 };
 use console_core_portable_document_text::{GlyphSpacing, PageText, extract_page};
-use console_core_shapes::Pixels;
+use console_panel::ui::shapes::Pixels;
 
 use crate::live_text::{Area, PageFraction, Paragraph};
 

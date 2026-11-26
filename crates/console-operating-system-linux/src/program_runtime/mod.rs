@@ -548,7 +548,7 @@ fn parse_choice(said: &str, default: Choice) -> Result<Choice, Never> {
 
 fn wrote(called: &str, write: &FileWrite) -> Result<WriteAnswer, Never> {
   let result =
-    console_core_atomic_writes::whole(&write.path, write.contents.as_bytes()).map_err(|fault| {
+    console_core_atomic_writes::whole(&write.path, write.contents.as_ref()).map_err(|fault| {
       let stage = match &fault {
         Unwritten::Making(_, _) => WriteStage::Create,
         Unwritten::Filling(_, _) => WriteStage::Fill,
@@ -596,17 +596,20 @@ fn notify(
 #[cfg(test)]
 mod write_tests {
   use super::*;
+  use console_core_bytes::Bytes;
 
   #[test]
   fn a_write_reply_reports_the_target_and_the_stage_that_failed()
   -> Result<(), Box<dyn std::error::Error>> {
     let folder = console_core_temporary_directories::fresh("linux-write-reply")?;
     let path = folder.join("report");
+    let binary = [0x00, 0x80, 0xff];
+    let Ok(payload) = Bytes::copy_from_slice(&binary);
     let answer = wrote(
       "test",
       &FileWrite {
         path: path.clone(),
-        contents: "saved".to_string(),
+        contents: payload,
       },
     )?;
     assert_eq!(
@@ -616,16 +619,16 @@ mod write_tests {
         result: Ok(())
       }
     );
-    let contents = std::fs::read_to_string(&path)?;
+    let contents = std::fs::read(&path)?;
 
-    assert_eq!(contents, "saved");
+    assert_eq!(contents, binary);
 
     let missing = path.join("no-file-can-go-here");
     let failed = wrote(
       "test",
       &FileWrite {
         path: missing.clone(),
-        contents: "unsaved".to_string(),
+        contents: Bytes::from("unsaved".to_string()),
       },
     )?;
     assert_eq!(failed.path, missing);

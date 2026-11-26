@@ -3,8 +3,10 @@ use std::os::fd::{AsFd, BorrowedFd};
 use std::os::unix::net::UnixDatagram;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::time::Duration;
 
-use console_compositor::{ActiveWorkspace, Clients, DispatchResult, Monitors, Script};
+use console_compositor::workspace_snapshot::{self, QueryPlan, Snapshot};
+use console_compositor::{DispatchResult, Script};
 use console_core_arguments::{Operands, Presence, read};
 use console_core_color::palette::Wearing;
 use console_core_fonts::TextStyle;
@@ -18,6 +20,7 @@ use console_draw_surface::{
   Activation, Anchor, Closed, Keyboard, KeyboardEvent, Keysym, Margin, PointerEvent, Room,
   Surface, SurfaceError, Under, Wanted,
 };
+use console_events::ipc::{Client as Ipc, Reply, Request, Trace, Workspace};
 use console_onscreen::{OVERVIEW, OVERVIEW_EDGE};
 use console_overview::{
   Choosing, Chose, Dragged, EDGE, Hit, HorizontalPixels, Key, Measure, Overview, PlaceId, Scene,
@@ -446,7 +449,7 @@ fn refreshed(
     Ok(None) => return Ok(showing),
   };
 
-  let Ok(again) = looked(room);
+  let Ok(again) = looked(room, Observation::Read);
 
   let showing_2 = match (showing, again) {
     (
@@ -639,16 +642,44 @@ fn tapped(on: &Hit) -> Result<Next, Never> {
   })
 }
 
-fn looked(room: Size<u32>) -> Result<Option<(Overview, Option<PlaceId>)>, Never> {
-  let asked = console_compositor::ask(Clients).and_then(|open| {
-    let screens = console_compositor::ask(Monitors)?;
-    let front = console_compositor::ask(ActiveWorkspace)?;
+enum Observation {
+  Recent,
+  Read,
+}
 
-    Ok((open, screens, front))
-  });
+fn recent_snapshot() -> Result<Option<Snapshot>, Never> {
+  let mut client = match Ipc::session(Trace::Quiet) {
+    Ok(client) => client,
+    Err(_relay_unavailable) => return Ok(None),
+  };
+  let request = Request::GetWorkspace { max_age_ms: 2_000 };
 
-  let (open, screens, front) = match asked {
-    Ok(all) => all,
+  Ok(match client.call(request, Duration::from_millis(35)) {
+    Ok(Reply::Workspace(Workspace::Fresh { snapshot, .. })) => Some(snapshot),
+    Ok(Reply::Workspace(Workspace::Stale) | Reply::Pong | Reply::Fault(_)) => None,
+    Err(_no_snapshot_before_the_deadline) => None,
+  })
+}
+
+fn looked(
+  room: Size<u32>,
+  observation: Observation,
+) -> Result<Option<(Overview, Option<PlaceId>)>, Never> {
+  let snapshot = match observation {
+    Observation::Recent => {
+      let Ok(recent) = recent_snapshot();
+
+      recent.map_or_else(direct_snapshot, Ok)
+    }
+    Observation::Read => direct_snapshot(),
+  };
+  let Snapshot {
+    clients,
+    monitors,
+    front,
+    ..
+  } = match snapshot {
+    Ok(snapshot_2) => snapshot_2,
     Err(why) => {
       eprintln!("console-overview: {why}");
 
@@ -656,13 +687,13 @@ fn looked(room: Size<u32>) -> Result<Option<(Overview, Option<PlaceId>)>, Never>
     }
   };
 
-  let screen = screens.iter().find_map(|screen| {
+  let screen = monitors.iter().find_map(|screen| {
     let Ok(logical) = screen.logical();
 
     logical
   });
 
-  let Ok(grouped) = places(open);
+  let Ok(grouped) = places(clients);
   let Ok(laid) = overview(
     &grouped,
     match screen {
@@ -672,6 +703,11 @@ fn looked(room: Size<u32>) -> Result<Option<(Overview, Option<PlaceId>)>, Never>
   );
 
   Ok(Some((laid, front.map(|workspace| PlaceId(workspace.id)))))
+}
+
+fn direct_snapshot() -> Result<Snapshot, workspace_snapshot::Error> {
+  workspace_snapshot::capture_with(QueryPlan::Batch)
+    .or_else(|_| workspace_snapshot::capture_with(QueryPlan::Separate))
 }
 
 fn ask(script: &Script) -> Result<(), Never> {
@@ -733,7 +769,7 @@ fn open(surface: &mut Surface, wearing: &Wearing) -> Result<Showing, SurfaceErro
     Ok(None) => return edge(surface),
   };
 
-  let Ok(seen) = looked(room);
+  let Ok(seen) = looked(room, Observation::Recent);
 
   let (laid, front) = match seen {
     Some(seen_2) => seen_2,

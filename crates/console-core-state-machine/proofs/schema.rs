@@ -24,8 +24,8 @@ fn a_checked_slice_preserves_the_result_and_the_decoder_position() {
   let Ok(mut current) = Decoder::new(input);
 
   let expected = read_byte_by_byte(&mut previous);
-  assert_eq!(current.bytes(), expected);
-  assert_eq!(current.rest, previous.rest);
+  assert_eq!(current.bytes().as_deref(), expected.as_deref());
+  assert_eq!(current.cursor.rest(), previous.cursor.rest());
   kani::cover!(expected.as_ref().is_ok_and(|bytes| !bytes.is_empty()));
   kani::cover!(length < 8);
   kani::cover!(length == 12 && bytes[..8] == u64::MAX.to_be_bytes());

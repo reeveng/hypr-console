@@ -272,13 +272,17 @@ pub(crate) fn frame(data: &[u8]) -> Result<Image<'_>, WebpError> {
   };
 
   let [x0, x1, x2, y0, y1, y2, w0, w1, w2, h0, h1, h2, ..] = *header;
+  let Ok(x) = console_core_bytes::endian::u24_le([x0, x1, x2]);
+  let Ok(y) = console_core_bytes::endian::u24_le([y0, y1, y2]);
+  let Ok(width) = console_core_bytes::endian::u24_le([w0, w1, w2]);
+  let Ok(height) = console_core_bytes::endian::u24_le([h0, h1, h2]);
   let place = Point {
-    x: u32::from_le_bytes([x0, x1, x2, 0]).saturating_mul(2),
-    y: u32::from_le_bytes([y0, y1, y2, 0]).saturating_mul(2),
+    x: x.saturating_mul(2),
+    y: y.saturating_mul(2),
   };
   let size = Size {
-    width: u32::from_le_bytes([w0, w1, w2, 0]).saturating_add(1),
-    height: u32::from_le_bytes([h0, h1, h2, 0]).saturating_add(1),
+    width: width.saturating_add(1),
+    height: height.saturating_add(1),
   };
 
   let walked = iterate(Walk { at: 0, alpha: None }, |walk| {
@@ -332,8 +336,11 @@ fn canvas(data: &[u8]) -> Result<Size<u32>, WebpError> {
     None => return Err(WebpError::Truncated),
   };
 
+  let Ok(width) = console_core_bytes::endian::u24_le([w0, w1, w2]);
+  let Ok(height) = console_core_bytes::endian::u24_le([h0, h1, h2]);
+
   Ok(Size {
-    width: u32::from_le_bytes([w0, w1, w2, 0]).saturating_add(1),
-    height: u32::from_le_bytes([h0, h1, h2, 0]).saturating_add(1),
+    width: width.saturating_add(1),
+    height: height.saturating_add(1),
   })
 }

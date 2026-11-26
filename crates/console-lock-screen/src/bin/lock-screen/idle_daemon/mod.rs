@@ -1,5 +1,7 @@
 use std::io;
 use std::os::fd::AsFd;
+
+use console_bus::connection::Deferred;
 use std::os::unix::net::UnixDatagram;
 
 use console_battery::power_source;
@@ -77,26 +79,24 @@ impl Configuration {
   fn read() -> core::result::Result<Self, Never> {
     let mut timers = Vec::new();
 
-    for action in Action::ALL {
-      let Ok(delay) = action.delay();
-      let Ok(millis) = delay.milliseconds();
-      let timer = match action {
-        Action::Dim => Timer::Dim,
-        Action::Blank => Timer::Blank,
-        Action::Suspend => Timer::Suspend,
-      };
-      timers.extend(millis.map(|ms| (timer, ms)));
-    }
-
     let Ok(available) = lock_available();
-    let suspend_lock = match available {
-      LockScreen::On => {
-        for profile in [Profile::General, Profile::OnBattery, Profile::PluggedIn] {
-          let Ok(delay) = idle::delay(profile);
-          let Ok(millis) = delay.milliseconds();
-          timers.extend(millis.map(|ms| (Timer::Lock(profile), ms)));
+
+    for profile in Profile::ALL {
+      'action: for action in Action::ALL {
+        match (action, available) {
+          (Action::Lock, LockScreen::Off) => continue 'action,
+          (Action::Dim | Action::Blank | Action::Suspend, _) | (Action::Lock, LockScreen::On) => {
+          }
         }
 
+        let Ok(delay) = action.delay(profile);
+        let Ok(millis) = delay.milliseconds();
+        timers.extend(millis.map(|ms| (Timer { action, profile }, ms)));
+      }
+    }
+
+    let suspend_lock = match available {
+      LockScreen::On => {
         let Ok(choice) = idle::on_suspend();
         choice
       }
@@ -159,9 +159,18 @@ impl Driver {
   }
 
   fn next(&mut self, state: State, power: &PowerWatch) -> Result<State> {
-    let mut descriptors = vec![self.login.incoming.as_fd(), power.reader.as_fd()];
-    descriptors.extend(self.screen_saver.as_ref().map(|bus| bus.incoming.as_fd()));
-    self.seat.wait(&descriptors)?;
+    let Ok(login) = self.login.incoming.deferred();
+    let screen_saver = self.screen_saver.as_ref().map(|bus| {
+      let Ok(deferred) = bus.incoming.deferred();
+
+      deferred
+    });
+
+    match (login, screen_saver) {
+      (Deferred::Ready, _) | (Deferred::Empty, Some(Deferred::Ready)) => {}
+      (Deferred::Empty, Some(Deferred::Empty) | None) => self.wait(power)?,
+    }
+
     let lock_or_sleep = self.login.next()?;
     let after_login = self.observed(state, lock_or_sleep)?;
     let Ok(session) = after_login.session();
@@ -175,6 +184,13 @@ impl Driver {
     let after_power = self.observed(after_inhibitors, power_change)?;
 
     self.seat_events(after_power)
+  }
+
+  fn wait(&mut self, power: &PowerWatch) -> Result<()> {
+    let mut descriptors = vec![self.login.incoming.as_fd(), power.reader.as_fd()];
+    descriptors.extend(self.screen_saver.as_ref().map(|bus| bus.incoming.as_fd()));
+
+    self.seat.wait(&descriptors)
   }
 
   fn seat_events(&mut self, mut state: State) -> Result<State> {

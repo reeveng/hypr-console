@@ -5,9 +5,9 @@ use console_core_fonts::Font;
 use console_core_geometry::{Point, Rectangle, Size};
 use console_core_highlight::{Actions, Heading, Press, Resolution, under};
 use console_core_number_conversion::fitted;
-use console_core_shapes::{Edge, Shape};
-use console_draw_painting::{self as drawing, Frame};
 use console_input_key_symbols::Keysym;
+use console_panel::ui::painting::{self, Frame};
+use console_panel::ui::shapes::{Edge, Shape, hover_indicator};
 
 use crate::reader::{Mode, TextSize};
 use crate::renderer::Renderer;
@@ -104,6 +104,19 @@ impl Settings {
         }
       }
     })
+  }
+
+  pub(crate) fn hover_area(
+    &self,
+    point: Point<i32>,
+  ) -> Result<Option<Rectangle<i32>>, console_core_never::Never> {
+    let Ok(hit) = under(point, &self.frames);
+
+    Ok(hit.and_then(|position| {
+      let Ok(index) = console_core_number_conversion::index(position);
+
+      self.frames.get(index).copied()
+    }))
   }
 
   pub(crate) fn key(
@@ -243,8 +256,8 @@ impl Settings {
     palette: &Wearing,
     font: &Font,
     status: &Status,
-    renderers: &[Renderer],
-  ) -> Result<(), drawing::Cannot> {
+    (renderers, pointer): (&[Renderer], Option<Point<i32>>),
+  ) -> Result<(), painting::Cannot> {
     let choices = match self.view {
       View::Closed => return Ok(()),
       View::Settings => &[],
@@ -252,31 +265,10 @@ impl Settings {
     };
     self.frames.clear();
     self.controls.clear();
-    let Ok(width) = fitted::<_, i32>(frame.points.width);
-    let Ok(height) = fitted::<_, i32>(frame.points.height);
-    let wide = width.saturating_sub(16).clamp(1, MAX_WIDTH);
-    let Ok(choice_rows) = fitted::<_, i32>(choices.len());
-    let text_rows = match status.reader {
-      Some(Mode::Dark) => 1,
-      None | Some(Mode::Desktop) => 0,
-    };
-    let rows = choice_rows.saturating_add(text_rows).saturating_add(3);
-    let tall = rows
-      .saturating_mul(ROW.saturating_add(GAP))
-      .saturating_add(::core::primitive::i32::wrapping_mul(2, INSET));
-    let Ok(chrome_height) = fitted::<_, i32>(HEIGHT);
-    let top = chrome_height
-      .saturating_add(6)
-      .min(height.saturating_sub(::core::primitive::i32::wrapping_add(tall, 8)))
-      .max(50);
-    let left = width.saturating_sub(wide).saturating_sub(8).max(0);
-    let Ok(bounds) = rectangle(
-      Point { x: left, y: top },
-      Size {
-        width: wide,
-        height: tall,
-      },
-    );
+    let Ok(choice_count) = fitted::<_, u32>(choices.len());
+    let Ok(bounds) = settings_bounds(frame.points, choice_count, status.reader);
+    let Point { x: left, y: top } = bounds.origin;
+    let wide = bounds.size.width;
     self.bounds = Some(bounds);
     let Ok(backdrop) = panel(
       bounds,
@@ -367,7 +359,32 @@ impl Settings {
     }
 
     let Ok(()) = self.paint_controls(&mut shapes, &label, palette, font, status);
-    drawing::over(pixels, frame, &shapes)
+    let Ok(()) = self.paint_hover(&mut shapes, pointer, palette);
+    painting::over(pixels, frame, &shapes)
+  }
+
+  fn paint_hover(
+    &self,
+    shapes: &mut Vec<Shape>,
+    pointer: Option<Point<i32>>,
+    palette: &Wearing,
+  ) -> Result<(), console_core_never::Never> {
+    let target = pointer.and_then(|point| {
+      let Ok(hit) = self.hover_area(point);
+
+      hit
+    });
+
+    match target {
+      Some(area) => {
+        let Ok(size) = console_panel::canvas::AreaLayout::pixel_size(area);
+        let Ok(indicator) = hover_indicator(area.origin, size, (palette.pink, palette.night));
+        shapes.extend(indicator);
+      }
+      None => {}
+    }
+
+    Ok(())
   }
 
   fn add_rows(
@@ -544,14 +561,14 @@ pub(crate) fn label_at(
       _ => {}
     }
 
-    let Ok(text) = drawing::at_most(
-      drawing::Run {
+    let Ok(text) = painting::at_most(
+      painting::Run {
         said: label,
         weight: console_core_fonts::Weight::Plain,
         width,
       },
       font,
-      drawing::Lines(1),
+      painting::Lines(1),
     );
     let Ok(size) = measured(&text, font);
     let Ok(tall) = fitted::<_, i32>(size.height);
@@ -575,6 +592,38 @@ pub(crate) fn label_at(
 }
 
 #[must_use]
+fn settings_bounds(
+  room: Size<u32>,
+  choices: u32,
+  reader: Option<Mode>,
+) -> Result<Rectangle<i32>, console_core_never::Never> {
+  let Ok(width) = fitted::<_, i32>(room.width);
+  let Ok(height) = fitted::<_, i32>(room.height);
+  let wide = width.saturating_sub(16).clamp(1, MAX_WIDTH);
+  let Ok(choice_rows) = fitted::<_, i32>(choices);
+  let text_rows = match reader {
+    Some(Mode::Dark) => 1,
+    None | Some(Mode::Desktop) => 0,
+  };
+  let rows = choice_rows.saturating_add(text_rows).saturating_add(3);
+  let tall = rows
+    .saturating_mul(ROW.saturating_add(GAP))
+    .saturating_add(::core::primitive::i32::wrapping_mul(2, INSET));
+  let Ok(chrome_height) = fitted::<_, i32>(HEIGHT);
+  let top = chrome_height
+    .saturating_add(6)
+    .min(height.saturating_sub(::core::primitive::i32::wrapping_add(tall, 8)))
+    .max(50);
+  let left = width.saturating_sub(wide).saturating_sub(8).max(0);
+  rectangle(
+    Point { x: left, y: top },
+    Size {
+      width: wide,
+      height: tall,
+    },
+  )
+}
+
 fn rectangle(
   origin: Point<i32>,
   size: Size<i32>,
@@ -612,10 +661,24 @@ mod tests {
     let available = &[Renderer::Servo, Renderer::Chromium];
     let mut settings = Settings::default();
     let Ok(()) = settings.open();
-    settings.paint(&mut pixels, frame, &palette, &font, &status, available)?;
+    settings.paint(
+      &mut pixels,
+      frame,
+      &palette,
+      &font,
+      &status,
+      (available, None),
+    )?;
     let Ok(key) = settings.key(Keysym::Return, 0, &status);
     assert_eq!(key, Action::SettingsChanged,);
-    settings.paint(&mut pixels, frame, &palette, &font, &status, available)?;
+    settings.paint(
+      &mut pixels,
+      frame,
+      &palette,
+      &font,
+      &status,
+      (available, None),
+    )?;
     assert!(
       !settings
         .controls
@@ -630,7 +693,14 @@ mod tests {
       }),
       Action::Switch(Renderer::Chromium),
     );
-    settings.paint(&mut pixels, frame, &palette, &font, &status, available)?;
+    settings.paint(
+      &mut pixels,
+      frame,
+      &palette,
+      &font,
+      &status,
+      (available, None),
+    )?;
     assert!(
       !settings
         .controls

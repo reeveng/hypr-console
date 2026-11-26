@@ -4,6 +4,7 @@
 
 mod catalogue;
 mod packages;
+mod search;
 mod view;
 
 use std::cmp::Ordering;
@@ -19,20 +20,21 @@ use console_core_external_programs::Installed;
 use console_core_geometry::{Containment, Point, Size};
 use console_core_iteration::{Step, iterate};
 use console_core_number_conversion::toward_zero_i32;
-use console_core_state_machine::SingleEffectMachine;
-use console_draw_surface::{
-  Closed, InputContent, KeyPress, KeyboardFocus, Keysym, PhysicalKeyPress, PointerEvent, Scale,
-  Surface, Surrounding, TextInputChange, TextInputState, Window,
-};
+use console_core_state_machine::{Machine, SingleEffectMachine};
 use console_input_text::{InputDeletion, TextField, Typed};
 use console_package_manager::catalogue::{Catalogue, Manager, Matches};
 use console_package_manager::user::Profile;
-use console_panel::canvas::{AreaLayout, FocusDirection};
+use console_panel::canvas::{Area, AreaLayout, FocusDirection};
 use console_panel::keys::{
   Driving, Meaning, Navigation, NavigationEffect, NavigationInput, NavigationKeys, TabMotion,
 };
 use console_panel::scrolling::{self, LogicalPixels};
 use console_panel::strip::{self, Stop};
+use console_panel::ui::surface::{
+  Closed, Composition, Hover, InputContent, KeyPress, KeyboardFocus, Keysym, PhysicalKeyPress,
+  PointerEvent, RepaintHover, Scale, Surface, Surrounding, TextInputChange, TextInputState,
+  Window,
+};
 use console_program_lifetime::threads::let_go;
 use packages::{Local, sources};
 use view::{Frame, Theme};
@@ -97,9 +99,6 @@ enum FailureSource {
   Application,
   PackageManager,
 }
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct SearchId(u64);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ProfileAvailability {
@@ -168,7 +167,7 @@ struct ChangedPackage {
 }
 
 enum Reply {
-  Search(Manager, SearchId, io::Result<Matches>),
+  Search(Manager, search::SearchId, io::Result<Matches>),
   Profile(sources::Inventory),
   Change(ChangedPackage),
   Open(io::Result<()>),
@@ -178,11 +177,8 @@ struct Shop {
   page: Page,
   category: Category,
   query: TextField,
-  preedit: String,
-  deadline: Option<Instant>,
-  request: SearchId,
-  queued_searches: BTreeSet<Manager>,
-  search_in_flight: BTreeMap<Manager, SearchId>,
+  preedit: Option<Composition>,
+  search: search::Schedule,
   search_problem: Option<Notice>,
   suggestions: Vec<Package>,
   results: BTreeMap<Manager, Matches>,
@@ -199,7 +195,7 @@ struct Shop {
   wheel: scrolling::Position,
   focus: Option<Action>,
   navigation: Navigation,
-  hover: Option<Action>,
+  hover: Hover<(Area, Action)>,
   overlay: Option<Overlay>,
   send: SyncSender<Reply>,
   replies: Receiver<Reply>,
@@ -232,11 +228,8 @@ impl Shop {
       page: Page::Browse,
       category: Category::All,
       query: TextField::default(),
-      preedit: String::new(),
-      deadline: None,
-      request: SearchId(0),
-      queued_searches: BTreeSet::new(),
-      search_in_flight: BTreeMap::new(),
+      preedit: None,
+      search: search::Schedule::default(),
       search_problem: None,
       suggestions: Vec::new(),
       results: BTreeMap::new(),
@@ -253,7 +246,7 @@ impl Shop {
       wheel: scrolling::Position::default(),
       focus: None,
       navigation: Navigation::Ready,
-      hover: None,
+      hover: Hover::default(),
       overlay: None,
       send,
       replies,
@@ -271,18 +264,8 @@ impl Shop {
 
   #[must_use]
   fn searching(&self) -> Result<SearchStatus, Infallible> {
-    let Ok(query) = self.query();
-    let pending = !query.trim().is_empty()
-      && (!self.queued_searches.is_empty()
-        || self
-          .search_in_flight
-          .values()
-          .any(|request| *request == self.request));
-
-    Ok(match pending.then_some(()) {
-      Some(()) => SearchStatus::Searching,
-      None => SearchStatus::Settled,
-    })
+    let Ok(status) = self.search.status();
+    Ok(status)
   }
 
   #[must_use]
@@ -395,38 +378,29 @@ impl Shop {
     })
   }
 
-  fn edit_query(&mut self) -> core::result::Result<(), core::convert::Infallible> {
-    {
-      self.scroll.search = 0;
-      self.wheel = scrolling::Position::default();
-      self.request = SearchId(self.request.0.wrapping_add(1));
-      self.search_problem = None;
-      self.results.clear();
-      self.queued_searches.clear();
-      self.deadline = None;
-      let Ok(()) = self.match_catalogue();
-      let Ok(own_query) = self.query();
-      let query = own_query.trim();
+  fn edit_query(&mut self) -> Result<(), Infallible> {
+    self.scroll.search = 0;
+    self.wheel = scrolling::Position::default();
+    self.search_problem = None;
+    self.results.clear();
+    let Ok(()) = self.match_catalogue();
 
-      match query {
-        "" => self.suggestions.clear(),
-        pattern => {
-          let Ok(features) = catalogue::suggested(pattern);
-          self.suggestions = features;
-          let Ok(managers) = self.catalogue.remote_managers();
-          self.queued_searches.extend(managers);
-          let now = Instant::now();
-          self.deadline = match self.queued_searches.is_empty().then_some(()) {
-            Some(()) => None,
-            None => match now.checked_add(DEBOUNCE) {
-              Some(deadline) => Some(deadline),
-              None => Some(now),
-            },
-          };
-        }
+    let Ok(written) = self.query();
+    let query = written.split_whitespace().collect::<Vec<_>>().join(" ");
+    let (features, managers) = match query.as_str() {
+      "" => (Vec::new(), BTreeSet::new()),
+      pattern => {
+        let Ok(features) = catalogue::suggested(pattern);
+        let Ok(managers) = self.catalogue.remote_managers();
+        (features, managers.collect())
       }
     };
-
+    self.suggestions = features;
+    let Ok(_) = self.search_event(search::Request::Edit {
+      query,
+      managers,
+      now: Instant::now(),
+    });
     Ok(())
   }
 
@@ -441,7 +415,7 @@ impl Shop {
   fn clear_query(&mut self) -> core::result::Result<(), core::convert::Infallible> {
     {
       self.query = TextField::default();
-      self.preedit.clear();
+      self.preedit = None;
       let Ok(()) = self.edit_query();
     };
 
@@ -547,28 +521,18 @@ impl Shop {
     let Ok(current) = self.catalogue.remote_managers();
     let active: BTreeSet<_> = current.collect();
     self.results.retain(|manager, _| active.contains(manager));
-    self
-      .queued_searches
-      .retain(|manager| active.contains(manager));
-    let Ok(query) = self.query();
-
-    match (!query.trim().is_empty()).then_some(()) {
-      Some(()) => self
-        .queued_searches
-        .extend(active.difference(&known).copied()),
-      None => {}
-    }
-
-    match (self.deadline.is_none() && !self.queued_searches.is_empty()).then_some(()) {
-      Some(()) => self.deadline = Some(Instant::now()),
-      None => {}
-    }
+    let added = active.difference(&known).copied().collect();
+    let Ok(_) = self.search_event(search::Request::Sources {
+      active,
+      added,
+      now: Instant::now(),
+    });
 
     Ok(())
   }
 
   fn advance(&mut self) -> Result<Editing, Infallible> {
-    let Ok(mut changed) = self.start_search(Instant::now());
+    let Ok(mut changed) = self.search_event(search::Request::Poll(Instant::now()));
 
     for _ in 0..4 {
       let reply = match self.replies.try_recv() {
@@ -582,49 +546,72 @@ impl Shop {
     Ok(changed)
   }
 
-  fn start_search(&mut self, now: Instant) -> Result<Editing, Infallible> {
-    let due = self.deadline.is_some_and(|deadline| now >= deadline);
+  fn search_event(&mut self, event: search::Request) -> Result<Editing, Infallible> {
+    let Ok(turn) = search::Search::transition(std::mem::take(&mut self.search), event);
+    self.search = turn.state;
+    let changed = match turn.effects.is_empty().then_some(()) {
+      Some(()) => Editing::Unchanged,
+      None => Editing::Updated,
+    };
 
-    match due.then_some(()) {
-      Some(()) => self.deadline = None,
-      None => return Ok(Editing::Unchanged),
+    for effect in turn.effects {
+      match effect {
+        search::Effect::Query { manager, id, query } => {
+          let Ok(()) = self.request_search(manager, id, query);
+        }
+        search::Effect::Present { manager, result } => {
+          let Ok(()) = self.present_search(manager, result);
+        }
+      }
     }
 
-    let Ok(written) = self.query();
-    let query = written.split_whitespace().collect::<Vec<_>>().join(" ");
-    let available: Vec<_> = self
-      .queued_searches
-      .iter()
-      .copied()
-      .filter(|manager| !self.search_in_flight.contains_key(manager))
-      .collect();
-
-    for manager in available {
-      let Ok(()) = self.request_search(manager, &query);
-    }
-
-    Ok(Editing::Updated)
+    Ok(changed)
   }
 
-  fn request_search(&mut self, manager: Manager, query: &str) -> Result<(), Infallible> {
-    let _queued = self.queued_searches.remove(&manager);
-    let request = self.request;
-    let search = query.to_owned();
-
+  fn request_search(
+    &mut self,
+    manager: Manager,
+    id: search::SearchId,
+    query: String,
+  ) -> Result<(), Infallible> {
     match spawn_reply(&self.send, "store-search", move || {
-      Reply::Search(manager, request, manager.search_remote(&search))
+      Reply::Search(manager, id, manager.search_remote(&query))
     }) {
-      Ok(()) => {
-        let _previous = self.search_in_flight.insert(manager, request);
-      }
+      Ok(()) => {}
       Err(fault) => {
-        let Ok(source) = manager.label();
-        let Ok(notice) = Self::failure(
-          format!("{source} search could not start."),
-          &fault,
-          FailureSource::Application,
-        );
-        self.search_problem = Some(notice);
+        let Ok(()) = self.complete_search(manager, id, Err(search::Failure::Launch(fault)));
+      }
+    }
+
+    Ok(())
+  }
+
+  fn complete_search(
+    &mut self,
+    source: Manager,
+    id: search::SearchId,
+    outcome: Result<Matches, search::Failure>,
+  ) -> Result<(), Infallible> {
+    let event = search::Request::Finished {
+      manager: source,
+      id,
+      now: Instant::now(),
+      result: outcome,
+    };
+    let Ok(turn) = search::Search::transition(std::mem::take(&mut self.search), event);
+    self.search = turn.state;
+
+    for effect in turn.effects {
+      match effect {
+        search::Effect::Present {
+          manager: completed_by,
+          result: finished,
+        } => {
+          let Ok(()) = self.present_search(completed_by, finished);
+        }
+        search::Effect::Query { .. } => {
+          console_core_logging::warn!("Store returned a search launch from a completion");
+        }
       }
     }
 
@@ -633,7 +620,15 @@ impl Shop {
 
   fn receive(&mut self, reply: Reply) -> Result<(), Infallible> {
     match reply {
-      Reply::Search(manager, request, result) => self.found(manager, request, result),
+      Reply::Search(manager, request, result) => {
+        let Ok(_) = self.search_event(search::Request::Finished {
+          manager,
+          id: request,
+          now: Instant::now(),
+          result: result.map_err(search::Failure::Search),
+        });
+        Ok(())
+      }
       Reply::Profile(result) => self.update_profile(result),
       Reply::Change(changed) => self.changed_package(changed),
       Reply::Open(result) => {
@@ -696,29 +691,11 @@ impl Shop {
     Ok(())
   }
 
-  fn found(
+  fn present_search(
     &mut self,
     manager: Manager,
-    request: SearchId,
-    result: io::Result<Matches>,
+    result: Result<Matches, search::Failure>,
   ) -> Result<(), Infallible> {
-    match (self.search_in_flight.get(&manager) == Some(&request)).then_some(()) {
-      Some(()) => {
-        let _finished = self.search_in_flight.remove(&manager);
-      }
-      None => return Ok(()),
-    }
-
-    match (self.deadline.is_none() && self.queued_searches.contains(&manager)).then_some(()) {
-      Some(()) => self.deadline = Some(Instant::now()),
-      None => {}
-    }
-
-    match (request == self.request).then_some(()) {
-      Some(()) => {}
-      None => return Ok(()),
-    }
-
     match self.focus {
       Some(Action::Details(_)) => self.focus = None,
       Some(_) | None => {}
@@ -728,13 +705,15 @@ impl Shop {
       Ok(found) => {
         let _previous = self.results.insert(manager, found);
       }
-      Err(fault) => {
+      Err(failure) => {
         let Ok(source) = manager.label();
-        let Ok(notice) = Self::failure(
-          format!("{source} search failed."),
-          &fault,
-          FailureSource::PackageManager,
-        );
+        let (suffix, fault, origin) = match failure {
+          search::Failure::Launch(fault) => {
+            ("could not start", fault, FailureSource::Application)
+          }
+          search::Failure::Search(fault) => ("failed", fault, FailureSource::PackageManager),
+        };
+        let Ok(notice) = Self::failure(format!("{source} search {suffix}."), &fault, origin);
         self.search_problem = Some(notice);
       }
     }
@@ -851,8 +830,8 @@ impl Shop {
     {
       self.overlay = Some(overlay);
       self.focus = None;
-      self.hover = None;
-      self.preedit.clear();
+      let Ok(_redrawn_for_overlay) = self.hover.observe(None);
+      self.preedit = None;
     };
 
     Ok(())
@@ -961,9 +940,8 @@ impl Shop {
         }
       }
       Action::RetrySearch => {
-        let Ok(edit_query) = self.edit_query();
-
-        edit_query
+        let Ok(()) = self.edit_query();
+        let Ok(_) = self.search_event(search::Request::Expedite(Instant::now()));
       }
       Action::Refresh => {
         let Ok(refresh) = self.refresh();
@@ -994,7 +972,7 @@ impl Shop {
   fn show_page(&mut self, page: Page) -> Result<(), Infallible> {
     self.page = page;
     self.focus = None;
-    self.hover = None;
+    let Ok(_redrawn_for_page) = self.hover.observe(None);
     let Ok(()) = self.clear_query();
 
     match page {
@@ -1018,7 +996,7 @@ impl Shop {
     match next {
       Stop::Outside => {
         self.focus = Some(Action::Close);
-        self.preedit.clear();
+        self.preedit = None;
         Ok(WindowFlow::Stay)
       }
       Stop::Tab(tab) => {
@@ -1188,7 +1166,7 @@ impl Shop {
       None => first,
     };
     let (action, area) = *entry;
-    self.preedit.clear();
+    self.preedit = None;
     let Ok(bottom) = area.bottom();
     let Ok(view_bottom) = frame.scroll_area.bottom();
     let needed = match area.origin.y.cmp(&frame.scroll_area.origin.y) {
@@ -1202,11 +1180,7 @@ impl Shop {
   fn choose(&mut self, frame: &Frame) -> Result<WindowFlow, Infallible> {
     match (self.focus, self.overlay.as_ref()) {
       (Some(Action::Search), _) => {
-        match self.searching() {
-          Ok(SearchStatus::Searching) => self.deadline = Some(Instant::now()),
-          Ok(SearchStatus::Settled) => {}
-        }
-
+        let Ok(_) = self.search_event(search::Request::Expedite(Instant::now()));
         let Ok(()) = self.step_row(1, frame);
         Ok(WindowFlow::Stay)
       }
@@ -1231,7 +1205,7 @@ impl Shop {
       }
       (false, true, Some(Action::Search)) => {
         self.focus = None;
-        self.preedit.clear();
+        self.preedit = None;
         Ok(WindowFlow::Stay)
       }
       (false, true, _) => self.action(Action::Close),
@@ -1280,9 +1254,7 @@ impl Shop {
         None => {}
       }
 
-      self.preedit = change
-        .preedit
-        .map_or_else(String::new, |preedit| preedit.text);
+      self.preedit = change.preedit;
       let Ok(typed) = self.query.apply_input(
         InputDeletion {
           before: change.delete_before,
@@ -1560,6 +1532,14 @@ impl StoreWindow {
       }
     }
 
+    let Ok(target) = self.frame.canvas.targets.under_pointer(&self.surface);
+    let Ok(feedback) = self.shop.hover.observe(target);
+
+    match feedback {
+      Some(RepaintHover) => self.drawing = Drawing::Pending,
+      None => {}
+    }
+
     Ok(WindowFlow::Stay)
   }
 
@@ -1578,6 +1558,15 @@ impl StoreWindow {
     }
 
     let Ok(()) = self.layout(room);
+    let Ok(target) = self.frame.canvas.targets.under_pointer(&self.surface);
+    let Ok(feedback) = self.shop.hover.observe(target);
+
+    match feedback {
+      Some(RepaintHover) => {
+        let Ok(()) = self.layout(room);
+      }
+      None => {}
+    }
 
     let painted = self.frame.canvas.paint(&mut self.surface, room);
     painted?;
@@ -1629,11 +1618,6 @@ impl StoreWindow {
       },
       PointerEvent::Left => {
         self.gesture = None;
-
-        match self.shop.hover.take() {
-          Some(_) => self.drawing = Drawing::Pending,
-          None => {}
-        }
       }
       PointerEvent::Pinched { .. } => self.gesture = None,
     }
@@ -1663,14 +1647,6 @@ impl StoreWindow {
   }
 
   fn pointer_moved(&mut self, point: Point<f64>) -> Result<(), Infallible> {
-    let Ok(target) = self.frame.canvas.targets.action(point);
-
-    match (target != self.shop.hover).then_some(()) {
-      Some(()) => self.drawing = Drawing::Pending,
-      None => {}
-    }
-
-    self.shop.hover = target;
     let gesture = match self.gesture.as_mut() {
       Some(gesture) => gesture,
       None => return Ok(()),
@@ -1755,7 +1731,7 @@ mod tests {
   use std::path::{Component, Path, PathBuf};
 
   use console_core_places::Base;
-  use console_core_shapes::Shape;
+  use console_panel::ui::shapes::Shape;
   use console_waiting::{Outcome, Ready, Schedule, until_handed};
 
   fn key(key: Keysym) -> Result<PhysicalKeyPress, Infallible> {
@@ -1833,10 +1809,11 @@ mod tests {
     let mut shop = Shop::new()?;
     let Ok(query) = TextField::holding("no match");
     shop.query = query;
-    let request = shop.request;
-    let _previous = shop.search_in_flight.insert(Manager::Nix, request);
     let diagnostic = "error: opening lock file '/nix/var/nix/db/big-lock': Read-only file system";
-    let Ok(()) = shop.found(Manager::Nix, request, Err(io::Error::other(diagnostic)));
+    let Ok(()) = shop.present_search(
+      Manager::Nix,
+      Err(search::Failure::Search(io::Error::other(diagnostic))),
+    );
     let notice = shop
       .search_problem
       .as_ref()
@@ -1856,6 +1833,24 @@ mod tests {
         .any(|shape| matches!(shape, Shape::Text(text) if text.said == message))
     };
     assert!(shows("Nixpkgs search failed."));
+    let icon = frame
+      .canvas
+      .shapes
+      .iter()
+      .find_map(|shape| match shape {
+        Shape::Text(label) => (label.said == console_panel::marks::RELOAD).then_some(label.at),
+        Shape::Panel(_)
+        | Shape::Picture(_)
+        | Shape::Cropped(_)
+        | Shape::Line(_)
+        | Shape::Clip(_) => None,
+      })
+      .ok_or("Missing retry icon")?;
+    let Ok(retry) = frame.canvas.targets.action(Point {
+      x: f64::from(icon.x),
+      y: f64::from(icon.y),
+    });
+    assert_eq!(retry, Some(Action::RetrySearch));
     assert!(!shows("No featured matches"));
 
     let Ok(_) = shop.action(Action::SearchDetails);
@@ -1921,28 +1916,6 @@ mod tests {
   }
 
   #[test]
-  fn a_stale_search_reply_releases_only_its_own_manager() -> io::Result<()> {
-    let mut shop = Shop::new()?;
-    let Ok(query) = TextField::holding("zen");
-    shop.query = query;
-    let previous = shop.request;
-    let current = SearchId(1);
-    shop.request = current;
-    let _queued = shop.queued_searches.insert(Manager::Aur);
-    let _aur = shop.search_in_flight.insert(Manager::Aur, previous);
-    let _nix = shop.search_in_flight.insert(Manager::Nix, current);
-    let Ok(()) = shop.found(Manager::Aur, previous, Ok(Matches::default()));
-
-    assert!(!shop.search_in_flight.contains_key(&Manager::Aur));
-    assert_eq!(shop.search_in_flight.get(&Manager::Nix), Some(&current));
-    assert!(shop.deadline.is_some());
-    assert!(shop.results.is_empty());
-    assert!(matches!(shop.searching(), Ok(SearchStatus::Searching)));
-
-    Ok(())
-  }
-
-  #[test]
   fn browse_lists_obs_as_a_regular_package_row() -> Result<(), Box<dyn std::error::Error>> {
     let mut shop = Shop::new()?;
     shop.nix_available = Installed::Yes;
@@ -2003,7 +1976,11 @@ mod tests {
     let Ok(query) = TextField::holding("obs");
     shop.query = query;
     shop.focus = Some(Action::Search);
-    shop.preedit = " studio".to_owned();
+    shop.preedit = Some(Composition {
+      text: " studio".to_owned(),
+      cursor_begin: 7,
+      cursor_end: 7,
+    });
     let theme = Theme::new()?;
     let Ok(frame) = view::draw(&shop, WINDOW, &theme);
     let Ok(input) = shop.input_state(&frame);
@@ -2014,6 +1991,9 @@ mod tests {
     let Ok(clear) = frame.canvas.targets.action(Point { x: 1030.0, y: 85.0 });
     assert_eq!(search, Some(Action::Search));
     assert_eq!(clear, Some(Action::ClearSearch));
+    assert!(frame.canvas.shapes.iter().any(|shape| matches!(shape,
+      Shape::Text(label) if label.said == console_panel::marks::SHUT && label.at.y >= 64
+    )));
     Ok(())
   }
 
@@ -2032,9 +2012,9 @@ mod tests {
     const BYTES: u32 = WINDOW.width.saturating_mul(WINDOW.height).saturating_mul(4);
     let Ok(length) = console_core_number_conversion::index(BYTES);
     let mut pixels = vec![0; length.min(const { 4 * 1024 * 1024 })];
-    console_draw_painting::onto(
+    console_panel::ui::painting::onto(
       &mut pixels,
-      console_draw_painting::Frame {
+      console_panel::ui::painting::Frame {
         device: WINDOW,
         points: WINDOW,
       },

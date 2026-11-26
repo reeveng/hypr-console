@@ -47,7 +47,7 @@ impl SettingsTab {
       Self::Sound => "Sound",
       Self::Bluetooth => "Bluetooth",
       Self::Wifi => "Wi-Fi",
-      Self::Battery => "Battery",
+      Self::Battery => "Power & Sleep",
       Self::Notifications => "Notifications",
       Self::Display => "Display",
       Self::StatusBar => "Status Bar",

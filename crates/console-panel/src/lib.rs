@@ -21,9 +21,13 @@ pub mod canvas;
 pub mod card;
 pub mod picker;
 
-pub use console_onscreen as door;
+pub mod door {
+  pub use console_onscreen::*;
+}
+
 pub mod completion;
 pub mod description;
+pub mod field;
 pub mod fitting;
 pub mod frames;
 pub mod handoff;
@@ -44,6 +48,7 @@ pub mod strip;
 pub mod surface;
 pub mod tab;
 pub mod tasks;
+pub mod ui;
 pub mod whose;
 pub mod window;
 pub mod zoom;

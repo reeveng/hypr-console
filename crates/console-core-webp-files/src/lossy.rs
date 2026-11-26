@@ -299,7 +299,11 @@ fn framed(bitstream: &[u8]) -> Result<Frame<'_>, WebpError> {
   let size = measured(bitstream)?;
 
   let (said, rest) = match bitstream.split_first_chunk::<10>() {
-    Some(([t0, t1, t2, ..], rest)) => (u32::from_le_bytes([*t0, *t1, *t2, 0]), rest),
+    Some(([t0, t1, t2, ..], rest)) => {
+      let Ok(tag) = console_core_bytes::endian::u24_le([*t0, *t1, *t2]);
+
+      (tag, rest)
+    }
     None => return Err(WebpError::Truncated),
   };
 
@@ -326,7 +330,8 @@ fn partitions(rest: &[u8], count: u32) -> Result<Vec<Booleans<'_>>, WebpError> {
   let mut partitions = Vec::new();
 
   for [s0, s1, s2] in sizes.as_chunks::<3>().0 {
-    let Ok(long) = index(u32::from_le_bytes([*s0, *s1, *s2, 0]));
+    let Ok(size) = console_core_bytes::endian::u24_le([*s0, *s1, *s2]);
+    let Ok(long) = index(size);
     let (partition, after) = match <[_]>::split_at_checked(data, long) {
       ::core::option::Option::Some(split_halves) => split_halves,
       ::core::option::Option::None => {

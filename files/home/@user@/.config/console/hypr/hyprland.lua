@@ -295,12 +295,33 @@ hl.window_rule({
     tile  = true,
 })
 
-if input_preference("new-window-workspace") ~= "current" then
-    hl.window_rule({
-        name      = "a new window opens alone",
-        match     = { class = ".*" },
-        workspace = "emptyn",
-    })
+if input_preference("new-window-workspace") == "new" then
+    local rule_name = "a new window opens alone"
+    local function last_workspace()
+        local last = 0
+        for _, workspace in ipairs(hl.get_workspaces()) do
+            last = math.max(last, workspace.id)
+        end
+        return last
+    end
+
+    local last = last_workspace()
+    hl.window_rule({ name = rule_name, match = { class = ".*" }, workspace = tostring(last + 1) })
+
+    local function place_after(id)
+        if id ~= last then
+            last = id
+            -- Updating the named rule keeps its priority relative to later rules.
+            hl.window_rule({ name = rule_name, workspace = tostring(last + 1) })
+        end
+    end
+
+    hl.on("workspace.created", function(workspace)
+        place_after(math.max(last, workspace.id))
+    end)
+    hl.on("workspace.removed", function()
+        place_after(last_workspace())
+    end)
 end
 
 -- Settings stores the desktop entry ID followed by its window classes.

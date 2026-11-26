@@ -14,6 +14,7 @@ name = "music-player"
 path = "src/bin/music-player.rs"
 
 [dependencies]
+console-core-bytes = { workspace = true, features = ["alloc"] }
 console-audio-streams.workspace = true
 console-core-logging = { workspace = true, features = ["std"] }
 console-operating-system-linux.workspace = true

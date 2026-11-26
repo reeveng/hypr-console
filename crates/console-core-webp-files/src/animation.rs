@@ -168,7 +168,7 @@ impl Animation {
       .and_then(<[u8]>::first_chunk)
       .copied()
       .ok_or(WebpError::Truncated)?;
-    let duration = u32::from_le_bytes([low, middle, high, 0]);
+    let Ok(duration) = console_core_bytes::endian::u24_le([low, middle, high]);
     let image = container::frame(chunk.data)?;
     let region = Rectangle {
       origin: image.place,

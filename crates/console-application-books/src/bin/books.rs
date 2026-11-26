@@ -96,16 +96,21 @@ use console_core_internal_programs::InternalProgram;
 use console_core_iteration::{Endless, Step, iterate};
 use console_core_line::LineSegment;
 use console_core_never::Never;
-use console_core_number_conversion::{fitted, index, toward_zero_i32};
-use console_core_shapes::{Edge, Font, Panel, Picture, Pixels, Round, Shape, Text, Weight};
+use console_core_number_conversion::{fitted, toward_zero_i32};
 use console_core_state_machine::{Machine, Transition};
-use console_core_text_boundaries::previous_word_start;
-use console_draw_painting::Run;
-use console_draw_surface::standing::{Closed, PointerEvent, Window};
-use console_draw_surface::{Activation, KeyPress, KeyPressKind, Keysym, Surface};
 use console_events::subscription::Received;
+use console_input_text::{InputDeletion, TextField};
 use console_operating_system_linux::program_lifetime::BoundToParent;
-use console_panel::pictures::{self as store, Side};
+use console_panel::pictures::{self, Side};
+use console_panel::ui::canvas::{Area, AreaLayout, Canvas, Interaction};
+use console_panel::ui::painting::Run;
+use console_panel::ui::shapes::{Edge, Font, Panel, Picture, Pixels, Round, Shape, Text, Weight};
+use console_panel::ui::surface::standing::{Closed, PointerEvent, Window};
+use console_panel::ui::surface::{
+  Activation, Composition, InputContent, KeyPress, KeyPressKind, Keysym, Surface, Surrounding,
+  TextInputChange, TextInputState,
+};
+use console_panel::ui::{field, marks, strip, theme};
 use console_panel::window::{self, Responder, Update, handle_input, merge};
 use console_program_contract::{Change, EventGroup};
 use console_program_lifetime::Still;
@@ -122,8 +127,6 @@ const SEARCH: &str = "Search";
 const BOOK_STORE: &str = "Book Store";
 
 const STORE_TAB: &str = "Books";
-
-const CLOSE: &str = "\u{2715}";
 
 const BACK: &str = "\u{2039}";
 
@@ -226,6 +229,11 @@ fn font(family: &str, tall: u32) -> Result<Font, Never> {
   })
 }
 
+enum SearchFocus {
+  Covers,
+  Field(Option<Composition>),
+}
+
 struct Library {
   home: PathBuf,
   books: Vec<Book>,
@@ -233,7 +241,8 @@ struct Library {
   catalog_changed: Option<SystemTime>,
   covers: Option<PathBuf>,
   covers_changed: Option<SystemTime>,
-  search: String,
+  search: TextField,
+  search_focus: SearchFocus,
   selected: u32,
   scroll: ScrollOffset,
 }
@@ -380,7 +389,7 @@ fn main() -> ExitCode {
 enum BooksError {
   NoHome,
   Palette(WearingError),
-  Surface(console_draw_surface::standing::SurfaceError),
+  Surface(console_panel::ui::surface::standing::SurfaceError),
 }
 
 impl std::fmt::Display for BooksError {
@@ -488,7 +497,9 @@ fn event_loop(app: &mut App, surface: &mut Surface) -> Result<(), BooksError> {
       }
 
       let Ok(room) = logical_size(surface_2);
-      let Ok(input) = handle_input(app_2, surface_2, room);
+      let Ok(physical) = handle_input(app_2, surface_2, room);
+      let Ok(composed) = app_2.search_input(surface_2);
+      let Ok(input) = merge(physical, composed);
       let Ok(restyled) = app_2.reload_appearance();
       let Ok(recataloged) = app_2.library.reload_if_changed();
       let Ok(covered) = app_2.library.redraw_if_covers_changed();
@@ -582,7 +593,7 @@ impl Library {
       Ok(None) | Err(_) => BTreeMap::new(),
     };
 
-    let Ok(covers) = store::store();
+    let Ok(covers) = pictures::store();
 
     let mut library = Library {
       home,
@@ -591,7 +602,8 @@ impl Library {
       catalog_changed: None,
       covers,
       covers_changed: None,
-      search: String::new(),
+      search: TextField::default(),
+      search_focus: SearchFocus::Covers,
       selected: 0,
       scroll: ScrollOffset::default(),
     };
@@ -703,7 +715,8 @@ impl Library {
   }
 
   fn visible_books(&self) -> Result<Vec<&Book>, Never> {
-    library::search(&self.books, &self.search)
+    let Ok(query) = self.search.text();
+    library::search(&self.books, query)
   }
 
   fn save_location(&mut self, name: &str, location: Location) -> Result<(), Never> {
@@ -969,52 +982,102 @@ impl App {
 
   fn library_key_pressed(&mut self, press: KeyPress, room: Size<u32>) -> Result<Update, Never> {
     let key = press.key;
-    let Ok(direction) = direction(key);
+    let Ok(text) = self.library.search.text();
+    let editing = matches!(self.library.search_focus, SearchFocus::Field(_));
 
-    match direction {
-      Some(direction_2) => return self.move_selection(direction_2, room),
-      None => {}
+    match (key, text.is_empty(), editing, press.kind) {
+      (Keysym::Return | Keysym::KP_Enter, _, _, _) => {
+        return self.activate_cover(Activation::Focused);
+      }
+      (Keysym::Escape, false, _, _) => {
+        self.library.search = TextField::default();
+        self.library.search_focus = SearchFocus::Covers;
+        return self.reset_selection();
+      }
+      (Keysym::Escape, true, true, _) => {
+        self.library.search_focus = SearchFocus::Covers;
+        return Ok(Update::Redraw);
+      }
+      (Keysym::Escape, true, false, _) => return Ok(Update::Exit),
+      (Keysym::BackSpace, true, false, KeyPressKind::Initial) => {
+        return Ok(
+          match (press.modifiers & KeyPress::CONTROL != 0).then_some(()) {
+            Some(()) => Update::None,
+            None => Update::Exit,
+          },
+        );
+      }
+
+      (Keysym::BackSpace, true, false, KeyPressKind::Repeated) => return Ok(Update::None),
+      (Keysym::Left | Keysym::Right, _, true, _) => return self.edit_search(press),
+      _ => {}
     }
 
-    Ok(match (key, self.library.search.is_empty()) {
-      (Keysym::Return | Keysym::KP_Enter, _) => self.activate_cover(Activation::Focused)?,
-      (Keysym::Escape, true) => Update::Exit,
-      (Keysym::Escape, false) => {
-        self.library.search.clear();
+    let Ok(motion) = direction(key);
 
-        self.reset_selection()?
+    match motion {
+      Some(direction) => {
+        self.library.search_focus = SearchFocus::Covers;
+        self.move_selection(direction, room)
       }
-      (Keysym::BackSpace, empty) => {
-        match (press.modifiers & KeyPress::CONTROL != 0).then_some(()) {
-          Some(()) => {
-            let Ok(from) = previous_word_start(&self.library.search);
-            let Ok(start) = index(from);
-            self.library.search.truncate(start);
-          }
-          None => match (empty.then_some(()), press.kind) {
-            (Some(()), KeyPressKind::Initial) => return Ok(Update::Exit),
-            (Some(()), KeyPressKind::Repeated) => return Ok(Update::None),
-            (None, _) => {
-              let _ = self.library.search.pop();
-            }
-          },
-        }
+      None => self.edit_search(press),
+    }
+  }
 
-        self.reset_selection()?
+  fn edit_search(&mut self, press: KeyPress) -> Result<Update, Never> {
+    const COMMAND_MODIFIERS: u32 = KeyPress::CONTROL | (1 << 3) | (1 << 6);
+
+    match (press.modifiers & COMMAND_MODIFIERS, press.key) {
+      (0, _) | (KeyPress::CONTROL, Keysym::BackSpace) => {}
+      _ => return Ok(Update::None),
+    }
+
+    let Ok(edited) = self.library.search.typed_press(press);
+
+    match edited {
+      console_input_text::Typed::Edited => {
+        self.library.search_focus = SearchFocus::Field(None);
+        self.reset_selection()
       }
-      (key_2, _) => {
-        let Ok(written) = key_2.char();
+      console_input_text::Typed::Moved => Ok(Update::Redraw),
+      console_input_text::Typed::None => Ok(Update::None),
+    }
+  }
 
-        match written.filter(|letter| !letter.is_control()) {
-          Some(letter) => {
-            self.library.search.push(letter);
+  fn search_input(&mut self, surface: &mut Surface) -> Result<Update, Never> {
+    let Ok(changes) = surface.text_input_changes();
+    let mut update = Update::None;
 
-            self.reset_selection()?
-          }
-          None => Update::None,
-        }
-      }
-    })
+    for change in changes {
+      let Ok(changed) = self.compose_search(change);
+      let Ok(merged) = merge(update, changed);
+      update = merged;
+    }
+
+    Ok(update)
+  }
+
+  fn compose_search(&mut self, change: TextInputChange) -> Result<Update, Never> {
+    match (&self.view, &mut self.library.search_focus) {
+      (View::Library, SearchFocus::Field(preedit)) => *preedit = change.preedit,
+      (View::Reader(_), _) | (_, SearchFocus::Covers) => return Ok(Update::None),
+    }
+
+    let Ok(typed) = self.library.search.apply_input(
+      InputDeletion {
+        before: change.delete_before,
+        after: change.delete_after,
+      },
+      match change.commit.as_deref() {
+        Some(committed) => committed,
+        None => "",
+      },
+    );
+
+    match typed {
+      console_input_text::Typed::Edited => self.reset_selection(),
+      console_input_text::Typed::Moved | console_input_text::Typed::None => Ok(Update::Redraw),
+    }
   }
 
   fn reset_selection(&mut self) -> Result<Update, Never> {
@@ -1121,10 +1184,12 @@ impl App {
   fn write_key(&mut self, press: KeyPress) -> Result<Update, Never> {
     let typed = match press.key {
       Keysym::Escape => Some(Typed::Finished),
-      Keysym::BackSpace => Some(match (press.modifiers & KeyPress::CONTROL != 0).then_some(()) {
-        Some(()) => Typed::BackspaceWord,
-        None => Typed::Backspace,
-      }),
+      Keysym::BackSpace => Some(
+        match (press.modifiers & KeyPress::CONTROL != 0).then_some(()) {
+          Some(()) => Typed::BackspaceWord,
+          None => Typed::Backspace,
+        },
+      ),
       Keysym::Return | Keysym::KP_Enter => Some(Typed::Newline),
       key_2 => {
         let Ok(written) = key_2.char();
@@ -1314,14 +1379,19 @@ impl App {
 
   fn tap(&mut self, at: Point<i32>, room: Size<u32>) -> Result<Update, Never> {
     let Ok(screen) = self.screen();
-    let Ok(corner) = close_button(room);
-    let Ok(on_corner) = corner.covers(at);
+    let Ok(corner) = close_area(room);
+    let Ok(on_corner) = corner.contains_point(Point {
+      x: f64::from(at.x),
+      y: f64::from(at.y),
+    });
 
     match (screen, on_corner) {
-      (Screen::Library, console_core_shapes::Covers::Yes) => Ok(Update::Exit),
-      (Screen::Reader, console_core_shapes::Covers::Yes) => self.close_book(),
-      (Screen::Library, console_core_shapes::Covers::No) => self.library_tap(at, room),
-      (Screen::Reader, console_core_shapes::Covers::No) => self.reader_tap(at, room),
+      (Screen::Library, console_core_geometry::Containment::Inside) => Ok(Update::Exit),
+      (Screen::Reader, console_core_geometry::Containment::Inside) => self.close_book(),
+      (Screen::Library, console_core_geometry::Containment::Outside) => {
+        self.library_tap(at, room)
+      }
+      (Screen::Reader, console_core_geometry::Containment::Outside) => self.reader_tap(at, room),
     }
   }
 
@@ -1488,17 +1558,25 @@ impl App {
 
   fn library_tap(&mut self, at: Point<i32>, room: Size<u32>) -> Result<Update, Never> {
     let Ok(search) = search_field(room);
-    let Ok(on_search) = search.covers(at);
+    let Ok(on_search) = search.contains_point(Point {
+      x: f64::from(at.x),
+      y: f64::from(at.y),
+    });
 
     match on_search {
-      console_core_shapes::Covers::Yes => {
+      console_core_geometry::Containment::Inside => {
+        self.library.search_focus = SearchFocus::Field(None);
         let Ok(()) = spawn_detached(InternalProgram::KeyboardToggle, &[]);
-
-        return Ok(Update::None);
+        return Ok(Update::Redraw);
       }
-      console_core_shapes::Covers::No => {}
+      console_core_geometry::Containment::Outside => {}
     }
 
+    let cleared = match self.library.search_focus {
+      SearchFocus::Field(_) => Update::Redraw,
+      SearchFocus::Covers => Update::None,
+    };
+    self.library.search_focus = SearchFocus::Covers;
     let Ok(grid) = grid::layout(room);
     let Ok(visible) = self.library.visible_books();
     let Ok(count) = fitted::<_, u32>(visible.len());
@@ -1511,7 +1589,8 @@ impl App {
       },
     );
 
-    self.activate_cover(Activation::At(hit))
+    let Ok(outcome) = self.activate_cover(Activation::At(hit));
+    merge(cleared, outcome)
   }
 
   fn activate_cover(&mut self, activation: Activation<Option<u32>>) -> Result<Update, Never> {
@@ -1638,48 +1717,49 @@ fn cover_at(grid: Grid, at: Point<i32>, viewport: Viewport) -> Result<Option<u32
     let Ok(covers) = panel.covers(at);
 
     match covers {
-      console_core_shapes::Covers::Yes => return Ok(Some(index)),
-      console_core_shapes::Covers::No => {}
+      console_panel::ui::shapes::Covers::Yes => return Ok(Some(index)),
+      console_panel::ui::shapes::Covers::No => {}
     }
   }
 
   Ok(None)
 }
 
-fn close_button(room: Size<u32>) -> Result<Panel, Never> {
-  let Ok(across) = fitted::<u32, i32>(room.width.saturating_sub(CORNER));
-
-  Ok(Panel {
-    at: Point { x: across, y: 0 },
-    size: Size {
-      width: CORNER,
-      height: CORNER,
-    },
-    round: Round(0),
-    fill: Oklch::BLACK,
-    edge: Edge::None,
-  })
+fn close_area(room: Size<u32>) -> Result<Area, Never> {
+  let Ok(width) = fitted::<u32, i32>(room.width);
+  let Ok(header) = strip::window_area(width);
+  strip::close_area(header)
 }
 
-fn search_field(room: Size<u32>) -> Result<Panel, Never> {
-  let wide = room.width.saturating_div(3).clamp(240, 460);
-  let Ok(across) = fitted::<u32, i32>(room.width.saturating_sub(wide).saturating_div(2));
+fn search_field(room: Size<u32>) -> Result<Area, Never> {
+  let Ok(width) = fitted::<u32, i32>(room.width);
+  let Ok(header) = strip::window_area(width);
 
-  Ok(Panel {
-    at: Point { x: across, y: 18 },
-    size: Size {
-      width: wide,
-      height: 40,
+  Ok(Area {
+    origin: Point {
+      y: strip::CONTENT_TOP,
+      ..header.origin
     },
-    round: Round(20),
-    fill: Oklch::BLACK,
-    edge: Edge::None,
+    size: Size {
+      height: field::HEIGHT,
+      ..header.size
+    },
   })
 }
 
 fn control_at(at: Point<i32>, room: Size<u32>) -> Result<Option<Control>, Never> {
-  let Ok(close) = close_button(room);
-  let mut controls = vec![(close, Control::Close)];
+  let Ok(close) = close_area(room);
+  let here = Point {
+    x: f64::from(at.x),
+    y: f64::from(at.y),
+  };
+
+  match close.contains_point(here) {
+    Ok(console_core_geometry::Containment::Inside) => return Ok(Some(Control::Close)),
+    Ok(console_core_geometry::Containment::Outside) => {}
+  }
+
+  let mut controls = Vec::new();
 
   for (index, rail) in (0_u32..).zip(RAIL) {
     let Ok(button) = rail_button(room, index);
@@ -1703,8 +1783,8 @@ fn control_at(at: Point<i32>, room: Size<u32>) -> Result<Option<Control>, Never>
     controls
       .into_iter()
       .find_map(|(panel, control)| match panel.covers(at) {
-        Ok(console_core_shapes::Covers::Yes) => Some(control),
-        Ok(console_core_shapes::Covers::No) => None,
+        Ok(console_panel::ui::shapes::Covers::Yes) => Some(control),
+        Ok(console_panel::ui::shapes::Covers::No) => None,
       }),
   )
 }
@@ -1853,7 +1933,7 @@ fn paginate_chapter(
 
   let wrap = |text: &str, style: Style| -> Vec<String> {
     let Ok((font, weight)) = appearance.styled(style);
-    let Ok(lines) = console_draw_painting::wrapped(
+    let Ok(lines) = console_panel::ui::painting::wrapped(
       Run {
         said: text,
         weight,
@@ -2165,7 +2245,7 @@ fn centered_lines(
   style: TextStyle,
 ) -> Result<Vec<(String, Point<i32>)>, Never> {
   let Ok(font) = font(SANS, style.size);
-  let Ok(lines) = console_draw_painting::wrapped(
+  let Ok(lines) = console_panel::ui::painting::wrapped(
     Run {
       said: text,
       weight: style.weight,
@@ -2177,7 +2257,7 @@ fn centered_lines(
   let mut placed = Vec::new();
 
   for (row, line_text) in (0u32..).zip(lines.into_iter().take(2)) {
-    let Ok(measured) = console_draw_painting::measure_text(
+    let Ok(measured) = console_panel::ui::painting::measure_text(
       Run {
         said: &line_text,
         weight: style.weight,
@@ -2201,7 +2281,7 @@ fn centered_lines(
 }
 
 fn line_height_of(font: &Font, weight: Weight) -> Result<u32, Never> {
-  let Ok(measured) = console_draw_painting::measure_text(
+  let Ok(measured) = console_panel::ui::painting::measure_text(
     Run {
       said: "Ag",
       weight,
@@ -2261,7 +2341,7 @@ fn cover_shapes(
 
   let pixels = match &drawing.book.cover {
     Some(cover) => {
-      let Ok(pixels) = store::pixels_at(cover, side);
+      let Ok(pixels) = pictures::pixels_at(cover, side);
 
       pixels
     }
@@ -2464,71 +2544,91 @@ fn store_tile(
 }
 
 fn header(library: &Library, room: Size<u32>, colors: &Wearing) -> Result<Vec<Shape>, Never> {
-  let Ok(search) = search_field(room);
-  let search_style = TextStyle {
-    size: 16,
-    weight: Weight::Plain,
-    width: search.size.width.saturating_sub(40),
+  let Ok(width) = fitted::<u32, i32>(room.width);
+  let Ok(height) = fitted::<u32, i32>(room.height);
+  let root = Area {
+    origin: Point { x: 0, y: 0 },
+    size: Size { width, height },
   };
-  let (typed, ink) = match ::core::primitive::bool::then_some(library.search.is_empty(), ()) {
-    ::core::option::Option::Some(()) => (SEARCH.to_string(), colors.soft),
-    ::core::option::Option::None => (library.search.clone(), colors.text),
-  };
-  let shown = format!("\u{2315}  {typed}");
-  let Ok(typed_at) = typed_at(&search, &shown, search_style);
-  let Ok(close_across) =
-    fitted::<u32, i32>(room.width.saturating_sub(grid::MARGIN).saturating_sub(22));
-  let title_style = TextStyle {
-    size: 26,
-    weight: Weight::Bold,
-    width: 400,
-  };
-  let close_style = TextStyle {
-    size: 22,
-    weight: Weight::Plain,
-    width: 40,
-  };
-
-  let Ok(title) = text_shape(LIBRARY, Point { x: 32, y: 20 }, title_style, colors.text);
-  let Ok(typed_2) = text_shape(&shown, typed_at, search_style, ink);
-  let Ok(close) = text_shape(
-    CLOSE,
-    Point {
-      x: close_across,
-      y: 22,
+  let Ok(mut canvas) = Canvas::new(
+    root,
+    console_panel::ui::canvas::Style::from(colors),
+    Interaction {
+      focus: None,
+      hover: None,
     },
-    close_style,
-    colors.text,
   );
+  let Ok(area) = strip::window_area(width);
+  let Ok(()) = strip::title_bar(&mut canvas, area, LIBRARY, Control::Close, colors);
+  let Ok(search) = library.search_shapes(room, colors);
+  canvas.frame.shapes.extend(search);
 
-  Ok(vec![
-    title,
-    Shape::Panel(Panel {
-      fill: colors.panel,
-      ..search
-    }),
-    typed_2,
-    close,
-  ])
+  Ok(canvas.frame.shapes)
 }
 
-fn typed_at(search: &Panel, shown: &str, style: TextStyle) -> Result<Point<i32>, Never> {
-  let Ok(font) = font(SANS, style.size);
-  let Ok(measured) = console_draw_painting::measure_text(
-    Run {
-      said: shown,
-      weight: style.weight,
-      width: style.width,
-    },
-    &font,
-  );
-  let down = search
-    .size
-    .height
-    .saturating_sub(measured.height)
-    .saturating_div(2);
+impl Library {
+  fn search_draft(&self, preedit: Option<&Composition>) -> Result<field::Draft, Never> {
+    let Ok(text) = self.search.text();
+    let Ok(before) = self.search.before_caret();
+    let after = match text.get(before.len()..) {
+      Some(after) => after,
+      None => "",
+    };
+    field::Draft::new(field::TextParts { before, after }, preedit)
+  }
 
-  offset(search.at, Point { x: 20, y: down })
+  fn search_shapes(&self, room: Size<u32>, colors: &Wearing) -> Result<Vec<Shape>, Never> {
+    let Ok(area) = search_field(room);
+    let (preedit, active) = match &self.search_focus {
+      SearchFocus::Field(preedit) => (preedit.as_ref(), Some(())),
+      SearchFocus::Covers => (None, None),
+    };
+    let Ok(draft) = self.search_draft(preedit);
+    let content = match draft.text.as_str() {
+      "" => field::Content::Placeholder(SEARCH),
+      query => field::Content::Value(query),
+    };
+    let editing = match active {
+      Some(()) => draft.editing,
+      None => field::Editing::Inactive,
+    };
+    let mut shapes = Vec::new();
+    let Ok(_caret) = field::Field {
+      area,
+      trailing: 0,
+      content,
+      editing,
+    }
+    .paint(&mut shapes, colors);
+    Ok(shapes)
+  }
+
+  fn search_input_state(&self, room: Size<u32>) -> Result<Option<TextInputState>, Never> {
+    let preedit = match &self.search_focus {
+      SearchFocus::Field(preedit) => preedit.as_ref(),
+      SearchFocus::Covers => return Ok(None),
+    };
+    let Ok(area) = search_field(room);
+    let Ok(draft) = self.search_draft(preedit);
+    let Ok(caret) = field::Field {
+      area,
+      trailing: 0,
+      content: field::Content::Value(&draft.text),
+      editing: draft.editing,
+    }
+    .caret();
+    let Ok(text) = self.search.text();
+    let Ok(before) = self.search.before_caret();
+    let Ok(cursor) = fitted::<_, u32>(before.len());
+    Ok(Some(TextInputState {
+      content: InputContent::Plain(Some(Surrounding {
+        text: text.to_owned(),
+        cursor,
+      })),
+      cursor: caret,
+      identity: 1,
+    }))
+  }
 }
 
 fn request_missing_covers(visible: &[&Book], side: Side) -> Result<(), Never> {
@@ -2537,11 +2637,11 @@ fn request_missing_covers(visible: &[&Book], side: Side) -> Result<(), Never> {
     .filter_map(|book| book.cover.as_ref())
     .map(|cover| cover.display().to_string())
     .collect();
-  let Ok(missing) = store::missing_at(&wanted, side);
+  let Ok(missing) = pictures::missing_at(&wanted, side);
 
   match ::core::primitive::bool::then_some(missing.is_empty(), ()) {
     ::core::option::Option::Some(()) => Ok(()),
-    ::core::option::Option::None => store::make_at(&missing, side),
+    ::core::option::Option::None => pictures::make_at(&missing, side),
   }
 }
 
@@ -2560,7 +2660,8 @@ fn library_shapes(app: &App, room: Size<u32>, device: Size<u32>) -> Result<Vec<S
   };
   let Ok(range) = visible_range(grid, viewport);
 
-  let Ok(ground) = background(room, colors.ground);
+  let Ok(fill) = theme::Surface::Window.color(colors);
+  let Ok(ground) = background(room, fill);
 
   shapes.insert(0, ground);
 
@@ -4001,7 +4102,7 @@ fn nearest_line(
 
 fn width_of(text: &str, style: Style, appearance: Appearance) -> Result<u32, Never> {
   let Ok((font, weight)) = appearance.styled(style);
-  let Ok(measured) = console_draw_painting::measure_text(
+  let Ok(measured) = console_panel::ui::painting::measure_text(
     Run {
       said: text,
       weight,
@@ -4266,7 +4367,7 @@ fn marked_line_shape(
         },
       );
 
-      Shape::Line(console_core_shapes::Line {
+      Shape::Line(console_panel::ui::shapes::Line {
         from: under,
         to: end,
         width: 2,
@@ -4315,7 +4416,7 @@ fn picture_highlight_shapes(
     for area in covered {
       let Ok(placed) = on_the_frame(area, frame_3);
 
-      shapes.push(Shape::Line(console_core_shapes::Line {
+      shapes.push(Shape::Line(console_panel::ui::shapes::Line {
         from: placed.0,
         to: placed.1,
         width: 4,
@@ -4389,7 +4490,7 @@ fn segments(stroke: &Stroke, origin: Point<i32>, color: Oklch) -> Result<Vec<Sha
     .collect();
 
   Ok(match points.as_slice() {
-    [only] => vec![Shape::Line(console_core_shapes::Line {
+    [only] => vec![Shape::Line(console_panel::ui::shapes::Line {
       from: *only,
       to: *only,
       width: PEN,
@@ -4398,7 +4499,7 @@ fn segments(stroke: &Stroke, origin: Point<i32>, color: Oklch) -> Result<Vec<Sha
     points_2 => points_2
       .windows(2)
       .filter_map(|pair| match pair {
-        [from, to] => Some(Shape::Line(console_core_shapes::Line {
+        [from, to] => Some(Shape::Line(console_panel::ui::shapes::Line {
           from: *from,
           to: *to,
           width: PEN,
@@ -4485,7 +4586,7 @@ fn card_lines(text: &str, writing: Typing, wide: u32) -> Result<Vec<String>, Nev
   let mut lines = Vec::new();
 
   for paragraph in shown.split('\n') {
-    let Ok(wrapped) = console_draw_painting::wrapped(
+    let Ok(wrapped) = console_panel::ui::painting::wrapped(
       Run {
         said: paragraph,
         weight: Weight::Plain,
@@ -4637,15 +4738,19 @@ fn note_part(frames: &[NoteFrame], at: Point<i32>) -> Result<Option<(Spot, NoteP
   Ok(frames.iter().rev().find_map(|frame| {
     let part = match &frame.shown {
       Shown::Icon(icon) => match icon.covers(at) {
-        Ok(console_core_shapes::Covers::Yes) => Some(NotePart::Icon),
-        Ok(console_core_shapes::Covers::No) => None,
+        Ok(console_panel::ui::shapes::Covers::Yes) => Some(NotePart::Icon),
+        Ok(console_panel::ui::shapes::Covers::No) => None,
       },
       Shown::Card { card, close, .. } => match (close.covers(at), card.covers(at)) {
-        (Ok(console_core_shapes::Covers::Yes), _) => Some(NotePart::Close),
-        (Ok(console_core_shapes::Covers::No), Ok(console_core_shapes::Covers::Yes)) => {
-          Some(NotePart::Card)
-        }
-        (Ok(console_core_shapes::Covers::No), Ok(console_core_shapes::Covers::No)) => None,
+        (Ok(console_panel::ui::shapes::Covers::Yes), _) => Some(NotePart::Close),
+        (
+          Ok(console_panel::ui::shapes::Covers::No),
+          Ok(console_panel::ui::shapes::Covers::Yes),
+        ) => Some(NotePart::Card),
+        (
+          Ok(console_panel::ui::shapes::Covers::No),
+          Ok(console_panel::ui::shapes::Covers::No),
+        ) => None,
       },
     };
 
@@ -4661,7 +4766,7 @@ fn note_shapes(frames: &[NoteFrame], look: Look) -> Result<Vec<Shape>, Never> {
   for frame in frames {
     match &frame.shown {
       Shown::Icon(icon) => {
-        let Ok(measured) = console_draw_painting::measure_text(
+        let Ok(measured) = console_panel::ui::painting::measure_text(
           Run {
             said: NOTE,
             weight: Weight::Plain,
@@ -4692,9 +4797,9 @@ fn note_shapes(frames: &[NoteFrame], look: Look) -> Result<Vec<Shape>, Never> {
       }
       Shown::Card { card, close, lines } => {
         let Ok(cross) = font(SANS, 14);
-        let Ok(measured) = console_draw_painting::measure_text(
+        let Ok(measured) = console_panel::ui::painting::measure_text(
           Run {
-            said: CLOSE,
+            said: marks::SHUT,
             weight: Weight::Plain,
             width: close.size.width,
           },
@@ -4727,7 +4832,7 @@ fn note_shapes(frames: &[NoteFrame], look: Look) -> Result<Vec<Shape>, Never> {
         shapes.push(Shape::Text(Text {
           at: cross_at,
           width: close.size.width,
-          said: CLOSE.to_string(),
+          said: marks::SHUT.to_string(),
           weight: Weight::Plain,
           font: cross,
           ink: look.ink,
@@ -4787,7 +4892,7 @@ fn rail_shapes(tools: Tools, room: Size<u32>, look: Look) -> Result<Vec<Shape>, 
     };
     let Ok(said) = glyph(rail, tools.scope);
     let Ok(font) = font(console_core_fonts::ICONS, 20);
-    let Ok(measured) = console_draw_painting::measure_text(
+    let Ok(measured) = console_panel::ui::painting::measure_text(
       Run {
         said,
         weight: Weight::Plain,
@@ -4831,8 +4936,6 @@ fn footer(reader: &Reader, room: Size<u32>, look: Look) -> Result<Vec<Shape>, Ne
   let Ok(column) = appearance::column(room);
   let Ok(left) = fitted::<u32, i32>(column.left);
   let Ok(down) = fitted::<u32, i32>(room.height.saturating_sub(34));
-  let Ok(close_across) =
-    fitted::<u32, i32>(room.width.saturating_sub(grid::MARGIN).saturating_sub(22));
   let reading = match &reader.live {
     LiveText::Recognizing { section, .. } => {
       match ::core::primitive::bool::then_some(*section == reader.section, ()) {
@@ -4848,22 +4951,16 @@ fn footer(reader: &Reader, room: Size<u32>, look: Look) -> Result<Vec<Shape>, Ne
     weight: Weight::Plain,
     width: column.width,
   };
-  let close_style = TextStyle {
-    size: 22,
-    weight: Weight::Plain,
-    width: 40,
-  };
   let Ok(text_2) = text_shape(&text, Point { x: left, y: down }, style, look.ink);
-  let Ok(close) = text_shape(
-    CLOSE,
-    Point {
-      x: close_across,
-      y: 22,
-    },
-    close_style,
-    look.ink,
+  let Ok(close) = close_area(room);
+  let mut shapes = vec![text_2];
+  let Ok(()) = strip::paint_control(
+    &mut shapes,
+    close,
+    marks::SHUT,
+    strip::Control::Ready,
+    &look.chrome,
   );
-  let mut shapes = vec![text_2, close];
 
   for turn in [Turn::Back, Turn::Forward] {
     let Ok(bar) = turn_bar(room, turn);
@@ -4895,7 +4992,7 @@ fn turn_bar_shapes(bar: Panel, turn: Turn, look: Look) -> Result<Vec<Shape>, Nev
     width: bar.size.width,
   };
   let Ok(font) = font(SANS, style.size);
-  let Ok(measured) = console_draw_painting::measure_text(
+  let Ok(measured) = console_panel::ui::painting::measure_text(
     Run {
       said: arrow,
       weight: style.weight,
@@ -4944,7 +5041,7 @@ fn zoom_shapes(look: Look) -> Result<Vec<Shape>, Never> {
       width: CORNER,
     };
     let Ok(font) = font(SANS, style.size);
-    let Ok(measured) = console_draw_painting::measure_text(
+    let Ok(measured) = console_panel::ui::painting::measure_text(
       Run {
         said: LETTER,
         weight: style.weight,
@@ -4969,6 +5066,7 @@ fn zoom_shapes(look: Look) -> Result<Vec<Shape>, Never> {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Look {
+  chrome: Wearing,
   ground: Oklch,
   ink: Oklch,
   pen: Oklch,
@@ -4986,6 +5084,7 @@ fn look(wearing: &Wearing, appearance: Appearance) -> Result<Look, Never> {
   let Ok(ink) = appearance.ink(wearing);
 
   Ok(Look {
+    chrome: *wearing,
     ground,
     ink,
     pen: wearing.pink,
@@ -5046,9 +5145,14 @@ fn draw(app: &mut App, surface: &mut Surface) -> Result<(), Never> {
     }
   };
 
+  let Ok(input) = match app.view {
+    View::Library => app.library.search_input_state(room),
+    View::Reader(_) => Ok(None),
+  };
+  let Ok(()) = surface.set_text_input(input);
   let Ok(shapes_2) = shapes;
 
-  let Ok(painting) = console_draw_painting::painter(room, &shapes_2, "books");
+  let Ok(painting) = console_panel::ui::painting::painter(room, &shapes_2, "books");
   let drawn = surface.draw(painting);
 
   match drawn {
@@ -5216,26 +5320,26 @@ mod tests {
         x: 4,
         y: beside_the_rail
       }),
-      Ok(console_core_shapes::Covers::Yes)
+      Ok(console_panel::ui::shapes::Covers::Yes)
     );
     assert_eq!(
       forward.covers(Point {
         x: right_edge,
         y: beside_the_rail
       }),
-      Ok(console_core_shapes::Covers::Yes)
+      Ok(console_panel::ui::shapes::Covers::Yes)
     );
     assert_eq!(
       back.covers(Point {
         x: left.saturating_add(10),
         y: middle
       }),
-      Ok(console_core_shapes::Covers::No),
+      Ok(console_panel::ui::shapes::Covers::No),
       "the text is not the bar"
     );
     assert_eq!(
       back.covers(Point { x: 4, y: 40 }),
-      Ok(console_core_shapes::Covers::No),
+      Ok(console_panel::ui::shapes::Covers::No),
       "the bar is not the whole height"
     );
     assert!(
@@ -5251,7 +5355,7 @@ mod tests {
           x: page_middle,
           y: middle
         }),
-        Ok(console_core_shapes::Covers::No)
+        Ok(console_panel::ui::shapes::Covers::No)
       );
     }
 
@@ -5507,6 +5611,7 @@ mod tests {
     );
 
     let look = Look {
+      chrome: app.wearing,
       ground: app.wearing.ground,
       ink: app.wearing.text,
       pen: app.wearing.pink,
@@ -5516,7 +5621,7 @@ mod tests {
 
     assert_eq!(
       drawn.first(),
-      Some(&Shape::Line(console_core_shapes::Line {
+      Some(&Shape::Line(console_panel::ui::shapes::Line {
         from,
         to,
         width: PEN,
@@ -5576,6 +5681,7 @@ mod tests {
     let Ok(now) = after.origin_on_page(spot, ROOM);
     let now_2 = now.ok_or("the word is still on the page at the new size")?;
     let look = Look {
+      chrome: app.wearing,
       ground: app.wearing.ground,
       ink: app.wearing.text,
       pen: app.wearing.pink,
@@ -6025,39 +6131,11 @@ mod tests {
   }
 
   #[test]
-  fn what_is_typed_sits_in_the_middle_of_the_search() {
+  fn the_library_search_uses_the_standard_field_height() {
     let Ok(search) = search_field(Size {
       width: 1024,
       height: 640,
     });
-    let style = TextStyle {
-      size: 16,
-      weight: Weight::Plain,
-      width: search.size.width.saturating_sub(40),
-    };
-    let shown = format!("\u{2315}  {SEARCH}");
-    let Ok(font) = font(SANS, style.size);
-    let Ok(measured) = console_draw_painting::measure_text(
-      Run {
-        said: &shown,
-        weight: style.weight,
-        width: style.width,
-      },
-      &font,
-    );
-    let Ok(at) = typed_at(&search, &shown, style);
-    let Ok(tall) = fitted::<u32, i32>(measured.height);
-    let Ok(field) = fitted::<u32, i32>(search.size.height);
-    let above = at.y.saturating_sub(search.at.y);
-    let below = search
-      .at
-      .y
-      .saturating_add(field)
-      .saturating_sub(at.y.saturating_add(tall));
-
-    assert!(
-      above.abs_diff(below) <= 1,
-      "{above} above the words and {below} under them"
-    );
+    assert_eq!(search.size.height, field::HEIGHT);
   }
 }

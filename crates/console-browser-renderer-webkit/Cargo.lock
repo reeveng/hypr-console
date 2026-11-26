@@ -44,9 +44,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "console-core-bytes"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+ "console-core-number-conversion",
+]
+
+[[package]]
 name = "console-core-checksums"
 version = "0.1.0"
 dependencies = [
+ "console-core-bytes",
  "console-core-never",
  "console-core-number-conversion",
 ]
@@ -58,6 +67,8 @@ dependencies = [
  "console-core-point",
  "console-core-rectangle",
  "console-core-size",
+ "console-core-triangle",
+ "console-core-vector",
 ]
 
 [[package]]
@@ -65,6 +76,7 @@ name = "console-core-logging"
 version = "0.1.0"
 dependencies = [
  "console-core-atomic-writes",
+ "console-core-bytes",
  "console-core-checksums",
  "console-core-never",
  "console-core-places",
@@ -133,6 +145,24 @@ name = "console-core-size"
 version = "0.1.0"
 dependencies = [
  "console-core-never",
+]
+
+[[package]]
+name = "console-core-triangle"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+ "console-core-point",
+ "console-core-rectangle",
+ "console-core-vector",
+]
+
+[[package]]
+name = "console-core-vector"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+ "console-core-point",
 ]
 
 [[package]]

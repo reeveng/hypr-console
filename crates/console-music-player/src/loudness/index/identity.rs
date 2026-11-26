@@ -1,12 +1,12 @@
 //! Fingerprint demuxed audio packets and the information needed to decode them.
 
-use std::fmt::Write;
 use std::io::{self, ErrorKind};
 use std::os::fd::OwnedFd;
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 use std::process::Stdio;
 
+use console_core_bytes::hex::{self, Case};
 use console_core_checksums::sha256::Sha256;
 use console_core_external_programs::Program;
 use console_core_never::Never;
@@ -29,7 +29,7 @@ pub(super) struct AudioKey(String);
 impl AudioKey {
   pub(super) fn for_path(path: &Path) -> Result<Self, Never> {
     let Ok(digest) = console_core_checksums::sha256::of(path.as_os_str().as_bytes());
-    let Ok(hash) = hex(digest);
+    let Ok(hash) = hex::encode(&digest, Case::Lower);
 
     Ok(Self(hash))
   }
@@ -175,18 +175,8 @@ impl Report {
     }
 
     let Ok(hash) = self.digest.finalize();
-    let Ok(key) = hex(hash);
+    let Ok(key) = hex::encode(&hash, Case::Lower);
 
     Ok(Some(AudioKey(key)))
   }
-}
-
-fn hex(hash: [u8; 32]) -> Result<String, Never> {
-  let mut encoded = String::new();
-
-  for byte in hash {
-    let _written = write!(encoded, "{byte:02x}");
-  }
-
-  Ok(encoded)
 }

@@ -325,11 +325,9 @@ fn hex_color(digits: &[u8]) -> Result<Color, Error> {
 
 #[inline]
 fn from_hex(c: u8) -> core::result::Result<u8, console_core_never::Never> {
-  Ok(match c {
-    b'0'..=b'9' => u8::wrapping_sub(c, b'0'),
-    b'a'..=b'f' => u8::wrapping_add(u8::wrapping_sub(c, b'a'), 10),
-    b'A'..=b'F' => u8::wrapping_add(u8::wrapping_sub(c, b'A'), 10),
-    _ => b'0',
+  Ok(match console_core_bytes::hex::decode_digit(c) {
+    Ok(digit) => digit,
+    Err(_not_hex) => 0,
   })
 }
 

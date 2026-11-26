@@ -195,7 +195,10 @@ pub fn grade(ramp: &Ramp, how: &Grade, [red, green, blue]: [f64; 3]) -> Result<[
   let Ok(green_byte) = whole_u8(green * 255.0);
   let Ok(blue_byte) = whole_u8(blue * 255.0);
 
-  let code = format!("{red_byte:02x}{green_byte:02x}{blue_byte:02x}");
+  let Ok(code) = console_core_bytes::hex::encode(
+    &[red_byte, green_byte, blue_byte],
+    console_core_bytes::hex::Case::Lower,
+  );
   let was = Lab::of(&code)?;
 
   let theme = ramp.at(Fraction(was.lightness))?;
@@ -261,7 +264,7 @@ mod tests {
       byte
     });
 
-    Ok(format!("{red:02x}{green:02x}{blue:02x}"))
+    console_core_bytes::hex::encode(&[red, green, blue], console_core_bytes::hex::Case::Lower)
   }
 
   fn lab(code: &str) -> Result<Lab, Never> {

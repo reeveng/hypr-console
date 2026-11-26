@@ -46,4 +46,9 @@ mod window_placement;
 pub mod words;
 
 pub use card::{COMMAND, WHO, card, door};
-pub use console_night_light as warm;
+
+pub mod warm {
+  pub use console_night_light::*;
+}
+
+pub use window_placement::{TOGGLE_WINDOW_PLACEMENT, toggle_window_placement};

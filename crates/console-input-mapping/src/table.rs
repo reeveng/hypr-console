@@ -111,7 +111,7 @@ fn change_at<T>(
   match change {
     Change::Save(value) => {
       let Ok(contents) = jobs.serialize();
-      let saved = store(target, &contents);
+      let saved = store(target, contents.as_bytes());
       saved?;
       Ok(value)
     }
@@ -119,7 +119,7 @@ fn change_at<T>(
   }
 }
 
-pub(crate) fn write_contents(path: &Path, contents: &str) -> Result<(), Unmapped> {
+pub(crate) fn write_contents(path: &Path, contents: &[u8]) -> Result<(), Unmapped> {
   let lock = lock_at(path);
   let _held = lock?;
 
@@ -144,8 +144,8 @@ fn lock_at(path: &Path) -> Result<std::fs::File, Unmapped> {
   Ok(file)
 }
 
-fn store(at: &Path, contents: &str) -> Result<(), Unmapped> {
-  console_core_atomic_writes::whole(at, contents.as_bytes()).map_err(Unmapped::Writing)
+fn store(at: &Path, contents: &[u8]) -> Result<(), Unmapped> {
+  console_core_atomic_writes::whole(at, contents).map_err(Unmapped::Writing)
 }
 
 #[cfg(test)]

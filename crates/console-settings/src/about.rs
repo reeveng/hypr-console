@@ -2,7 +2,6 @@
 
 use std::path::Path;
 
-use console_core_atomic_writes as writes;
 use console_core_never::Never;
 use console_manifest_engine::generations::{self, Generation};
 use console_panel::page::{Aside, Row};
@@ -32,16 +31,16 @@ pub fn rows() -> Result<Vec<Row>, Never> {
 }
 
 fn build_label(generation: Option<&Generation>) -> Result<String, Never> {
-  let marker =
-    Path::new(console_repository::DEVICE_ROOT).join(console_repository::RELEASE_MARKER);
-  let Ok(record) = writes::read(&marker);
+  let Ok(root) = console_repository::installed_root();
+  let marker = root.join(console_repository::RELEASE_MARKER);
+  let Ok(record) = console_core_atomic_writes::read(&marker);
   let release = match record {
-    writes::Stored::Text(text) => {
+    console_core_atomic_writes::Stored::Text(text) => {
       let Ok(tag) = release_tag(&text, generation);
       tag.map(str::to_owned)
     }
-    writes::Stored::Absent => None,
-    writes::Stored::Failed(fault) => {
+    console_core_atomic_writes::Stored::Absent => None,
+    console_core_atomic_writes::Stored::Failed(fault) => {
       console_core_logging::warn!("settings-panel: reading Console release record: {fault}");
       None
     }
@@ -102,12 +101,12 @@ fn operating_system() -> Result<String, Never> {
 }
 
 fn fact(at: &Path) -> Result<String, Never> {
-  let Ok(held) = writes::read(at);
+  let Ok(held) = console_core_atomic_writes::read(at);
 
   Ok(match held {
-    writes::Stored::Text(text) => text.trim().to_owned(),
-    writes::Stored::Absent => "Unknown".to_owned(),
-    writes::Stored::Failed(fault) => {
+    console_core_atomic_writes::Stored::Text(text) => text.trim().to_owned(),
+    console_core_atomic_writes::Stored::Absent => "Unknown".to_owned(),
+    console_core_atomic_writes::Stored::Failed(fault) => {
       console_core_logging::warn!("settings-panel: reading {}: {fault}", at.display());
       "Unknown".to_owned()
     }

@@ -19,11 +19,11 @@ use console_core_geometry::{Point, Rectangle, Size};
 use console_core_internal_programs::{InternalProgram, SELECT_SCREENSHOT_AREA};
 use console_core_iteration::{Endless, Step, iterate};
 use console_core_never::Never;
-use console_core_shapes::{Covers, Edge, Shape, Weight};
-use console_draw_painting::{self as painting, Run};
+use console_core_shapes::{Covers, Edge, Shape, Weight, hover_indicator};
+use console_draw_painting::Run;
 use console_draw_surface::{
-  Activation, Anchor, Closed, Keyboard, KeyboardEvent, Keysym, Margin, PointerEvent, Room,
-  Surface, SurfaceError, Under, Wanted,
+  Activation, Anchor, Closed, Hover, Keyboard, KeyboardEvent, Keysym, Margin, PointerCursor,
+  PointerEvent, RepaintHover, Room, Surface, SurfaceError, Under, Wanted,
 };
 use console_onscreen::{CONTROL_CENTER, CONTROL_CENTER_PANEL, focus};
 
@@ -35,11 +35,13 @@ enum Showing {
     sheet: Box<Sheet>,
     at: Option<(f64, f64)>,
     focused: Tapped,
+    hover: Hover<Tapped>,
   },
   Selecting {
     purpose: Purpose,
     prompt: Prompt,
     selection: Selection,
+    hover: Hover<()>,
   },
 }
 
@@ -232,13 +234,20 @@ fn round(
       }
       Next::Repaint => {
         match &showing {
-          Showing::Sheet { sheet, focused, .. } => {
-            paint_sheet(surface, wearing, sheet, *focused)?
+          Showing::Sheet {
+            sheet,
+            focused,
+            hover,
+            ..
+          } => {
+            let Ok(target) = hover.target();
+            paint_sheet(surface, wearing, sheet, (*focused, target))?
           }
           Showing::Selecting {
             purpose,
             prompt,
             selection,
+            ..
           } => paint_selection(surface, wearing, *purpose, *prompt, *selection)?,
           Showing::Edge { .. } => {}
         }
@@ -248,7 +257,79 @@ fn round(
     };
   }
 
+  hover_showing(surface, wearing, &mut showing)?;
+
   Ok(showing)
+}
+
+fn hover_showing(
+  surface: &mut Surface,
+  wearing: &Wearing,
+  showing: &mut Showing,
+) -> Result<(), SurfaceError> {
+  let Ok(pointer) = surface.pointer_position();
+
+  match showing {
+    Showing::Sheet {
+      sheet,
+      focused,
+      hover,
+      ..
+    } => {
+      let target = pointer.and_then(|at| {
+        let Ok(hit) = hit_test(sheet, (at.x, at.y));
+
+        (hit != Tapped::Outside).then_some(hit)
+      });
+      let Ok(feedback) = hover.observe(target);
+      let Ok(()) = control_cursor(surface, target);
+
+      match feedback {
+        Some(RepaintHover) => paint_sheet(surface, wearing, sheet, (*focused, target)),
+        None => Ok(()),
+      }
+    }
+    Showing::Selecting {
+      purpose,
+      prompt,
+      selection,
+      hover,
+    } => {
+      let Ok(target) = cancel_hover(*prompt, *selection, pointer);
+      let Ok(feedback) = hover.observe(target);
+      let Ok(()) = control_cursor(surface, target);
+
+      match feedback {
+        Some(RepaintHover) => paint_selection(surface, wearing, *purpose, *prompt, *selection),
+        None => Ok(()),
+      }
+    }
+    Showing::Edge { .. } => Ok(()),
+  }
+}
+
+fn control_cursor<T>(surface: &mut Surface, target: Option<T>) -> Result<(), Never> {
+  let cursor = match target {
+    Some(_) => PointerCursor::Hand,
+    None => PointerCursor::Default,
+  };
+
+  surface.set_pointer_cursor(cursor)
+}
+
+fn cancel_hover(
+  prompt: Prompt,
+  selection: Selection,
+  pointer: Option<Point<f64>>,
+) -> Result<Option<()>, Never> {
+  Ok(match (selection, pointer) {
+    (Selection::Ready | Selection::Corners(_), Some(at)) => {
+      let Ok(over) = prompt.cancels(at);
+
+      (over == Covers::Yes).then_some(())
+    }
+    (Selection::Dragging(_), _) | (_, None) => None,
+  })
 }
 
 enum Input {
@@ -389,6 +470,7 @@ fn step(
         purpose,
         prompt,
         selection,
+        ..
       },
       event_2,
     ) => {
@@ -430,6 +512,7 @@ fn step(
         sheet,
         at: Some(at),
         focused,
+        ..
       },
       PointerEvent::Up,
     ) => return activated(sheet, Activation::At(*at), *focused),
@@ -599,12 +682,13 @@ fn open(surface: &mut Surface, wearing: &mut Wearing) -> Result<Showing, Surface
   let Ok(()) = refresh_colors(wearing);
   let Ok(laid) = sheet(room, wearing);
   let focused = Tapped::Screenshot;
-  paint_sheet(surface, wearing, &laid, focused)?;
+  paint_sheet(surface, wearing, &laid, (focused, None))?;
 
   Ok(Showing::Sheet {
     sheet: Box::new(laid),
     at: None,
     focused,
+    hover: Hover::default(),
   })
 }
 
@@ -636,6 +720,7 @@ fn select(
     purpose,
     prompt,
     selection,
+    hover: Hover::default(),
   })
 }
 
@@ -660,7 +745,7 @@ fn paint_sheet(
   surface: &mut Surface,
   wearing: &Wearing,
   sheet: &Sheet,
-  focused: Tapped,
+  (focused, hover): (Tapped, Option<Tapped>),
 ) -> Result<(), SurfaceError> {
   let mut laid = sheet.clone();
   let outline = Edge::Of {
@@ -682,7 +767,7 @@ fn paint_sheet(
   let Ok(capture_text) = measure_label(CAPTURE_TEXT, laid.capture_text.size.width);
   let Ok(close) = measure_label(CLOSE, laid.close.size.width);
   let Ok(task_manager) = measure_label(TASK_MANAGER, laid.task_manager.size.width);
-  let Ok(shapes) = render(
+  let Ok(mut shapes) = render(
     &laid,
     Labels {
       screenshot,
@@ -693,6 +778,23 @@ fn paint_sheet(
     },
     wearing,
   );
+
+  let target = match hover {
+    Some(Tapped::Screenshot) => Some(laid.screenshot),
+    Some(Tapped::ScreenshotArea) => Some(laid.screenshot_area),
+    Some(Tapped::CaptureText) => Some(laid.capture_text),
+    Some(Tapped::Close) => Some(laid.close),
+    Some(Tapped::TaskManager) => Some(laid.task_manager),
+    Some(Tapped::Outside) | None => None,
+  };
+
+  match target {
+    Some(panel) => {
+      let Ok(indicator) = hover_indicator(panel.at, panel.size, (wearing.pink, wearing.night));
+      shapes.extend(indicator);
+    }
+    None => {}
+  }
 
   paint(surface, &shapes)
 }
@@ -757,12 +859,27 @@ fn paint_selection(
   }
 
   shapes.extend(guides);
+  let Ok(pointer) = surface.pointer_position();
+  let Ok(hovered) = cancel_hover(prompt, selection, pointer);
+
+  match hovered {
+    Some(()) => {
+      let Ok(indicator) = hover_indicator(
+        prompt.cancel.at,
+        prompt.cancel.size,
+        (wearing.pink, wearing.night),
+      );
+      shapes.extend(indicator);
+    }
+    None => {}
+  }
+
   paint(surface, &shapes)
 }
 
 fn measure_label(said: &str, width: u32) -> Result<Size<u32>, Never> {
   let Ok(font) = TextStyle::Headline.font();
-  painting::measure_text(
+  console_draw_painting::measure_text(
     Run {
       said,
       weight: Weight::Bold,
@@ -778,7 +895,7 @@ fn paint(surface: &mut Surface, shapes: &[Shape]) -> Result<(), SurfaceError> {
     Ok(None) => return Ok(()),
   };
 
-  let Ok(painting) = painting::painter(points, shapes, "console-control-center");
+  let Ok(painting) = console_draw_painting::painter(points, shapes, "console-control-center");
   surface.draw(painting)
 }
 
@@ -828,6 +945,7 @@ mod tests {
       purpose,
       prompt,
       selection: Selection::Ready,
+      hover: Hover::default(),
     };
     let mut fingers = Fingers::default();
 
@@ -938,6 +1056,7 @@ mod tests {
       sheet: Box::new(laid),
       at: None,
       focused: Tapped::TaskManager,
+      hover: Hover::default(),
     };
 
     for (panel, expected) in buttons {

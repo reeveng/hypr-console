@@ -47,7 +47,7 @@
 //! Off unless asked for. `CONSOLE_PANEL_TELLS` names the file, nothing else
 //! turns it on, and a panel on the device writes nothing.
 
-use std::fmt::Write as _;
+use std::fmt::Write;
 
 use console_core_never::Never;
 use console_core_number_conversion::fitted;

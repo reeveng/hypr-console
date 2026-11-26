@@ -19,6 +19,7 @@ use console_draw_surface::Keysym;
 use crate::canvas::{
   Align, Area, AreaLayout, Button, Canvas, Face, FocusDirection, Interaction, Style,
 };
+use crate::strip;
 
 pub use data::{
   Action, Day, Kind, Lane, LaneView, Page, Period, Recorder, Refresh, Rows, Scope, Source, View,
@@ -28,7 +29,6 @@ use theme::Palette;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
-const TOP: i32 = 69;
 const FOOTER: i32 = 36;
 const ROW: i32 = 38;
 
@@ -47,7 +47,7 @@ pub fn press(frame: &Frame, at: Point<f64>) -> std::result::Result<Press, Never>
   let Ok(action) = frame.targets.action(at);
   Ok(match action {
     Some(requested) => Press::Activate(requested),
-    None => match (0.0..53.0).contains(&at.y).then_some(()) {
+    None => match (0.0..f64::from(strip::CONTENT_TOP)).contains(&at.y).then_some(()) {
       Some(()) => Press::MoveWindow,
       None => Press::Ignore,
     },
@@ -288,14 +288,7 @@ struct Scene<'a> {
 
 impl<'a> Scene<'a> {
   fn new(app: &'a View<'a>, window: Area, colors: Palette) -> std::result::Result<Self, Never> {
-    let style = Style {
-      rule: colors.rule,
-      lifted: colors.lifted,
-      accent: colors.accent,
-      ink: colors.ink,
-      quiet: colors.quiet,
-      disabled: colors.disabled,
-    };
+    let style = Style::from(&colors.chrome);
     let interaction = Interaction {
       focus: app.focus,
       hover: app.hover,
@@ -324,11 +317,17 @@ pub fn draw(
   };
   let colors = art.palette;
   let Ok(mut scene) = Scene::new(app, whole, colors);
+  let Ok(chrome) = strip::window_area(width);
+  let Ok(()) = header(&mut scene, chrome);
 
   match bool::then_some(width < 300 || height < 155, ()) {
     Some(()) => {
+      let below_header = Area {
+        origin: Point { x: 0, y: strip::CONTENT_TOP },
+        size: Size { width, height: height.saturating_sub(strip::CONTENT_TOP) },
+      };
       let Ok(()) = scene.canvas.text(
-        whole,
+        below_header,
         "Enlarge the window to see activity",
         15,
         Face::Body,
@@ -346,10 +345,7 @@ pub fn draw(
   };
   let content = i32::wrapping_sub(width, i32::wrapping_mul(2, padding)).min(1070);
   let x = i32::wrapping_div(i32::wrapping_sub(width, content), 2);
-  let top = match height.cmp(&500) {
-    Ordering::Less => 53,
-    Ordering::Equal | Ordering::Greater => TOP,
-  };
+  let top = strip::CONTENT_TOP;
   let page = Area {
     origin: Point { x, y: top },
     size: Size {
@@ -357,16 +353,6 @@ pub fn draw(
       height: i32::wrapping_sub(i32::wrapping_sub(height, top), FOOTER),
     },
   };
-  let Ok(()) = header(
-    &mut scene,
-    Area {
-      origin: Point { x, y: 0 },
-      size: Size {
-        width: content,
-        height: top,
-      },
-    },
-  );
   let Ok(end) = draw_page(&mut scene, page, whole, art);
   let overflow = i32::wrapping_sub(i32::wrapping_add(i32::wrapping_add(end, app.scroll), 12), {
     let Ok(explicit_value) = page.bottom();
@@ -469,118 +455,29 @@ fn draw_page(
   }
 }
 
-fn header(
-  scene: &mut Scene<'_>,
-  header: Area,
-) -> core::result::Result<(), console_core_never::Never> {
-  {
-    let colors = scene.palette;
-    let Area {
-      origin: Point { x, .. },
-      size: Size {
-        width: content,
-        height,
-      },
-    } = header;
-    let middle = i32::wrapping_div(height, 2);
-    let Ok(()) = scene.canvas.panel(
-      Area {
-        origin: Point {
-          x: i32::wrapping_add(x, 1),
-          y: i32::wrapping_sub(middle, 4),
-        },
-        size: Size {
-          width: 8,
-          height: 8,
-        },
-      },
-      colors.accent,
-      4,
-      None,
-    );
-    let Ok(()) = scene.canvas.text(
-      Area {
-        origin: Point {
-          x: i32::wrapping_add(x, 17),
-          y: i32::wrapping_sub(middle, 23),
-        },
-        size: Size {
-          width: 104,
-          height: 46,
-        },
-      },
-      scene.app.title,
-      26,
-      Face::Title,
-      colors.ink,
-      Align::Left,
-    );
-    let Ok(()) = header_tabs(scene, header, middle);
-    let Ok(right) = header.right();
-    let Ok(()) = scene.canvas.button(
-      Area {
-        origin: Point {
-          x: i32::wrapping_sub(right, 31),
-          y: i32::wrapping_sub(middle, 15),
-        },
-        size: Size {
-          width: 31,
-          height: 30,
-        },
-      },
-      "×",
-      Action::Close,
-      Button::Unselected,
-    );
-    let Ok(()) = scene.canvas.line(
-      Point {
-        x,
-        y: i32::wrapping_sub(height, 1),
-      },
-      content,
-    );
+fn header(scene: &mut Scene<'_>, area: Area) -> std::result::Result<(), Never> {
+  let selected = match scene.app.page {
+    Page::Overview => 0,
+    Page::Timeline => 1,
   };
 
-  Ok(())
-}
-
-fn header_tabs(
-  scene: &mut Scene<'_>,
-  header: Area,
-  middle: i32,
-) -> std::result::Result<(), Never> {
-  let center = i32::wrapping_add(header.origin.x, i32::wrapping_div(header.size.width, 2));
-  let tabs = match header.size.width.cmp(&490) {
-    Ordering::Less => {
-      let Ok(right) = header.right();
-
-      i32::wrapping_sub(right, 200)
-    }
-    Ordering::Equal | Ordering::Greater => i32::wrapping_sub(center, 90),
-  };
-
-  for (index, (page, label)) in
-    (0_i32..2).zip([(Page::Overview, "Overview"), (Page::Timeline, "Timeline")])
-  {
-    let area = Area {
-      origin: Point {
-        x: i32::wrapping_add(tabs, i32::wrapping_mul(82, index)),
-        y: i32::wrapping_sub(middle, 15),
+  strip::header(
+    &mut scene.canvas,
+    area,
+    &strip::Header {
+      title: scene.app.title,
+      tabs: &["Overview", "Timeline"],
+      selected,
+      select: |index| match index {
+        0 => Action::Page(Page::Overview),
+        _ => Action::Page(Page::Timeline),
       },
-      size: Size {
-        width: 80,
-        height: 30,
-      },
-    };
-    let Ok(()) = scene.canvas.button(
-      area,
-      label,
-      Action::Page(page),
-      Button::from(scene.app.page == page),
-    );
-  }
-
-  Ok(())
+      previous: Action::PageArrow(Page::Overview),
+      next: Action::PageArrow(Page::Timeline),
+      close: Action::Close,
+    },
+    &scene.palette.chrome,
+  )
 }
 
 fn footer(scene: &mut Scene<'_>, area: Area) -> std::result::Result<(), Never> {

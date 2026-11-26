@@ -21,6 +21,7 @@ use console_core_audio_decoding_interfaces::support_format;
 use console_core_byte_streams::{
   MediaSource, MediaSourceStream, ReadBytes, ScopedStream, SeekBuffered, Seeking,
 };
+use console_core_iteration::{Endless, Step, iterate};
 use console_core_number_conversion::index;
 
 use crate::config::{AAC_SAMPLE_RATES, map_channels};
@@ -104,34 +105,25 @@ pub fn adts_frame([a, b, c, d, e, f, g]: [u8; 7]) -> Result<Option<AdtsFrame>> {
   })
 }
 
-struct Bytes<'a, B> {
-  source: &'a mut B,
-}
-
-impl<B: ReadBytes> Iterator for Bytes<'_, B> {
-  type Item = std::io::Result<u8>;
-
-  fn next(&mut self) -> Option<Self::Item> {
-    Some(self.source.read_u8())
-  }
-}
-
 impl AdtsHeader {
   fn sync<B: ReadBytes>(reader: &mut B) -> Result<()> {
-    let mut window = 0u16;
+    let synchronized = iterate((reader, 0u16), |(source, window)| {
+      let byte = match source.read_u8() {
+        Ok(byte) => byte,
+        Err(fault) => return Ok(Step::Halt(Err(Error::IoError(fault)))),
+      };
+      let next = window.wrapping_shl(8) | u16::from(byte);
 
-    for read in (Bytes { source: reader }) {
-      let byte = read?;
+      Ok(match next {
+        0xfff1 => Step::Halt(Ok(())),
+        _other => Step::Again((source, next)),
+      })
+    });
 
-      window = window.wrapping_shl(8) | u16::from(byte);
-
-      match window {
-        0xfff1 => return Ok(()),
-        _other => {}
-      }
+    match synchronized {
+      Ok(result) => result,
+      Err(Endless) => invalid(),
     }
-
-    invalid()
   }
 
   fn read<B: ReadBytes>(reader: &mut B) -> Result<Self> {

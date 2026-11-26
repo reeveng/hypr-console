@@ -10,6 +10,7 @@ repository = "https://github.com/pop-os/cosmic-text"
 rust-version.workspace = true
 
 [dependencies]
+console-core-bytes = { workspace = true, features = ["alloc"] }
 console-core-never.workspace = true
 console-core-number-conversion.workspace = true
 console-core-localization.workspace = true

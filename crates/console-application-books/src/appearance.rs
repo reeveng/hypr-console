@@ -33,7 +33,7 @@ use console_core_finite_numbers::FiniteF64;
 use console_core_fonts::{Font, Weight};
 use console_core_geometry::Size;
 use console_core_never::Never;
-use console_draw_painting::Run;
+use console_panel::ui::painting::Run;
 
 use crate::pages::Style;
 use console_core_number_conversion::{Float, whole_u32};
@@ -257,7 +257,7 @@ impl Appearance {
   #[must_use]
   pub fn line_height(self, style: Style) -> Result<u32, Never> {
     let Ok((font, weight)) = self.styled(style);
-    let Ok(measured) = console_draw_painting::measure_text(
+    let Ok(measured) = console_panel::ui::painting::measure_text(
       Run {
         said: "Ag",
         weight,

@@ -56,6 +56,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::mpsc::{Receiver, SyncSender, TryRecvError, sync_channel};
 use std::thread::JoinHandle;
 
+use console_core_bytes::Bytes;
 use console_core_never::Never;
 use console_core_number_conversion::index;
 use console_core_state_machine::{Machine, Queue, SerializableMachine, restore, snapshot};
@@ -509,7 +510,7 @@ impl<M: Machine> Keeper<M> for Forgets {
 struct Saves {
   store: KeyValueStore,
   key: String,
-  last: Option<Vec<u8>>,
+  last: Option<Bytes>,
 }
 
 impl<M: SerializableMachine> Keeper<M> for Saves {

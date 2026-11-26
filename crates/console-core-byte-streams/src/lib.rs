@@ -21,6 +21,7 @@
 
 use std::{cmp::Ordering, io};
 
+use console_core_bytes::endian;
 use console_core_iteration::Endless;
 use console_core_never::Never;
 use console_core_number_conversion::{Ends, fitted, index};
@@ -183,30 +184,38 @@ pub trait ReadBytes {
 
   #[inline(always)]
   fn read_u24(&mut self) -> io::Result<u32> {
-    self
-      .read_triple_bytes()
-      .map(|[low, middle, high]| u32::from_le_bytes([low, middle, high, 0]))
+    self.read_triple_bytes().map(|bytes| {
+      let Ok(value) = endian::u24_le(bytes);
+
+      value
+    })
   }
 
   #[inline(always)]
   fn read_i24(&mut self) -> io::Result<i32> {
-    self
-      .read_triple_bytes()
-      .map(|[low, middle, high]| i32::from_le_bytes([0, low, middle, high]).wrapping_shr(8))
+    self.read_triple_bytes().map(|bytes| {
+      let Ok(value) = endian::i24_le(bytes);
+
+      value
+    })
   }
 
   #[inline(always)]
   fn read_be_u24(&mut self) -> io::Result<u32> {
-    self
-      .read_triple_bytes()
-      .map(|[high, middle, low]| u32::from_be_bytes([0, high, middle, low]))
+    self.read_triple_bytes().map(|bytes| {
+      let Ok(value) = endian::u24_be(bytes);
+
+      value
+    })
   }
 
   #[inline(always)]
   fn read_be_i24(&mut self) -> io::Result<i32> {
-    self
-      .read_triple_bytes()
-      .map(|[high, middle, low]| i32::from_be_bytes([high, middle, low, 0]).wrapping_shr(8))
+    self.read_triple_bytes().map(|bytes| {
+      let Ok(value) = endian::i24_be(bytes);
+
+      value
+    })
   }
 
   #[inline(always)]

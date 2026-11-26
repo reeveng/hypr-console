@@ -9,9 +9,113 @@
 //! A read error is preserved; no partial buffer is returned as a complete input.
 //! The caller also owns the wait: a socket's timeout is set before it is handed
 //! in, because a generic reader has no deadline setting.
+//!
+//! A line reserves space for its delimiter before appending. Its fragments
+//! survive temporary I/O failures. Clear it after consuming a complete line.
 
-use std::io::{self, Read};
+use std::io::{self, BufRead, Read};
 use std::string::FromUtf8Error;
+
+use console_core_bytes::Bytes;
+use console_core_never::Never;
+use console_core_number_conversion::{fixed_index, index};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LinePart {
+  Partial,
+  Complete,
+  End,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LineEnding {
+  Required,
+  OptionalAtEof,
+}
+
+pub struct Line {
+  limit: u32,
+  ending: LineEnding,
+  bytes: Vec<u8>,
+}
+
+impl Line {
+  pub fn new(limit: u32, ending: LineEnding) -> Result<Self, Never> {
+    Ok(Self {
+      limit,
+      ending,
+      bytes: Vec::new(),
+    })
+  }
+
+  pub fn bytes(&self) -> Result<&[u8], Never> {
+    Ok(&self.bytes)
+  }
+
+  pub fn clear(&mut self) -> Result<(), Never> {
+    self.bytes.clear();
+
+    Ok(())
+  }
+
+  pub fn read_part(&mut self, input: &mut impl BufRead) -> Result<LinePart, ReadError> {
+    let available = input.fill_buf().map_err(ReadError::Io)?;
+
+    match (available.is_empty(), self.bytes.is_empty(), self.ending) {
+      (true, true, _) => return Ok(LinePart::End),
+      (true, false, LineEnding::OptionalAtEof) => return Ok(LinePart::Complete),
+      (true, false, LineEnding::Required) => {
+        return Err(ReadError::Io(io::Error::from(io::ErrorKind::UnexpectedEof)));
+      }
+      (false, _, _) => {}
+    }
+
+    let (incoming, part) = match available.iter().position(|byte| *byte == b'\n') {
+      Some(end) => {
+        let Ok(size) = fixed_index(end);
+
+        (size, LinePart::Complete)
+      }
+      None => {
+        let Ok(size) = fixed_index(available.len());
+
+        (size, LinePart::Partial)
+      }
+    };
+    let Ok(total) = fixed_index(self.bytes.len());
+    let too_long = ReadError::TooLong { limit: self.limit };
+
+    match (total.saturating_add(incoming) < u64::from(self.limit)).then_some(()) {
+      Some(()) => {}
+      None => return Err(too_long),
+    }
+
+    let Ok(stop) = index(incoming);
+    let data = available.get(..stop).ok_or(too_long)?;
+    self.bytes.extend_from_slice(data);
+
+    match part {
+      LinePart::Complete => input.consume(stop.saturating_add(1)),
+      LinePart::Partial | LinePart::End => input.consume(stop),
+    }
+
+    Ok(part)
+  }
+
+  pub fn read(&mut self, input: &mut impl BufRead) -> Result<Option<&[u8]>, ReadError> {
+    for _ in 0..=self.limit {
+      let part = self.read_part(input)?;
+
+      match part {
+        LinePart::Partial => {}
+        LinePart::Complete => return Ok(Some(&self.bytes)),
+        LinePart::End => return Ok(None),
+      }
+    }
+
+    Err(ReadError::TooLong { limit: self.limit })
+  }
+}
 
 enum InputLength {
   WithinLimit,
@@ -65,6 +169,13 @@ impl From<ReadError> for io::Error {
   }
 }
 
+pub fn bytes(reader: impl Read, limit: u32) -> Result<Vec<u8>, ReadError> {
+  let data = payload(reader, limit)?;
+  let Ok(buffer) = data.into_vec();
+
+  Ok(buffer)
+}
+
 #[cfg_attr(
   dylint_lib = "explicit057_no_unbounded_wait",
   allow(
@@ -72,7 +183,7 @@ impl From<ReadError> for io::Error {
     reason = "the caller owns the reader and its deadline; a generic Read has no timeout setting, and this function bounds only its byte count"
   )
 )]
-pub fn bytes(reader: impl Read, limit: u32) -> Result<Vec<u8>, ReadError> {
+pub fn payload(reader: impl Read, limit: u32) -> Result<Bytes, ReadError> {
   let mut bounded = reader.take(u64::from(limit).saturating_add(1));
   let mut buffer = Vec::new();
 
@@ -80,7 +191,7 @@ pub fn bytes(reader: impl Read, limit: u32) -> Result<Vec<u8>, ReadError> {
 
   match u32::try_from(buffer.len()) {
     Ok(length) => match InputLength::from(length <= limit) {
-      InputLength::WithinLimit => Ok(buffer),
+      InputLength::WithinLimit => Ok(Bytes::from(buffer)),
       InputLength::TooLong => Err(ReadError::TooLong { limit }),
     },
     Err(_too_wide) => Err(ReadError::TooLong { limit }),
@@ -88,14 +199,55 @@ pub fn bytes(reader: impl Read, limit: u32) -> Result<Vec<u8>, ReadError> {
 }
 
 pub fn text(reader: impl Read, limit: u32) -> Result<String, ReadError> {
-  let buffer = bytes(reader, limit)?;
+  let buffer = payload(reader, limit)?;
 
-  String::from_utf8(buffer).map_err(ReadError::NotUtf8)
+  buffer.into_utf8().map_err(ReadError::NotUtf8)
 }
 
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn fragmented_frames_leave_the_next_line_in_the_reader() -> Result<(), ReadError> {
+    let mut input = io::BufReader::with_capacity(2, b"abc\n\nnext\n".as_slice());
+    let Ok(mut line) = Line::new(5, LineEnding::Required);
+
+    let part = line.read_part(&mut input)?;
+    let Ok(fragment) = line.bytes();
+    assert_eq!(part, LinePart::Partial);
+    assert_eq!(fragment, b"ab");
+    let first = line.read(&mut input)?;
+    assert_eq!(first, Some(b"abc".as_slice()));
+    let Ok(()) = line.clear();
+    let empty = line.read(&mut input)?;
+    assert_eq!(empty, Some(b"".as_slice()));
+    let second = line.read(&mut input)?;
+    assert_eq!(second, Some(b"next".as_slice()));
+    let Ok(()) = line.clear();
+    let end = line.read(&mut input)?;
+    assert_eq!(end, None);
+
+    Ok(())
+  }
+
+  #[test]
+  fn oversized_and_truncated_frames_never_complete() -> Result<(), ReadError> {
+    let Ok(mut line) = Line::new(4, LineEnding::Required);
+
+    assert!(matches!(
+      line.read(&mut b"abcd\n".as_slice()),
+      Err(ReadError::TooLong { limit: 4 })
+    ));
+    let Ok(buffered) = line.bytes();
+    assert!(buffered.is_empty());
+    assert!(matches!(
+      line.read(&mut b"abc".as_slice()),
+      Err(ReadError::Io(fault)) if fault.kind() == io::ErrorKind::UnexpectedEof
+    ));
+
+    Ok(())
+  }
 
   #[test]
   fn empty_short_and_exactly_fitting_inputs_are_complete() -> Result<(), ReadError> {

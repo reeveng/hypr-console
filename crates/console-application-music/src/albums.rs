@@ -111,7 +111,7 @@ pub fn paths(album: &Album<'_>) -> Result<Vec<PathBuf>, Never> {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use console_music_player::tags::{Album as TagsAlbum, Tags};
+  use console_music_player::tags::{self, Tags};
 
   #[test]
   fn compilation_tracks_follow_disc_and_track_numbers() {
@@ -121,12 +121,12 @@ mod tests {
       song.tags = Tags {
         title: artist.to_owned(),
         artist: artist.to_owned(),
-        album: TagsAlbum {
+        album: tags::Album {
           title: "Compilation".to_owned(),
           artist: "Various Artists".to_owned(),
           disc: Some(disc),
           track: Some(n),
-          ..TagsAlbum::default()
+          ..tags::Album::default()
         },
         ..Tags::default()
       };

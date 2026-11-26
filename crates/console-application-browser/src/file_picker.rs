@@ -8,9 +8,9 @@ use console_core_color::palette::Wearing;
 use console_core_fonts::Font;
 use console_core_geometry::{Point, Rectangle, Size};
 use console_core_never::Never;
-use console_core_shapes::Edge;
-use console_draw_painting::{self as drawing, Frame};
 use console_input_key_symbols::Keysym;
+use console_panel::ui::painting::{self, Frame};
+use console_panel::ui::shapes::Edge;
 
 use crate::settings::{Alignment, label_at};
 use crate::toolbar::panel;
@@ -257,7 +257,7 @@ impl Picker {
     frame: Frame,
     palette: &Wearing,
     font: &Font,
-  ) -> Result<(), drawing::Cannot> {
+  ) -> Result<(), painting::Cannot> {
     let Ok(width) = console_core_number_conversion::fitted::<_, i32>(frame.points.width);
     let Ok(height) = console_core_number_conversion::fitted::<_, i32>(frame.points.height);
     let area = |y, height_2| Rectangle {
@@ -319,7 +319,7 @@ impl Picker {
       );
     }
 
-    drawing::onto(pixels, frame, &shapes)
+    painting::onto(pixels, frame, &shapes)
   }
 }
 

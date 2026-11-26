@@ -68,9 +68,10 @@ pub struct Reconnected {
   pub gone: std::time::Duration,
 }
 
-pub use console_compositor::{
-  Action as CompositorAction, Carrying as Payload, Direction, WorkspaceTarget,
-};
+pub use console_compositor::{Direction, WorkspaceTarget};
+
+pub type CompositorAction = console_compositor::Action;
+pub type Payload = console_compositor::Carrying;
 
 impl Effect {
   pub fn run(arguments: &[&str]) -> Result<Self, Never> {

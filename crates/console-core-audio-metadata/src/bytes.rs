@@ -12,6 +12,7 @@
 use std::cmp::Ordering;
 use std::io::{ErrorKind, Read, Seek, SeekFrom};
 
+use console_core_bytes::Cursor as ByteCursor;
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index};
 
@@ -34,33 +35,28 @@ pub(crate) fn read_into(reader: &mut impl Read, bytes: &mut [u8]) -> Result<(), 
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Cursor<'a> {
-  rest: &'a [u8],
+  bytes: ByteCursor<'a>,
 }
 
 impl<'a> Cursor<'a> {
   pub(crate) fn new(bytes: &'a [u8]) -> Result<Cursor<'a>, Never> {
-    Ok(Cursor { rest: bytes })
+    let Ok(cursor) = ByteCursor::new(bytes);
+
+    Ok(Cursor { bytes: cursor })
   }
 
   pub(crate) fn rest(&self) -> Result<&'a [u8], Never> {
-    Ok(self.rest)
+    self.bytes.rest()
   }
 
   pub(crate) fn left(&self) -> Result<u64, Never> {
-    length(self.rest)
+    let Ok(rest) = self.bytes.rest();
+
+    length(rest)
   }
 
   pub(crate) fn take(&mut self, count: u64) -> Result<&'a [u8], Malformed> {
-    let Ok(at) = index(count);
-
-    match self.rest.split_at_checked(at) {
-      Some((taken, rest)) => {
-        self.rest = rest;
-
-        Ok(taken)
-      }
-      None => Err(Malformed::Short),
-    }
+    self.bytes.take(count).map_err(|_| Malformed::Short)
   }
 
   pub(crate) fn upto(&mut self, count: u64) -> Result<&'a [u8], Never> {
@@ -73,38 +69,23 @@ impl<'a> Cursor<'a> {
   }
 
   pub(crate) fn array<const WIDTH: usize>(&mut self) -> Result<[u8; WIDTH], Malformed> {
-    match self.rest.split_first_chunk::<WIDTH>() {
-      Some((taken, rest)) => {
-        self.rest = rest;
-
-        Ok(*taken)
-      }
-      None => Err(Malformed::Short),
-    }
+    self.bytes.array().map_err(|_| Malformed::Short)
   }
 
   pub(crate) fn byte(&mut self) -> Result<u8, Malformed> {
-    let [read] = self.array::<1>()?;
-
-    Ok(read)
+    self.bytes.byte().map_err(|_| Malformed::Short)
   }
 
   pub(crate) fn u16_le(&mut self) -> Result<u16, Malformed> {
-    let read = self.array::<2>()?;
-
-    Ok(u16::from_le_bytes(read))
+    self.bytes.u16_le().map_err(|_| Malformed::Short)
   }
 
   pub(crate) fn u32_be(&mut self) -> Result<u32, Malformed> {
-    let read = self.array::<4>()?;
-
-    Ok(u32::from_be_bytes(read))
+    self.bytes.u32_be().map_err(|_| Malformed::Short)
   }
 
   pub(crate) fn u32_le(&mut self) -> Result<u32, Malformed> {
-    let read = self.array::<4>()?;
-
-    Ok(u32::from_le_bytes(read))
+    self.bytes.u32_le().map_err(|_| Malformed::Short)
   }
 
   pub(crate) fn skip(&mut self, count: u64) -> Result<(), Malformed> {
@@ -114,7 +95,7 @@ impl<'a> Cursor<'a> {
   }
 
   pub(crate) fn finish(&mut self) -> Result<(), Never> {
-    self.rest = &[];
+    let Ok(_skipped) = self.bytes.take_rest();
 
     Ok(())
   }

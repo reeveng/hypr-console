@@ -50,6 +50,7 @@ name = "console-scale"
 path = "src/bin/console-scale.rs"
 
 [dependencies]
+console-core-bytes = { workspace = true, features = ["alloc"] }
 console-operating-system-linux.workspace = true
 console-bluetooth.workspace = true
 console-bluetooth-agent.workspace = true

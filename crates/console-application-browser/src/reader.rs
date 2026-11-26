@@ -4,9 +4,9 @@ use console_core_geometry::{Point, Size};
 use console_core_ini_files::{Key, Under, field};
 use console_core_never::Never;
 use console_core_places::Base;
-use console_core_shapes::{Edge, Panel, Round, Shape, Text};
-use console_draw_painting::{self as drawing, Frame, Run};
 use console_input_key_symbols::Keysym;
+use console_panel::ui::painting::{self, Frame, Run};
+use console_panel::ui::shapes::{Edge, Panel, Round, Shape, Text};
 
 pub const DARK: (Oklch, Oklch) = (
   Oklch {
@@ -212,7 +212,7 @@ impl Article {
     let mut rows = Vec::new();
 
     for (said, weight) in paragraphs {
-      let Ok(lines) = drawing::wrapped(
+      let Ok(lines) = painting::wrapped(
         Run {
           said,
           weight,
@@ -294,7 +294,7 @@ impl Article {
     pixels: &mut [u8],
     frame: Frame,
     (background, ink): (Oklch, Oklch),
-  ) -> Result<(), drawing::Cannot> {
+  ) -> Result<(), painting::Cannot> {
     let mut shapes = vec![
       ({
         let Ok(explicit_value) = self::background(frame.points, background);
@@ -331,7 +331,7 @@ impl Article {
       y = y.saturating_add(leading);
     }
 
-    drawing::onto(pixels, frame, &shapes)
+    painting::onto(pixels, frame, &shapes)
   }
 }
 

@@ -27,8 +27,6 @@ use console_core_never::Never;
 
 pub const ESCAPE: u8 = b'%';
 
-const HEXADECIMAL: u32 = 16;
-
 pub fn decoded(spelled: &[u8]) -> Result<Vec<u8>, Never> {
   let mut written = Vec::with_capacity(spelled.len());
   let mut rest = spelled;
@@ -49,22 +47,12 @@ pub fn decoded(spelled: &[u8]) -> Result<Vec<u8>, Never> {
 }
 
 pub fn escaped_byte(after: &[u8]) -> Result<Option<u8>, Never> {
-  let [high_digit, low_digit] = match after.first_chunk::<2>() {
-    Some(digits) => digits,
-    None => return Ok(None),
-  };
-
-  let high = char::from(*high_digit).to_digit(HEXADECIMAL);
-  let low = char::from(*low_digit).to_digit(HEXADECIMAL);
-
-  Ok(match (high, low) {
-    (Some(leading), Some(trailing)) => {
-      match u8::try_from(leading.wrapping_mul(HEXADECIMAL) | trailing) {
-        Ok(byte) => Some(byte),
-        Err(_outside_byte_range) => None,
-      }
-    }
-    (None, _) | (_, None) => None,
+  Ok(match after.first_chunk::<2>() {
+    Some(digits) => match console_core_bytes::hex::decode_pair(*digits) {
+      Ok(byte) => Some(byte),
+      Err(console_core_bytes::hex::InvalidDigit(_)) => None,
+    },
+    None => None,
   })
 }
 

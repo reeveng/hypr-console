@@ -41,6 +41,7 @@ port = [
 ]
 
 [dependencies]
+console-core-bytes.workspace = true
 console-wayland = { path = "../console-wayland", features = ["virtual-keyboard"], optional = true }
 console-core-arguments.workspace = true
 console-concurrency = { workspace = true, optional = true }

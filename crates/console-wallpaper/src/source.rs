@@ -14,6 +14,7 @@
 
 use std::path::{Path, PathBuf};
 
+use console_core_bytes::hex::{self, Case};
 use console_core_checksums::sha256;
 use console_core_external_programs::Program;
 use console_core_never::Never;
@@ -37,7 +38,9 @@ pub fn checksum(at: &Path) -> Result<String, Unpainted> {
   let held = std::fs::read(at).map_err(|fault| Unpainted::Read(at.to_path_buf(), fault))?;
   let Ok(digest) = sha256::of(&held);
 
-  Ok(digest.iter().map(|byte| format!("{byte:02x}")).collect())
+  let Ok(encoded) = hex::encode(&digest, Case::Lower);
+
+  Ok(encoded)
 }
 
 #[derive(Debug, PartialEq, Eq)]

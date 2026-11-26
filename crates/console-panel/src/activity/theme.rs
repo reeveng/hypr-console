@@ -13,6 +13,7 @@ const BUNDLED: &str = include_str!("../../../../files/usr/local/lib/console/pale
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Palette {
+  pub chrome: Wearing,
   pub ground: Oklch,
   pub surface: Oklch,
   pub lifted: Oklch,
@@ -21,7 +22,6 @@ pub struct Palette {
   pub quiet: Oklch,
   pub accent: Oklch,
   pub bars: Oklch,
-  pub disabled: Oklch,
   pub lanes: [Oklch; 5],
 }
 
@@ -42,15 +42,15 @@ impl Palette {
       },
     );
     Ok(Self {
-      ground: wearing.night,
+      chrome: wearing,
+      ground: wearing.panel,
       surface: wearing.ground,
-      lifted: wearing.panel,
-      rule: wearing.panel,
+      lifted: wearing.fill,
+      rule: wearing.edge,
       ink: wearing.text,
       quiet: wearing.soft,
       accent: wearing.pink,
       bars: wearing.fill,
-      disabled: wearing.edge,
       lanes,
     })
   }
@@ -105,7 +105,7 @@ mod tests {
     let Ok(mut spent) = palette::read(BUNDLED);
 
     for (key, rgb) in [
-      ("night", "112233"),
+      ("panel", "112233"),
       ("pink", "A98765"),
       ("fill", "556677"),
       ("sky", "887766"),
@@ -114,7 +114,7 @@ mod tests {
     }
 
     let palette = Palette::from_spent(&spent)?;
-    let find_color = palette::find_color(&spent, "night")?;
+    let find_color = palette::find_color(&spent, "panel")?;
     assert_eq!(palette.ground, find_color);
     let pink = palette::find_color(&spent, "pink")?;
     let fill = palette::find_color(&spent, "fill")?;

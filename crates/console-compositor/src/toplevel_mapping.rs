@@ -12,17 +12,32 @@
   reason = "generated from the protocol's XML by wayland-scanner, which is not written to this tree's rules"
 )]
 
-use console_wayland::{client as wayland_client, protocols as wayland_protocols, protocols_wlr};
+#[cfg_attr(
+  dylint_lib = "explicit106_no_import_alias",
+  expect(
+    explicit106_no_import_alias,
+    reason = "wayland-scanner generates client code that resolves the name wayland_client"
+  )
+)]
+use console_wayland::client as wayland_client;
+use console_wayland::{protocols, protocols_wlr};
+use protocols::ext::foreign_toplevel_list::v1::client::*;
 use protocols_wlr::foreign_toplevel::v1::client::*;
 use wayland_client::protocol::*;
-use wayland_protocols::ext::foreign_toplevel_list::v1::client::*;
 
 pub mod __interfaces {
-  use super::{protocols_wlr, wayland_client, wayland_protocols};
+  use super::{protocols, protocols_wlr, wayland_client};
+  use protocols::ext::foreign_toplevel_list::v1::client::__interfaces::*;
   use protocols_wlr::foreign_toplevel::v1::client::__interfaces::*;
+  #[cfg_attr(
+    dylint_lib = "explicit106_no_import_alias",
+    expect(
+      explicit106_no_import_alias,
+      reason = "wayland-scanner generates interface constants that resolve the name wayland_backend"
+    )
+  )]
   use wayland_client::backend as wayland_backend;
   use wayland_client::protocol::__interfaces::*;
-  use wayland_protocols::ext::foreign_toplevel_list::v1::client::__interfaces::*;
 
   wayland_scanner::generate_interfaces!("protocols/hyprland-toplevel-mapping-v1.xml");
 }

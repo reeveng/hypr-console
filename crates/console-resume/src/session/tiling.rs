@@ -139,14 +139,11 @@ pub(super) fn restore(saved: &[Window], bound: &BTreeMap<String, String>) -> Res
     None => {}
   }
 
-  let (locations, open) = match (
-    console_compositor::ask(WorkspaceLocations),
-    console_compositor::ask(console_compositor::Clients),
-  ) {
-    (Ok(locations), Ok(open)) => (locations, open),
-    (Err(_workspaces_unavailable), _) => return Ok(()),
-    (_, Err(_windows_unavailable)) => return Ok(()),
-  };
+  let (locations, open) =
+    match console_compositor::ask_together(WorkspaceLocations, console_compositor::Clients) {
+      Ok(observed) => observed,
+      Err(_layout_unavailable) => return Ok(()),
+    };
   let windows = Windows {
     saved,
     open: &open,

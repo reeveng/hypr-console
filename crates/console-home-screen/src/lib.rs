@@ -25,7 +25,6 @@ use std::path::{Path, PathBuf};
 
 use console_core_atomic_writes::Stored;
 use console_core_geometry::Point;
-use console_screen::Shape as Standing;
 
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index};
@@ -42,16 +41,16 @@ pub const NAMED: &str = "home";
 
 pub const NAMED_TALLER: &str = "home-taller";
 
-pub fn file(home: &Path, standing: Standing) -> Result<PathBuf, Never> {
+pub fn file(home: &Path, standing: console_screen::Shape) -> Result<PathBuf, Never> {
   let Ok(ours) = console_core_places::Base::State.application_under(home);
 
   Ok(match standing {
-    Standing::Wider => ours.join(NAMED),
-    Standing::Taller => ours.join(NAMED_TALLER),
+    console_screen::Shape::Wider => ours.join(NAMED),
+    console_screen::Shape::Taller => ours.join(NAMED_TALLER),
   })
 }
 
-pub fn kept(home: &Path, standing: Standing) -> Result<Stored, Never> {
+pub fn kept(home: &Path, standing: console_screen::Shape) -> Result<Stored, Never> {
   let Ok(at) = file(home, standing);
   let Ok(held) = console_core_atomic_writes::read(&at);
 
@@ -83,7 +82,11 @@ impl std::fmt::Display for Unkept {
 
 impl std::error::Error for Unkept {}
 
-pub fn keep(home: &Path, standing: Standing, layout: &HomeScreen) -> Result<(), Unkept> {
+pub fn keep(
+  home: &Path,
+  standing: console_screen::Shape,
+  layout: &HomeScreen,
+) -> Result<(), Unkept> {
   let Ok(at) = file(home, standing);
 
   written(&at, layout)?;
@@ -144,7 +147,7 @@ fn written(at: &Path, layout: &HomeScreen) -> Result<(), Unkept> {
     .map_err(|fault| Unkept::Unwritten(at.to_path_buf(), fault))
 }
 
-pub fn grid(home: &Path, standing: Standing) -> Result<Shape, Unkept> {
+pub fn grid(home: &Path, standing: console_screen::Shape) -> Result<Shape, Unkept> {
   let Ok(at) = shape::at(home, standing);
   let Ok(held) = console_core_atomic_writes::read(&at);
 
@@ -163,7 +166,7 @@ pub fn grid(home: &Path, standing: Standing) -> Result<Shape, Unkept> {
   }
 }
 
-pub fn standing() -> Result<Standing, console_compositor::HyprctlError> {
+pub fn standing() -> Result<console_screen::Shape, console_compositor::HyprctlError> {
   let found = console_screen::here()?;
 
   Ok(match found {
@@ -172,7 +175,7 @@ pub fn standing() -> Result<Standing, console_compositor::HyprctlError> {
 
       shape
     }
-    None => Standing::Wider,
+    None => console_screen::Shape::Wider,
   })
 }
 
@@ -1264,13 +1267,19 @@ mod tests {
   #[test]
   fn what_is_on_the_home_screen_is_kept_where_state_is_kept() {
     assert_eq!(
-      file(std::path::Path::new("/home/someone"), Standing::Wider),
+      file(
+        std::path::Path::new("/home/someone"),
+        console_screen::Shape::Wider
+      ),
       Ok(std::path::PathBuf::from(
         "/home/someone/.local/state/console/home"
       ))
     );
     assert_eq!(
-      file(std::path::Path::new("/home/someone"), Standing::Taller),
+      file(
+        std::path::Path::new("/home/someone"),
+        console_screen::Shape::Taller
+      ),
       Ok(std::path::PathBuf::from(
         "/home/someone/.local/state/console/home-taller"
       ))

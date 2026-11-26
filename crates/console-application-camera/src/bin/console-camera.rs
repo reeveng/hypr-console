@@ -8,12 +8,13 @@ use console_core_geometry::Size;
 use console_core_internal_programs::InternalProgram;
 use console_core_iteration::{Step, iterate};
 use console_core_number_conversion::index;
-use console_core_shapes::Pixels;
-use console_draw_surface::{
-  Closed, KeyboardEvent, Keysym, PointerEvent, Scale, Surface, SurfaceError, Window,
-};
 use console_panel::keys::{self, Driving, Meaning};
 use console_panel::strip::{self, Stop};
+use console_panel::ui::shapes::Pixels;
+use console_panel::ui::surface::{
+  Closed, Hover, KeyboardEvent, Keysym, PointerCursor, PointerEvent, RepaintHover, Scale,
+  Surface, SurfaceError, Window,
+};
 
 #[path = "console-camera/source.rs"]
 mod source;
@@ -90,7 +91,6 @@ impl Camera {
     match Stream::open(source) {
       Ok(stream) => {
         self.stream = Some(stream);
-        self.message = "Starting camera…".to_owned();
         Ok(())
       }
       Err(fault) => self.failed("Couldn’t start the camera.", &fault),
@@ -230,6 +230,7 @@ fn run(
 ) -> Result<(), Box<dyn Error>> {
   let drawing = WindowState {
     pressed: None,
+    hover: Hover::default(),
     shown: Drawing::Pending,
     layout: None,
   };
@@ -259,6 +260,7 @@ enum WindowChange {
 
 struct WindowState {
   pressed: Option<Action>,
+  hover: Hover<(console_panel::canvas::Area, Action)>,
   shown: Drawing,
   layout: Option<Layout>,
 }
@@ -295,17 +297,34 @@ impl WindowState {
 
     match &self.layout {
       Some(visible) => {
+        let Ok(pointer) = surface.pointer_position();
+        let target = pointer.and_then(|point| {
+          let Ok(hit) = visible.hit(point, camera);
+
+          hit
+        });
+        let Ok(feedback) = self.hover.observe(target);
+        let cursor = match target {
+          Some(_) => PointerCursor::Hand,
+          None => PointerCursor::Default,
+        };
+        let Ok(()) = surface.set_pointer_cursor(cursor);
         let current = Drawing::Ready {
           points: visible.points,
           scale,
         };
 
-        match (self.shown != current).then_some(()) {
-          Some(()) => {
-            view::paint(surface, visible, camera, wearing)?;
+        match ((self.shown != current).then_some(()), feedback) {
+          (Some(()), _) | (None, Some(RepaintHover)) => {
+            view::paint(
+              surface,
+              visible,
+              camera,
+              (wearing, target.map(|(area, _)| area)),
+            )?;
             self.shown = current;
           }
-          None => {}
+          (None, None) => {}
         }
       }
       None => {}

@@ -2,7 +2,7 @@
 //!
 //! Three programs run on a laptop: one puts this checkout onto the machine and brings it to match, one
 //! takes back what `console save` committed there, and one moves a machine that
-//! still carries the old names over to the new ones. The Legion Go's
+//! still carries the old names over to the new ones. The
 //! `console-update` binary fetches published releases on the device itself.
 //!
 //! They are together because they are one subject. What travels between here

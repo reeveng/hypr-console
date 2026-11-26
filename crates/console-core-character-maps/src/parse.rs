@@ -116,7 +116,11 @@ fn code_of(bytes: &[u8]) -> Result<u32, ParseError> {
   match bytes {
     [a] => Ok(u32::from_be_bytes([0, 0, 0, *a])),
     [a, b] => Ok(u32::from_be_bytes([0, 0, *a, *b])),
-    [a, b, c] => Ok(u32::from_be_bytes([0, *a, *b, *c])),
+    [a, b, c] => {
+      let Ok(value) = console_core_bytes::endian::u24_be([*a, *b, *c]);
+
+      Ok(value)
+    }
     [a, b, c, d] => Ok(u32::from_be_bytes([*a, *b, *c, *d])),
     _empty_or_wider => Err(ParseError::BadCode),
   }

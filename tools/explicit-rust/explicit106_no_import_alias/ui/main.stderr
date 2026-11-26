@@ -1,0 +1,83 @@
+error: this import is renamed to `memory`
+  --> $DIR/main.rs:3:23
+   |
+LL | extern crate alloc as memory;
+   |                       ^^^^^^
+   |
+   = help: use the original name or a qualified path. If names collide and an alias is needed, add an `allow` on this import with a reason naming the conflict
+   = note: `#[deny(explicit106_no_import_alias)]` on by default
+
+error: this import is renamed to `RenderDebug`
+  --> $DIR/main.rs:6:24
+   |
+LL | use std::fmt::Debug as RenderDebug;
+   |                        ^^^^^^^^^^^
+   |
+   = help: use the original name or a qualified path. If names collide and an alias is needed, add an `allow` on this import with a reason naming the conflict
+
+error: this import is renamed to `_`
+  --> $DIR/main.rs:7:34
+   |
+LL | use std::fmt::{Display, Write as _};
+   |                                  ^
+   |
+   = help: use the original name or a qualified path. If names collide and an alias is needed, add an `allow` on this import with a reason naming the conflict
+
+error: this import is renamed to `ReadError`
+  --> $DIR/main.rs:9:18
+   |
+LL |   self, Error as ReadError,
+   |                  ^^^^^^^^^
+   |
+   = help: use the original name or a qualified path. If names collide and an alias is needed, add an `allow` on this import with a reason naming the conflict
+
+error: this import already has the name `prelude`
+  --> $DIR/main.rs:10:21
+   |
+LL |   prelude::{self as prelude, BufRead as Buffered},
+   |                     ^^^^^^^
+   |
+   = help: remove the redundant `as` clause
+
+error: this import is renamed to `Buffered`
+  --> $DIR/main.rs:10:41
+   |
+LL |   prelude::{self as prelude, BufRead as Buffered},
+   |                                         ^^^^^^^^
+   |
+   = help: use the original name or a qualified path. If names collide and an alias is needed, add an `allow` on this import with a reason naming the conflict
+
+error: this import already has the name `Path`
+  --> $DIR/main.rs:13:24
+   |
+LL | use std::path::Path as Path;
+   |                        ^^^^
+   |
+   = help: remove the redundant `as` clause
+
+error: this import is renamed to `Elapsed`
+  --> $DIR/main.rs:15:32
+   |
+LL | pub use std::time::Duration as Elapsed;
+   |                                ^^^^^^^
+   |
+   = help: use the original name or a qualified path. If names collide and an alias is needed, add an `allow` on this import with a reason naming the conflict
+
+error: this import is renamed to `FormattingError`
+  --> $DIR/main.rs:19:26
+   |
+LL |   use std::fmt::Error as FormattingError;
+   |                          ^^^^^^^^^^^^^^^
+   |
+   = help: use the original name or a qualified path. If names collide and an alias is needed, add an `allow` on this import with a reason naming the conflict
+
+error: this import is renamed to `cells`
+  --> $DIR/main.rs:76:27
+   |
+LL |   use std::cell::{self as cells};
+   |                           ^^^^^
+   |
+   = help: use the original name or a qualified path. If names collide and an alias is needed, add an `allow` on this import with a reason naming the conflict
+
+error: aborting due to 10 previous errors
+

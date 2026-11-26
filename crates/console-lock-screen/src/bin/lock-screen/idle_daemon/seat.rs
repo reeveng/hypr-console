@@ -1,15 +1,13 @@
 use std::os::fd::BorrowedFd;
 
-use console_compositor::lock_notify::{
-  hyprland_lock_notification_v1 as lock, hyprland_lock_notifier_v1 as lock_manager,
-};
+use console_compositor::lock_notify::{hyprland_lock_notification_v1, hyprland_lock_notifier_v1};
 use console_core_never::Never;
 use console_lock_screen::idle::policy::{Request, Session, Timer};
 use console_wayland::client::globals::GlobalListContents;
 use console_wayland::client::protocol::{wl_registry, wl_seat};
 use console_wayland::client::{Connection, Dispatch, EventQueue, QueueHandle, delegate_noop};
 use console_wayland::protocols::ext::idle_notify::v1::client::{
-  ext_idle_notification_v1 as idle, ext_idle_notifier_v1 as idle_manager,
+  ext_idle_notification_v1, ext_idle_notifier_v1,
 };
 use console_wayland::{registry, waiting};
 
@@ -20,8 +18,8 @@ pub struct Seat {
   queue: EventQueue<Events>,
   events: Events,
   seat: wl_seat::WlSeat,
-  manager: idle_manager::ExtIdleNotifierV1,
-  notifications: Vec<idle::ExtIdleNotificationV1>,
+  manager: ext_idle_notifier_v1::ExtIdleNotifierV1,
+  notifications: Vec<ext_idle_notification_v1::ExtIdleNotificationV1>,
 }
 
 impl Seat {
@@ -31,7 +29,8 @@ impl Seat {
     let handle = queue.handle();
     let seat = registry::seat(&globals, &handle, 1..=1)?;
     let manager = globals.bind(&handle, 1..=1, ())?;
-    let lock_manager: lock_manager::HyprlandLockNotifierV1 = globals.bind(&handle, 1..=1, ())?;
+    let lock_manager: hyprland_lock_notifier_v1::HyprlandLockNotifierV1 =
+      globals.bind(&handle, 1..=1, ())?;
     let _lock_notification = lock_manager.get_lock_notification(&handle, ());
     lock_manager.destroy();
     let mut events = Events::default();
@@ -103,35 +102,43 @@ struct Events {
   requests: Vec<Request>,
 }
 
-impl Dispatch<idle::ExtIdleNotificationV1, TimerData> for Events {
+impl Dispatch<ext_idle_notification_v1::ExtIdleNotificationV1, TimerData> for Events {
   fn event(
     state: &mut Self,
-    _: &idle::ExtIdleNotificationV1,
-    event: idle::Event,
+    _: &ext_idle_notification_v1::ExtIdleNotificationV1,
+    event: ext_idle_notification_v1::Event,
     data: &TimerData,
     _: &Connection,
     _: &QueueHandle<Self>,
   ) {
     match (state.generation == data.generation, event.opcode()) {
-      (true, idle::EVT_IDLED_OPCODE) => state.requests.push(Request::Idled(data.timer)),
-      (true, idle::EVT_RESUMED_OPCODE) => state.requests.push(Request::Activity),
+      (true, ext_idle_notification_v1::EVT_IDLED_OPCODE) => {
+        state.requests.push(Request::Idled(data.timer))
+      }
+      (true, ext_idle_notification_v1::EVT_RESUMED_OPCODE) => {
+        state.requests.push(Request::Activity)
+      }
       (false, _) | (true, _) => {}
     }
   }
 }
 
-impl Dispatch<lock::HyprlandLockNotificationV1, ()> for Events {
+impl Dispatch<hyprland_lock_notification_v1::HyprlandLockNotificationV1, ()> for Events {
   fn event(
     state: &mut Self,
-    _: &lock::HyprlandLockNotificationV1,
-    event: lock::Event,
+    _: &hyprland_lock_notification_v1::HyprlandLockNotificationV1,
+    event: hyprland_lock_notification_v1::Event,
     _: &(),
     _: &Connection,
     _: &QueueHandle<Self>,
   ) {
     match event.opcode() {
-      lock::EVT_LOCKED_OPCODE => state.requests.push(Request::Session(Session::Locked)),
-      lock::EVT_UNLOCKED_OPCODE => state.requests.push(Request::Session(Session::Unlocked)),
+      hyprland_lock_notification_v1::EVT_LOCKED_OPCODE => {
+        state.requests.push(Request::Session(Session::Locked))
+      }
+      hyprland_lock_notification_v1::EVT_UNLOCKED_OPCODE => {
+        state.requests.push(Request::Session(Session::Unlocked))
+      }
       _unknown => {}
     }
   }
@@ -150,5 +157,5 @@ impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for Events {
 }
 
 delegate_noop!(Events: ignore wl_seat::WlSeat);
-delegate_noop!(Events: ignore idle_manager::ExtIdleNotifierV1);
-delegate_noop!(Events: ignore lock_manager::HyprlandLockNotifierV1);
+delegate_noop!(Events: ignore ext_idle_notifier_v1::ExtIdleNotifierV1);
+delegate_noop!(Events: ignore hyprland_lock_notifier_v1::HyprlandLockNotifierV1);

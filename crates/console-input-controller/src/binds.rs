@@ -97,9 +97,7 @@
 //! hundred copies rather than merely stopping the next one arriving.
 
 use console_compositor::events::CompositorEvent;
-use console_compositor::{
-  Binding as CompositorBinding, BindingAction as CompositorBindingAction, BindingFlag, Script,
-};
+use console_compositor::{BindingFlag, Script};
 use console_core_external_programs::shell;
 use console_core_never::Never;
 use console_input_bindings::bound::{Binding, Input, Played};
@@ -133,10 +131,6 @@ impl KeyBinding {
   fn description(&self) -> Result<String, Never> {
     Ok(match self.action {
       BindingAction::Run(_) => self.about.clone(),
-      BindingAction::Dispatch(CompositorAction::MoveWorkspace {
-        target: console_compositor::WorkspaceTarget::Position(_),
-        ..
-      }) => format!("{}{WORKSPACE_POSITION}", self.about),
       BindingAction::Dispatch(_) => format!("{}{NATIVE}", self.about),
     })
   }
@@ -144,8 +138,8 @@ impl KeyBinding {
   pub fn bind_command(&self) -> Result<Script, Never> {
     let Ok(description) = self.description();
     let action = match &self.action {
-      BindingAction::Run(command) => CompositorBindingAction::Run(command),
-      BindingAction::Dispatch(action) => CompositorBindingAction::Dispatch(*action),
+      BindingAction::Run(command) => console_compositor::BindingAction::Run(command),
+      BindingAction::Dispatch(action) => console_compositor::BindingAction::Dispatch(*action),
     };
     let mut flags = Vec::new();
 
@@ -159,7 +153,7 @@ impl KeyBinding {
       RepeatMode::Once => {}
     }
 
-    CompositorBinding {
+    console_compositor::Binding {
       keys: &self.keys,
       description: &description,
       action,
@@ -328,8 +322,8 @@ pub fn holds(one: &KeyBinding, held: &[console_compositor::BoundKey]) -> Result<
 }
 
 fn former_description(description: &str) -> Result<Option<String>, Never> {
-  match description.strip_suffix(WORKSPACE_POSITION) {
-    Some(about) => return Ok(Some(format!("{about}{NATIVE}"))),
+  match description.strip_suffix(NATIVE) {
+    Some(about) => return Ok(Some(format!("{about}{WORKSPACE_POSITION}"))),
     None => {}
   }
 
@@ -721,15 +715,15 @@ mod tests {
   }
 
   #[test]
-  fn numbered_shortcuts_replace_old_absolute_binds_with_live_workspace_lookups()
+  fn numbered_shortcuts_replace_positional_binds_with_absolute_workspace_numbers()
   -> Result<(), Failure> {
     let Ok(every) = defaults();
-    let key = keys_of(("super", "1"))?;
+    let key = keys_of(("super", "9"))?;
     let bind = one(&every, &key)?;
     let old = Holding::These(vec![console_compositor::BoundKey {
       held: bind.held,
       named: String::new(),
-      about: format!("{}{NATIVE}", bind.about),
+      about: format!("{}{WORKSPACE_POSITION}", bind.about),
     }]);
 
     assert_eq!(
@@ -740,8 +734,11 @@ mod tests {
       ])
     );
     let Ok(script) = bind.bind_command();
-    assert!(script.to_string().contains(", function() local workspace"));
-    assert!(script.to_string().contains("hl.get_workspaces()"));
+    assert!(
+      script
+        .to_string()
+        .contains("hl.dsp.focus({workspace = \"9\"})")
+    );
 
     Ok(())
   }

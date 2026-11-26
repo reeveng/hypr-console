@@ -21,6 +21,7 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use console_concurrency::Cores;
+use console_core_bytes::Bytes;
 use console_core_geometry::Size;
 use console_core_never::Never;
 use console_core_png_files::{Picture, PngError, Text, encoded_with_text};
@@ -90,7 +91,7 @@ pub fn drawn(
   thing: &Path,
   kind: &str,
   stamp: Option<Stamp<'_>>,
-) -> Result<Option<Vec<u8>>, ThumbnailError> {
+) -> Result<Option<Bytes>, ThumbnailError> {
   let within = Size {
     width: SIDE,
     height: SIDE,
@@ -135,7 +136,7 @@ pub fn drawn(
 
   match picture {
     Some(picture_2) => encoded_with_text(&picture_2, &text)
-      .map(Some)
+      .map(|bytes| Some(Bytes::from(bytes)))
       .map_err(ThumbnailError::Unwritten),
     None => Ok(None),
   }
@@ -314,14 +315,22 @@ mod tests {
   #[test]
   fn a_film_is_drawn_from_three_seconds_in_and_one_shorter_than_that_from_its_start()
   -> Result<(), Box<dyn Error>> {
-    let long = drawn_from((
-      "console-films/tests/films/dark-then-green.h264.mp4",
-      "video/mp4",
-    ))?;
-    let short = drawn_from((
-      "console-films/tests/films/red-then-blue.h264.mp4",
-      "video/mp4",
-    ))?;
+    let long_file = fixture("console-films/tests/films/dark-then-green.h264.mp4")?;
+    let short_file = fixture("console-films/tests/films/red-then-blue.h264.mp4")?;
+    let workers = std::num::NonZeroU32::MIN.saturating_add(1);
+    let Ok(cores) = Cores::limited(workers);
+    let answers = console_concurrency::for_each(cores, &[long_file, short_file], |path| {
+      drawn(path, "video/mp4", None)
+    })?;
+    let mut images = answers.into_iter();
+    let long_answer = images.next().ok_or("the long film did not finish")?;
+    let long_png = long_answer?;
+    let short_answer = images.next().ok_or("the short film did not finish")?;
+    let short_png = short_answer?;
+    let long_encoded = long_png.ok_or("nothing was drawn from the long film")?;
+    let short_encoded = short_png.ok_or("nothing was drawn from the short film")?;
+    let long = console_core_png_files::decoded(&long_encoded)?;
+    let short = console_core_png_files::decoded(&short_encoded)?;
     let side = Size {
       width: SIDE,
       height: 85,

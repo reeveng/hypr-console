@@ -9,14 +9,14 @@ use console_core_geometry::Point;
 use console_core_iteration::{Step, iterate};
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index};
-use console_core_shapes::Picture as ShapePicture;
-use console_draw_painting::{Frame, over_picture};
-use console_draw_surface::standing::DmaBufSupport;
-use console_draw_surface::{
-  Anchor, DmaBufView, Keyboard, Margin, Part, Room, Surface, Under, Visible, Wanted,
-};
 use console_films::{Picture, Seconds};
 use console_operating_system_linux::program_runtime::compute::Vulkan;
+use console_panel::ui::painting::{Frame, over_picture};
+use console_panel::ui::shapes::Picture as ShapePicture;
+use console_panel::ui::surface::standing::DmaBufSupport;
+use console_panel::ui::surface::{
+  Anchor, DmaBufView, Keyboard, Margin, Part, Room, Surface, Under, Visible, Wanted,
+};
 
 type Failure = Box<dyn std::error::Error>;
 

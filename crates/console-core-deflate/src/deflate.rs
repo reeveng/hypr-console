@@ -335,7 +335,7 @@ fn hashed(bytes: &[u8], at: u32) -> Result<Option<u32>, Never> {
 
   Ok(match bytes.get(from..).and_then(<[u8]>::first_chunk::<3>) {
     Some([first, second, third]) => {
-      let joined = u32::from_le_bytes([*first, *second, *third, 0]);
+      let Ok(joined) = console_core_bytes::endian::u24_le([*first, *second, *third]);
 
       Some(joined.wrapping_mul(FIBONACCI).wrapping_shr(HASH_SHIFT))
     }

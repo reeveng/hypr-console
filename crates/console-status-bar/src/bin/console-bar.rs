@@ -83,15 +83,12 @@ use std::sync::mpsc::sync_channel;
 use std::time::{Duration, Instant};
 
 use console_application_music::player::Sound;
-use console_compositor::Layer;
 use console_core_color::palette::{self, PaletteError, ThemeSettings, WearingError};
 use console_core_geometry::{Point, Size};
 use console_core_internal_programs::InternalProgram;
 use console_core_iteration::Step;
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index, toward_zero_i32};
-use console_core_shapes::Shape;
-use console_draw_painting::{Frame, onto};
 use console_draw_surface::layer_focus::Selection;
 use console_draw_surface::standing::{Anchor, Closed, Keyboard, Margin, Room, Under, Wanted};
 use console_draw_surface::{KeyboardEvent, PointerEvent, Surface, SurfaceError};
@@ -101,19 +98,21 @@ use console_program_contract::EventGroup;
 use console_program_lifetime::{Detached, Still};
 use console_status_bar::applets::{self, Applet};
 use console_status_bar::dwindling::Watching;
-use console_status_bar::measuring::{self, sized};
 use console_status_bar::notifications::{Waiting, notifications};
-use console_status_bar::panels::{self, Panel, PanelEvent, Panels};
+use console_status_bar::panels::{self, Panel, PanelEffect, PanelEvent, Panels};
 use console_status_bar::preferences::{Placement, Preferences};
 use console_status_bar::reading::{Reading, StatusItem};
+use console_status_bar::retained::Scene;
 use console_status_bar::showing::{self, BarAction, Filling, Fitting, Rendered, Slot, Wearing};
-use console_status_bar::state::{self, BarState, Paused, Playing};
+use console_status_bar::state::{self, BarState, Paused, Playing, PressEffect};
 use console_status_bar::watch;
 use console_status_bar::{clock, preferences};
 use rustix::fs::inotify::{self, CreateFlags, WatchFlags};
 use rustix::io::Errno;
 use rustix::process::{Pid, PidfdFlags, pidfd_open};
 
+#[path = "console-bar/paint.rs"]
+mod paint;
 #[path = "console-bar/surfaces.rs"]
 mod surfaces;
 #[path = "console-bar/waking.rs"]
@@ -383,7 +382,17 @@ fn drawing() -> Result<(), Cannot> {
   let Ok(()) = content_files.read(&mut content);
   let waking = sources().map_err(Cannot::Pipe)?;
   let surfaces = surfaces::Worker::start().map_err(Cannot::Pipe)?;
-  let visible_panels = surfaces::LayerWorker::start().map_err(Cannot::Pipe)?;
+  let visible_panels = surfaces::panels().map_err(Cannot::Pipe)?;
+  let paint = paint::Painter::start().map_err(Cannot::Pipe)?;
+  let sound = surfaces::Observer::start(
+    "bar volume observation",
+    &[
+      console_core_state_machine::Service::Audio,
+      console_core_state_machine::Service::Process,
+    ],
+    || StatusItem::Sound.reading().map(Some),
+  )
+  .map_err(Cannot::Pipe)?;
 
   let whole = screen()?;
   let Ok(fitting) = Fitting::of_em();
@@ -403,6 +412,7 @@ fn drawing() -> Result<(), Cannot> {
   let Ok(readings) = first_readings(&mut dwindling);
   let Ok(when) = clock::current();
   let Ok(held) = first_held(&readings);
+  let Ok(filling) = progress();
   let turning = Turning {
     surface,
     theme,
@@ -412,12 +422,13 @@ fn drawing() -> Result<(), Cannot> {
     held,
     was: when,
     settling: Settling::No,
-    last: None,
+    paint,
+    filling,
     started: Vec::new(),
-    layers: Vec::new(),
     settings_tab: None,
     surfaces,
     visible_panels,
+    sound,
     selection: Selection::Idle,
     focus_layer: LayerMode::Passive,
     placement,
@@ -474,12 +485,13 @@ struct Turning {
   held: BarState,
   was: clock::Standing,
   settling: Settling,
-  last: Option<Rendered>,
+  paint: paint::Painter,
+  filling: Filling,
   started: Vec<Started>,
-  layers: Vec<Layer>,
   settings_tab: Option<String>,
   surfaces: surfaces::Worker,
-  visible_panels: surfaces::LayerWorker,
+  visible_panels: surfaces::Observer<surfaces::PanelSnapshot>,
+  sound: surfaces::Observer<Reading>,
   selection: Selection<BarAction>,
   focus_layer: LayerMode,
   placement: Placement,
@@ -501,7 +513,7 @@ fn turned(
   mut turning: Turning,
   around: Around<'_>,
 ) -> Result<Step<Turning, Result<(), Cannot>>, Never> {
-  let (drawn, filling, actions) = match draw_turn(&mut turning, around) {
+  let filling = match draw_turn(&mut turning, around) {
     Ok(painted) => painted,
     Err(fault) => return Ok(Step::Halt(Err(fault))),
   };
@@ -517,14 +529,12 @@ fn turned(
     Err(fault) => return Ok(Step::Halt(Err(fault))),
   }
 
-  let Ok(requested) = user_input(&mut turning, &drawn, &actions, around.focus_requests);
-  let feedback = requested.iter().any(|request| match request {
-    Requested::BuiltIn(action) => {
-      let Ok(panel) = Panel::of(*action);
-
-      panel.is_some() || matches!(action, BarAction::Workspace(_))
-    }
-    Requested::Applet(_) => false,
+  let Ok(requested) = user_input(&mut turning, around.focus_requests);
+  let feedback = requested.iter().any(|request| {
+    matches!(
+      request,
+      Requested::BuiltIn(PressEffect::Panel(_) | PressEffect::Action(BarAction::Workspace(_)))
+    )
   });
   let Ok(()) = begun(requested, &mut turning);
 
@@ -537,16 +547,31 @@ fn turned(
   }
 
   let Ok(file_events) = heard_again(around.hearing);
+
+  match (file_events == FileEvents::Received || turning.filling != Filling::None).then_some(()) {
+    Some(()) => {
+      let Ok(latest) = progress();
+      turning.filling = latest;
+    }
+    None => {}
+  }
+
   let Ok(()) = reload_content(&mut turning, around.content_files);
   let Ok(()) = refresh_turn(&mut turning, file_events);
 
   Ok(Step::Again(turning))
 }
 
-fn draw_turn(
-  turning: &mut Turning,
-  around: Around<'_>,
-) -> Result<(Rendered, Filling, Vec<BarAction>), Cannot> {
+fn progress() -> Result<Filling, Never> {
+  let Ok(current) = updating::progress();
+
+  Ok(match current {
+    Some(update) => Filling::At(update.permille),
+    None => Filling::None,
+  })
+}
+
+fn draw_turn(turning: &mut Turning, around: Around<'_>) -> Result<Filling, Cannot> {
   let wished = turning.content.preferences.placement;
 
   match (turning.placement != wished).then_some(()) {
@@ -554,7 +579,7 @@ fn draw_turn(
       turning.placement = wished;
       turning.selection = Selection::Idle;
       turning.focus_layer = LayerMode::Passive;
-      turning.last = None;
+      let Ok(()) = turning.paint.clear();
       let Ok(()) = turning.surface.hide();
 
       raised(
@@ -567,86 +592,75 @@ fn draw_turn(
     None => {}
   }
 
-  let Ok(progress) = updating::progress();
-  let filling = match progress {
-    Some(progress_2) => Filling::At(progress_2.permille),
-    None => Filling::None,
-  };
-  let Ok(layout) = turning
-    .held
-    .configured(&turning.content.preferences, filling);
-  let Ok(mut drawn) = render_turn(turning, &layout, around);
-  let actions: Vec<_> = drawn.touching.iter().map(|region| region.action).collect();
+  sync_focus_layer(turning, around)?;
+  let filling = paint_turn(turning, around)?;
+  let Ok(before) = turning.selection.target();
 
-  focus_outline(turning, around, &mut drawn, &actions)?;
+  let Ok(picture) = turning.paint.picture();
 
-  match (turning.last.as_ref() == Some(&drawn)).then_some(()) {
-    Some(()) => {}
-    None => {
-      let Ok(()) = painted(&mut turning.surface, &drawn);
-
-      turning.last = Some(drawn.clone());
+  match picture {
+    Some((_, actions)) => {
+      let Ok(()) = turning.selection.keep(actions);
     }
+    None => {}
   }
 
-  Ok((drawn, layout.filling, actions))
+  let Ok(after) = turning.selection.target();
+
+  match (after != before).then_some(()) {
+    Some(()) => {
+      sync_focus_layer(turning, around)?;
+      paint_turn(turning, around)
+    }
+    None => Ok(filling),
+  }
 }
 
-fn render_turn(
-  turning: &Turning,
-  layout: &showing::Layout,
-  around: Around<'_>,
-) -> Result<Rendered, Never> {
-  let fitting = around.fitting;
-  let Ok(mut bar) = sized(layout, fitting);
-  let Ok(shortcuts) = turning.held.settings_applets(&turning.content.preferences);
-  let Ok(mut applets) = measuring::every(&shortcuts, fitting);
-  let Ok(published) = measuring::every(&turning.content.slots, fitting);
-  applets.extend(published);
+fn paint_turn(turning: &mut Turning, around: Around<'_>) -> Result<Filling, Cannot> {
   let Ok(logical) = turning.surface.logical();
+  let room = match (logical, turning.placement) {
+    (Some(room), _) => room,
+    (None, Placement::Top | Placement::Bottom) => around.whole,
+    (None, Placement::Left | Placement::Right) => {
+      let Ok(width) = around.fitting.sidebar_width();
 
-  match turning.placement {
-    Placement::Top | Placement::Bottom => {
-      let room = match logical {
-        Some(room) => room,
-        None => around.whole,
-      };
-
-      showing::along_with_applets(&bar, &applets, &turning.wearing, room, turning.placement)
-    }
-    Placement::Left | Placement::Right => {
-      let room = match logical {
-        Some(room) => room,
-        None => {
-          let Ok(width) = fitting.sidebar_width();
-
-          Size {
-            width,
-            height: around.whole.height,
-          }
-        }
-      };
-      let Ok(width) = fitting.sidebar_content_width(room.width);
-
-      for group in [&mut bar.left, &mut bar.middle, &mut bar.right, &mut applets] {
-        let Ok(()) = measuring::compact(group, fitting, width);
+      Size {
+        width,
+        height: around.whole.height,
       }
-
-      showing::sidebar(&bar, &applets, &turning.wearing, room, turning.placement)
     }
-  }
+  };
+  let Ok(focus) = turning.selection.target();
+  let Ok(visibility) = turning
+    .content
+    .preferences
+    .visibility(preferences::Item::UpdateProgress);
+  let filling = match visibility {
+    preferences::Visibility::Shown => turning.filling,
+    preferences::Visibility::Hidden => Filling::None,
+  };
+
+  turning.paint.draw(
+    &mut turning.surface,
+    Scene {
+      held: &turning.held,
+      preferences: &turning.content.preferences,
+      slots: &turning.content.slots,
+      wearing: turning.wearing,
+      room,
+      fitting: around.fitting,
+      filling,
+      focus,
+    },
+  )?;
+
+  Ok(filling)
 }
 
-fn focus_outline(
-  turning: &mut Turning,
-  around: Around<'_>,
-  drawn: &mut Rendered,
-  actions: &[BarAction],
-) -> Result<(), Cannot> {
-  let Ok(()) = turning.selection.keep(actions);
+fn sync_focus_layer(turning: &mut Turning, around: Around<'_>) -> Result<(), Cannot> {
   let Ok(target) = turning.selection.target();
   let layer = match target {
-    Some(_action) => LayerMode::Focused,
+    Some(_) => LayerMode::Focused,
     None => LayerMode::Passive,
   };
 
@@ -660,17 +674,9 @@ fn focus_outline(
         layer,
       )?;
       turning.focus_layer = layer;
-      turning.last = None;
+      let Ok(()) = turning.paint.clear();
     }
     (LayerMode::Focused, LayerMode::Focused) | (LayerMode::Passive, LayerMode::Passive) => {}
-  }
-
-  match target.and_then(|action| drawn.touching.iter().find(|region| region.action == action)) {
-    Some(region) => {
-      let Ok(outline) = region.panel.focus_outline(turning.wearing.text);
-      drawn.shapes.extend(outline.map(Shape::Line));
-    }
-    None => {}
   }
 
   Ok(())
@@ -687,9 +693,13 @@ fn wait_for_turn(
   let mut also = vec![around.hearing.as_fd(), around.content_files.hearing.as_fd()];
   let Ok(surface_wake) = turning.surfaces.wake();
   let Ok(panels_wake) = turning.visible_panels.wake();
+  let Ok(sound_wake) = turning.sound.wake();
 
   also.extend(surface_wake);
-  also.push(panels_wake);
+  also.extend(panels_wake);
+  also.extend(sound_wake);
+  let Ok(paint_wake) = turning.paint.wake();
+  also.extend(paint_wake);
   also.extend(turning.waking.iter().map(AsFd::as_fd));
   also.extend(ending.iter().map(AsFd::as_fd));
   also.extend(around.focus_requests.map(AsFd::as_fd));
@@ -702,8 +712,6 @@ fn wait_for_turn(
 
 fn user_input(
   turning: &mut Turning,
-  drawn: &Rendered,
-  actions: &[BarAction],
   listening: Option<&UnixDatagram>,
 ) -> Result<Vec<Requested>, Never> {
   let focus_request = match listening {
@@ -724,6 +732,12 @@ fn user_input(
     Some(focus::Request::Release) => turning.selection = Selection::Idle,
     Some(focus::Request::Take) | None => {}
   }
+
+  let Ok(picture) = turning.paint.picture();
+  let (drawn, actions) = match picture {
+    Some(current) => current,
+    None => return Ok(Vec::new()),
+  };
 
   let mut requested = Vec::new();
   let Ok(keys) = turning.surface.keyboard_events();
@@ -838,14 +852,9 @@ fn refresh_turn(turning: &mut Turning, file_events: FileEvents) -> Result<(), Ne
     None => {}
   }
 
-  match ended.is_empty().then_some(()) {
-    Some(()) => {}
-    None => {
-      let Ok(()) = turning.visible_panels.invalidate();
-    }
-  }
-
-  match (surfaces_changed || !ended.is_empty()).then_some(()) {
+  match (surfaces_changed || !ended.is_empty() || file_events == FileEvents::Received)
+    .then_some(())
+  {
     Some(()) => {
       let Ok(()) = turning.visible_panels.refresh();
     }
@@ -856,8 +865,9 @@ fn refresh_turn(turning: &mut Turning, file_events: FileEvents) -> Result<(), Ne
     let Ok(_starts_nothing) = turning.held.told(PanelEvent::Ended(panel));
   }
 
-  let Ok(()) = refresh_surfaces(turning, file_events);
+  let Ok(()) = refresh_surfaces(turning);
   let Ok(()) = again(&woke, &mut turning.readings, &mut turning.dwindling);
+  let Ok(()) = refresh_sound(turning, &woke);
   let Ok(()) = ticked(&mut turning.readings, &mut turning.dwindling);
   let Ok(()) = refreshed(&woke, &mut turning.held);
   let Ok(now) = clock::current();
@@ -869,45 +879,62 @@ fn refresh_turn(turning: &mut Turning, file_events: FileEvents) -> Result<(), Ne
 
       turning.held.clock = said;
       turning.was = now;
+      let Ok(filling) = progress();
+      turning.filling = filling;
     }
   }
 
-  turning.held.readings = turning
-    .readings
-    .iter()
-    .map(|one| (one.item, one.reading.clone()))
-    .collect();
+  for ((_, held), tracked) in turning.held.readings.iter_mut().zip(&turning.readings) {
+    match (*held != tracked.reading).then_some(()) {
+      Some(()) => held.clone_from(&tracked.reading),
+      None => {}
+    }
+  }
 
   Ok(())
 }
 
-fn refresh_surfaces(turning: &mut Turning, file_events: FileEvents) -> Result<(), Never> {
+fn refresh_sound(turning: &mut Turning, woke: &BTreeSet<Woke>) -> Result<(), Never> {
+  match woke.contains(&Woke::Sound).then_some(()) {
+    Some(()) => {
+      let Ok(()) = turning.sound.refresh();
+    }
+    None => {}
+  }
+
+  let Ok(observed) = turning.sound.observed();
+
+  match (
+    observed,
+    turning
+      .readings
+      .iter_mut()
+      .find(|one| one.item == StatusItem::Sound),
+  ) {
+    (Some(reading), Some(sound)) => sound.reading = reading,
+    (None, _) | (_, None) => {}
+  }
+
+  Ok(())
+}
+
+fn refresh_surfaces(turning: &mut Turning) -> Result<(), Never> {
   let Ok(surfaces::Observations { front, workspaces }) = turning.surfaces.observed();
   let Ok(()) = turning.held.observed_workspaces(workspaces, front);
-  let Ok(layers) = turning.visible_panels.observed();
-
-  match (&layers, file_events) {
-    (Some(_), _) | (None, FileEvents::Received) => {}
-    (None, FileEvents::Idle) => return Ok(()),
-  }
-
-  let tab = match console_onscreen::tab() {
-    Ok(tab) => tab,
-    Err(fault) => {
-      console_core_logging::warn!("console-bar: could not read the settings tab: {fault}");
-
-      turning.settings_tab.clone()
-    }
+  let Ok(observed) = turning.visible_panels.observed();
+  let surfaces::PanelSnapshot { layers, tab } = match observed {
+    Some(snapshot) => snapshot,
+    None => return Ok(()),
   };
 
-  match (layers, (tab != turning.settings_tab).then_some(())) {
-    (Some(observed), _) => turning.layers = observed,
-    (None, Some(())) => {}
-    (None, None) => return Ok(()),
+  match tab {
+    Ok(title) => turning.settings_tab = title,
+    Err(fault) => {
+      console_core_logging::warn!("console-bar: could not read the settings tab: {fault}");
+    }
   }
 
-  turning.settings_tab = tab;
-  let Ok(up) = panels::on_screen(&turning.layers, turning.settings_tab.as_deref());
+  let Ok(up) = panels::on_screen(&layers, turning.settings_tab.as_deref());
   let Ok(_no_commands) = turning.held.told(PanelEvent::Shown(up));
 
   Ok(())
@@ -963,7 +990,12 @@ fn first_readings(dwindling: &mut Watching) -> Result<Vec<Tracked>, Never> {
   let mut readings = Vec::new();
 
   for item in state::ALONG {
-    let Ok(reading) = read_item(item, dwindling);
+    let Ok(reading) = match item {
+      StatusItem::Sound => console_status_bar::retained::Volume::Unavailable.reading(),
+      StatusItem::Battery | StatusItem::Bluetooth | StatusItem::Network => {
+        read_item(item, dwindling)
+      }
+    };
     let Ok(due) = due(item, dwindling);
 
     readings.push(Tracked { item, reading, due });
@@ -1169,7 +1201,10 @@ fn again(
   readings: &mut [Tracked],
   dwindling: &mut Watching,
 ) -> Result<(), Never> {
-  for one in readings.iter_mut() {
+  for one in readings
+    .iter_mut()
+    .filter(|one| one.item != StatusItem::Sound)
+  {
     let Ok(mine) = wakes(one.item);
 
     match ::core::primitive::bool::then_some(woke.contains(&mine), ()) {
@@ -1246,26 +1281,6 @@ fn playing() -> Result<Reading, Never> {
   state::music(paused, playing)
 }
 
-fn painted(surface: &mut Surface, drawn: &Rendered) -> Result<(), Never> {
-  let shapes = drawn.shapes.clone();
-  let points = drawn.room;
-  let put = surface.draw(move |pixels, device, _scale| {
-    match onto(pixels, Frame { device, points }, &shapes) {
-      Ok(()) => {}
-      Err(why) => eprintln!("console-bar: {why}"),
-    }
-
-    Ok(())
-  });
-
-  match put {
-    Ok(()) => {}
-    Err(why) => eprintln!("console-bar: {why}"),
-  }
-
-  Ok(())
-}
-
 fn tapped(
   surface: &mut Surface,
   drawn: &Rendered,
@@ -1303,7 +1318,7 @@ struct Started {
 }
 
 enum Requested {
-  BuiltIn(BarAction),
+  BuiltIn(PressEffect),
   Applet(Applet),
 }
 
@@ -1343,63 +1358,66 @@ fn queue(
 
 fn begun(requested: Vec<Requested>, turning: &mut Turning) -> Result<(), Never> {
   for request in requested {
-    let (requested_panel, begun) = match request {
-      Requested::BuiltIn(BarAction::Workspace(id)) => {
+    let begun = match request {
+      Requested::BuiltIn(PressEffect::Action(BarAction::Workspace(id))) => {
         let Ok(()) = turning.surfaces.switch(id);
 
         continue;
       }
-      Requested::BuiltIn(action) => {
-        let Ok(panel) = Panel::of(action);
-        let Ok(()) = supersede_panel_request(turning, panel);
-        let Ok(begun) = doing(action);
+      Requested::BuiltIn(PressEffect::Panel(PanelEffect::Start(panel))) => {
+        let Ok(()) = start_panel(turning, panel);
 
-        (panel, begun)
+        continue;
       }
+      Requested::BuiltIn(PressEffect::Action(action)) => doing(action),
       Requested::Applet(applet) => {
         let Ok(command) = applet.command();
-        let started_3 = match command {
-          Some(command_2) => {
-            let Ok(started_2) = start(command_2);
-            started_2
-          }
-          None => None,
-        };
 
-        (None, started_3)
+        match command {
+          Some(command_2) => start(command_2),
+          None => Ok(None),
+        }
       }
     };
+    let Ok(started) = begun;
 
-    match (requested_panel, begun) {
-      (panel, Some(program)) => {
-        turning.started.push(Started { panel, program });
+    match started {
+      Some(program) => {
+        turning.started.push(Started {
+          panel: None,
+          program,
+        });
       }
-      (Some(panel), None) => {
-        let Ok(_no_commands) = turning.held.told(PanelEvent::Ended(panel));
-        let Ok(()) = turning.visible_panels.refresh();
-      }
-      (None, None) => {}
+      None => {}
     }
   }
 
   Ok(())
 }
 
-fn supersede_panel_request(turning: &mut Turning, panel: Option<Panel>) -> Result<(), Never> {
-  match panel {
-    Some(pressed) => {
-      for previous in turning
-        .started
-        .iter_mut()
-        .filter(|old| old.panel == Some(pressed))
-      {
-        previous.panel = None;
-      }
-
-      turning.visible_panels.invalidate()
-    }
-    None => Ok(()),
+fn start_panel(turning: &mut Turning, panel: Panel) -> Result<(), Never> {
+  for previous in turning
+    .started
+    .iter_mut()
+    .filter(|old| old.panel == Some(panel))
+  {
+    previous.panel = None;
   }
+
+  let Ok(action) = panel.action();
+  let Ok(begun) = doing(action);
+
+  match begun {
+    Some(program) => turning.started.push(Started {
+      panel: Some(panel),
+      program,
+    }),
+    None => {
+      let Ok(_no_commands) = turning.held.told(PanelEvent::Ended(panel));
+    }
+  }
+
+  turning.visible_panels.refresh()
 }
 
 fn reaped(started: Vec<Started>) -> Result<(Vec<Started>, Vec<Panel>), Never> {

@@ -6,13 +6,14 @@ use console_core_color::palette::Wearing;
 use console_core_geometry::{Point, Size};
 use console_core_never::Never;
 use console_core_shapes::Pixels;
-use console_draw_painting::{Lines, Run, measure_text};
-use console_draw_surface::Part;
+use console_draw_painting::Lines;
+use console_draw_surface::{Composition, Part};
 
-use crate::canvas::{Area, AreaLayout, Face, Interaction};
-use crate::{fitting, strip};
+use crate::canvas::{Align, Area, AreaLayout, Face, Interaction, ROW_RADIUS, RowTone};
+use crate::ui::list;
+use crate::{field, fitting, marks, strip};
 
-use super::{Button, Components, Frame, Link, Message, Notice, NoticeTone, window};
+use super::{Button, Components, Frame, Link, Message, Notice, window};
 
 struct Scroll {
   bottom: i32,
@@ -26,12 +27,12 @@ enum NoticePlacement {
 
 pub struct Search<'a, A> {
   pub edit: A,
-  pub clear: Link<'a, A>,
+  pub clear: A,
   pub placeholder: &'a str,
   pub shortcut: &'a str,
   pub before_caret: &'a str,
   pub after_caret: &'a str,
-  pub preedit: &'a str,
+  pub preedit: Option<&'a Composition>,
 }
 
 pub enum Introduction<'a, A> {
@@ -107,24 +108,11 @@ impl<A: Copy + PartialEq> Components<A> {
   ) -> Result<(Area, Area, Option<Part>), Never> {
     let colors = self.colors;
     let Ok(()) = self.canvas.panel(root, colors.panel, 0, None);
-    let margin = strip::MARGIN;
-    let x = margin;
-    let width = root
-      .size
-      .width
-      .saturating_sub(margin.saturating_mul(2))
-      .max(1);
-    let header = Area {
-      origin: Point { x, y: margin },
-      size: Size {
-        width,
-        height: strip::HEIGHT,
-      },
-    };
+    let Ok(header) = strip::window_area(root.size.width);
     let Ok(()) = strip::header(&mut self.canvas, header, &view.header, &colors);
-    let search_y = margin
-      .saturating_add(strip::HEIGHT)
-      .saturating_add(strip::GAP);
+    let x = header.origin.x;
+    let width = header.size.width;
+    let search_y = strip::CONTENT_TOP;
     let search_area = Area {
       origin: Point { x, y: search_y },
       size: Size {
@@ -168,133 +156,87 @@ impl<A: Copy + PartialEq> Components<A> {
   }
 
   fn search(&mut self, area: Area, search: &Search<'_, A>) -> Result<Option<Part>, Never> {
-    let colors = self.colors;
-    let focus = self.canvas.interaction.focus == Some(search.edit);
-    let outline = match focus.then_some(()) {
-      Some(()) => colors.pink,
-      None => colors.panel,
-    };
-    let Ok(()) = self.canvas.panel(area, colors.ground, 10, Some(outline));
-    let (x, y) = (area.origin.x, area.origin.y);
-    let icon = Area {
-      origin: Point {
-        x: x.wrapping_add(12),
-        y,
-      },
-      size: Size {
-        width: 27,
-        height: area.size.height,
-      },
-    };
-    let Ok(()) = self.text(icon, "⌕", 21, Face::Medium, colors.soft, Lines(1));
-    let line = Area {
-      origin: Point {
-        x: x.wrapping_add(39),
-        y,
-      },
-      size: Size {
-        width: area.size.width.wrapping_sub(111).max(1),
-        height: area.size.height,
-      },
-    };
+    let focused = self.canvas.interaction.focus == Some(search.edit);
     let empty = search.before_caret.is_empty() && search.after_caret.is_empty();
-    let Ok(caret) = self.search_text(
-      line,
-      search,
-      (empty && search.preedit.is_empty() && !focus).then_some(search.placeholder),
+    let Ok(draft) = field::Draft::new(
+      field::TextParts {
+        before: search.before_caret,
+        after: search.after_caret,
+      },
+      search.preedit,
     );
+    let content = match draft.text.as_str() {
+      "" => field::Content::Placeholder(search.placeholder),
+      written => field::Content::Value(written),
+    };
+    let editing = match focused.then_some(()) {
+      Some(()) => draft.editing,
+      None => field::Editing::Inactive,
+    };
+    let button_width = area.size.width.min(58);
+    let Ok(cursor) = field::Field {
+      area,
+      trailing: button_width,
+      content,
+      editing,
+    }
+    .paint(&mut self.canvas.frame.shapes, &self.colors);
     let Ok(right) = area.right();
+    let button = Area {
+      origin: Point {
+        x: right.saturating_sub(button_width),
+        y: area.origin.y.saturating_add(6),
+      },
+      size: Size {
+        width: button_width.saturating_sub(6),
+        height: area.size.height.saturating_sub(12),
+      },
+    };
 
     match empty.then_some(()) {
       Some(()) => {
-        let hint = Area {
-          origin: Point {
-            x: right.wrapping_sub(66),
-            y,
-          },
-          size: Size {
-            width: 57,
-            height: area.size.height,
-          },
-        };
-        let Ok(()) = self.text(hint, search.shortcut, 12, Face::Mono, colors.soft, Lines(1));
+        let Ok(()) = self.canvas.text(
+          button,
+          search.shortcut,
+          12,
+          Face::Mono,
+          self.colors.soft,
+          Align::Center,
+        );
         let Ok(()) = self.canvas.hit(area, search.edit);
       }
       None => {
         let edit = Area {
-          origin: Point { x, y },
           size: Size {
-            width: area.size.width.wrapping_sub(68),
+            width: area.size.width.saturating_sub(button_width),
             height: area.size.height,
           },
+          ..area
         };
         let Ok(()) = self.canvas.hit(edit, search.edit);
-        let clear = Area {
-          origin: Point {
-            x: right.wrapping_sub(64),
-            y: y.wrapping_add(6),
-          },
-          size: Size {
-            width: 58,
-            height: area.size.height.wrapping_sub(12),
-          },
-        };
-        let Ok(()) = self.button(clear, search.clear, Button::Quiet);
+        let Ok(()) = self.icon_button(button, marks::SHUT, search.clear);
       }
     }
 
-    Ok(caret)
+    Ok(cursor)
   }
 
-  fn search_text(
-    &mut self,
-    line: Area,
-    search: &Search<'_, A>,
-    placeholder: Option<&str>,
-  ) -> Result<Option<Part>, Never> {
-    match placeholder {
-      Some(text) => {
-        let Ok(()) = self.text(line, text, 15, Face::Body, self.colors.soft, Lines(1));
-        return Ok(None);
-      }
-      None => {}
-    }
-
-    let inserted = format!("{}{}", search.before_caret, search.preedit);
-    let shown = format!("{inserted}{}", search.after_caret);
-    let Ok(()) = self.text(line, &shown, 15, Face::Body, self.colors.text, Lines(1));
-
-    match (self.canvas.interaction.focus == Some(search.edit)).then_some(()) {
-      Some(()) => {
-        let Ok((font, weight)) = Face::Body.font(15);
-        let Ok(measured) = measure_text(
-          Run {
-            said: &inserted,
-            weight,
-            width: u32::MAX,
-          },
-          &font,
-        );
-        let offset = u32::cast_signed(measured.width).clamp(0, line.size.width.saturating_sub(1));
-        let caret = Area {
-          origin: Point {
-            x: line.origin.x.wrapping_add(offset),
-            y: line.origin.y.wrapping_add(12),
-          },
-          size: Size {
-            width: 1,
-            height: 19,
-          },
-        };
-        let Ok(()) = self.canvas.panel(caret, self.colors.pink, 0, None);
-        let Ok(size) = caret.pixel_size();
-        Ok(Some(Part {
-          at: caret.origin,
-          size,
-        }))
-      }
-      None => Ok(None),
-    }
+  fn icon_button(&mut self, area: Area, icon: &str, action: A) -> Result<(), Never> {
+    let state = match (self.canvas.interaction.focus == Some(action)
+      || self.canvas.interaction.hover == Some(action))
+    .then_some(())
+    {
+      Some(()) => strip::Control::Focused,
+      None => strip::Control::Ready,
+    };
+    let Ok(()) = strip::paint_control(
+      &mut self.canvas.frame.shapes,
+      area,
+      icon,
+      state,
+      &self.colors,
+    );
+    self.canvas.hit(area, action)
   }
 
   fn notice(
@@ -330,16 +272,12 @@ impl<A: Copy + PartialEq> Components<A> {
       },
       size: Size { width, height: 22 },
     };
-    let title_color = match notice.tone {
-      NoticeTone::Neutral => colors.text,
-      NoticeTone::Error => colors.coral,
-    };
     let Ok(()) = self.text(
       title,
       notice.message.title,
       15,
       Face::Medium,
-      title_color,
+      colors.text,
       Lines(1),
     );
 
@@ -363,11 +301,11 @@ impl<A: Copy + PartialEq> Components<A> {
       Some(link) => {
         let button = Area {
           origin: Point {
-            x: right.wrapping_sub(148),
+            x: right.wrapping_sub(160),
             y: y.wrapping_add(11),
           },
           size: Size {
-            width: 74,
+            width: 86,
             height: 34,
           },
         };
@@ -376,8 +314,8 @@ impl<A: Copy + PartialEq> Components<A> {
       None => {}
     }
 
-    match notice.reply {
-      Some(link) => {
+    match notice.retry {
+      Some(action) => {
         let button = Area {
           origin: Point {
             x: right.wrapping_sub(66),
@@ -388,7 +326,7 @@ impl<A: Copy + PartialEq> Components<A> {
             height: 34,
           },
         };
-        let Ok(()) = self.button(button, link, Button::Quiet);
+        let Ok(()) = self.icon_button(button, marks::RELOAD, action);
       }
       None => {}
     }
@@ -633,13 +571,12 @@ impl<A: Copy + PartialEq> Components<A> {
   fn entry(&mut self, area: Area, entry: &Entry<'_, A>) -> Result<(), Never> {
     let colors = self.colors;
     let active = self.canvas.interaction.focus == Some(entry.action);
-    let hover = self.canvas.interaction.hover == Some(entry.action);
-    let (fill, ink, quiet) = match (active, hover) {
-      (true, _) => (colors.pink, colors.night, colors.night),
-      (false, true) => (colors.fill, colors.text, colors.soft),
-      (false, false) => (colors.ground, colors.text, colors.soft),
+    let tone = match active.then_some(()) {
+      Some(()) => RowTone::Focused,
+      None => RowTone::Normal,
     };
-    let Ok(()) = self.canvas.panel(area, fill, 12, None);
+    let Ok(row) = tone.colors(&colors);
+    let Ok(()) = self.canvas.panel(area, row.fill, ROW_RADIUS, None);
     let (x, y) = (area.origin.x, area.origin.y);
     let icon = Area {
       origin: Point {
@@ -662,7 +599,7 @@ impl<A: Copy + PartialEq> Components<A> {
           entry.icon,
           18,
           Face::Medium,
-          ink,
+          row.ink,
           crate::canvas::TextLayout {
             align: crate::canvas::Align::Center,
             lines: Lines(1),
@@ -673,22 +610,22 @@ impl<A: Copy + PartialEq> Components<A> {
 
     let left = x.saturating_add(65);
     let width = area.size.width.saturating_sub(113);
-    let title = Area {
+    let label_area = Area {
       origin: Point {
         x: left,
         y: y.saturating_add(2),
       },
-      size: Size { width, height: 24 },
+      size: Size { width, height: area.size.height.saturating_sub(4) },
     };
-    let detail = Area {
-      origin: Point {
-        x: left,
-        y: y.saturating_add(24),
+    let Ok(()) = list::label(
+      &mut self.canvas,
+      label_area,
+      list::Label {
+        title: entry.title,
+        detail: entry.detail,
       },
-      size: Size { width, height: 21 },
-    };
-    let Ok(()) = self.text(title, entry.title, 16, Face::Medium, ink, Lines(1));
-    let Ok(()) = self.text(detail, entry.detail, 13, Face::Body, quiet, Lines(1));
+      &row,
+    );
     let Ok(edge) = area.right();
     let mark = Area {
       origin: Point {
@@ -700,7 +637,7 @@ impl<A: Copy + PartialEq> Components<A> {
         height: area.size.height,
       },
     };
-    let Ok(()) = self.text(mark, entry.indicator, 19, Face::Body, ink, Lines(1));
+    let Ok(()) = self.text(mark, entry.indicator, 19, Face::Body, row.ink, Lines(1));
     self.canvas.hit(area, entry.action)
   }
 

@@ -33,9 +33,6 @@ console-core-places.workspace = true
 console-core-logging = { workspace = true, features = ["std"] }
 console-core-scalable-vector-graphics = { workspace = true, features = ["text", "system-fonts"] }
 console-core-scalable-vector-graphics-rasterizer.workspace = true
-console-core-shapes.workspace = true
-console-draw-painting.workspace = true
-console-draw-surface.workspace = true
 console-gio.workspace = true
 console-input-keyboard = { path = "../console-input-keyboard", default-features = false }
 console-input-text.workspace = true

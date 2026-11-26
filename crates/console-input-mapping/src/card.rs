@@ -172,7 +172,7 @@ fn wrote_initial(writing: &FileWrite) -> Result<(), Unmapped> {
 
   match console_core_atomic_writes::whole_in_new_file_with_folders(
     &writing.path,
-    writing.contents.as_bytes(),
+    writing.contents.as_ref(),
   ) {
     Ok(()) => Ok(()),
     Err(Unwritten::Moving(at, fault)) => {

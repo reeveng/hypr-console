@@ -1,5 +1,5 @@
 [Unit]
-Description=Check for a published Legion Go release
+Description=Check for a published Console release
 Wants=network-online.target
 After=network-online.target
 

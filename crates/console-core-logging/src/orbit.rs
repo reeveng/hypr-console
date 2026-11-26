@@ -4,6 +4,7 @@
 //! for this pass to copy.
 
 use console_core_atomic_writes::{Unwritten, read_bytes, whole_without_overwriting};
+use console_core_bytes::hex::{self, Case};
 use console_core_never::Never;
 use console_core_places::Base;
 use core::fmt;
@@ -79,7 +80,7 @@ impl Destination {
     endpoint.set_username("").or_else(|()| invalid_dsn())?;
     endpoint.set_path("/errors/api/1/envelope/");
     let Ok(hash) = console_core_checksums::sha256::of(dsn.as_bytes());
-    let Ok(namespace) = hex(&hash);
+    let Ok(namespace) = hex::encode(&hash, Case::Lower);
 
     Ok(Self {
       endpoint,
@@ -326,7 +327,7 @@ fn envelope(level: ReportLevel, module: &str, message: fmt::Arguments<'_>) -> io
     }
   }
 
-  let Ok(event_id) = hex(id);
+  let Ok(event_id) = hex::encode(id, Case::Lower);
   #[cfg_attr(
     dylint_lib = "explicit051_no_machine_width",
     expect(
@@ -369,30 +370,13 @@ fn envelope(level: ReportLevel, module: &str, message: fmt::Arguments<'_>) -> io
   Ok(std::format!("{header}\n{item}\n{event}\n"))
 }
 
-fn hex(bytes: &[u8]) -> Result<String, Never> {
-  let mut written = String::new();
-
-  for byte in bytes {
-    for nibble in [byte.wrapping_shr(4), byte & 0xf] {
-      let ascii = match nibble {
-        0..=9 => b'0'.saturating_add(nibble),
-        _letter => b'a'.saturating_add(nibble.saturating_sub(10)),
-      };
-
-      written.push(char::from(ascii));
-    }
-  }
-
-  Ok(written)
-}
-
 #[cfg(test)]
 mod tests {
-  use super::hex;
+  use super::{Case, hex};
 
   #[test]
   fn report_ids_keep_leading_zeroes_and_lowercase_hexadecimal() {
-    let Ok(id) = hex(&[0x00, 0x1a, 0xc5, 0xff]);
+    let Ok(id) = hex::encode(&[0x00, 0x1a, 0xc5, 0xff], Case::Lower);
 
     assert_eq!(id, "001ac5ff");
   }

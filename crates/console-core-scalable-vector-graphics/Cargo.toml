@@ -54,7 +54,7 @@ text = [
 ]
 writer = [
     "console-core-extensible-markup-writer",
-    "base64",
+    "dep:console-core-bytes",
 ]
 
 [lib]
@@ -64,8 +64,9 @@ path = "src/lib.rs"
 [dependencies.console-core-api-compatibility]
 workspace = true
 
-[dependencies.base64]
-version = "0.23"
+[dependencies.console-core-bytes]
+workspace = true
+features = ["alloc"]
 optional = true
 
 [dependencies.console-core-urls]

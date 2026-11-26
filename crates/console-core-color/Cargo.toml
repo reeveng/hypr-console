@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+console-core-bytes = { workspace = true, features = ["alloc"] }
 console-core-atomic-writes.workspace = true
 console-core-finite-numbers.workspace = true
 console-core-logging.workspace = true

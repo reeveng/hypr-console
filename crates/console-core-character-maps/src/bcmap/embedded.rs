@@ -4,7 +4,7 @@ use console_core_never::Never;
 use console_core_number_conversion::index;
 
 use super::huffman::{Huffman, tables};
-use super::reader::{Bytes, Remaining};
+use super::reader::{Reader, Remaining};
 use crate::{CMapName, ParseError};
 
 const FILE_HEADER: u32 = 10;
@@ -107,7 +107,7 @@ fn load() -> Result<Bundle, ParseError> {
   let decompressed = console_core_deflate::zlib::decode(compressed, MAX_BUNDLE_BYTES)
     .map_err(|_broken| ParseError::BadBundle)?;
 
-  let Ok(mut head) = Bytes::new(&decompressed);
+  let Ok(mut head) = Reader::new(&decompressed);
   let tables_length = head.u32()?;
   let table_data = head.take(tables_length)?;
   let (delta, count) = tables(table_data)?;

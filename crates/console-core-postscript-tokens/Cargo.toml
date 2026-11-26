@@ -10,6 +10,7 @@ name = "console_core_postscript_tokens"
 path = "src/lib.rs"
 
 [dependencies]
+console-core-bytes.workspace = true
 console-core-never.workspace = true
 console-core-number-conversion.workspace = true
 

@@ -5,9 +5,10 @@
 //! what PDF encryption asks for; `of` is the hex of a string, which is what
 //! the thumbnail standard files a picture under.
 
-use alloc::{format, string::String};
+use alloc::string::String;
 
 use crate::Checksum;
+use console_core_bytes::hex::{self, Case};
 use console_core_never::Never;
 
 pub use crate::streaming_md5::Md5;
@@ -20,13 +21,7 @@ pub fn digest(bytes: &[u8]) -> Result<[u8; 16], Never> {
 
 pub fn of(said: &str) -> Result<String, Never> {
   let Ok(hash) = digest(said.as_bytes());
-  let mut written = String::new();
-
-  for byte in hash {
-    written.push_str(&format!("{byte:02x}"));
-  }
-
-  Ok(written)
+  hex::encode(&hash, Case::Lower)
 }
 
 #[cfg(test)]

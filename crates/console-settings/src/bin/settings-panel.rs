@@ -15,6 +15,17 @@ use console_panel::card::{Panel, opened};
 fn main() -> ExitCode {
   let asked: Vec<String> = std::env::args().skip(1).collect();
 
+  match asked.as_slice() {
+    [action] => match action.as_str() {
+      console_settings::TOGGLE_WINDOW_PLACEMENT => {
+        let Ok(status) = console_settings::toggle_window_placement();
+        return status;
+      }
+      _ => {}
+    },
+    _ => {}
+  }
+
   let Ok(code) = opened(
     &asked,
     Panel {

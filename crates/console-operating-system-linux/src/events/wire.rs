@@ -2,10 +2,8 @@
 //!
 //! Lines, because every source this relays is already lines and because a
 //! person debugging a desktop should be able to hold `socat` against the
-//! socket and read what is going past. There is no framing beyond the newline
-//! and no version number: both ends are built by the same `console apply` from
-//! the same commit, so a wire that could disagree with itself is a problem
-//! this machine cannot have.
+//! socket and read what is going past. These are the version-zero messages.
+//! Versioned requests and snapshots also use the newline as their delimiter.
 //!
 //! An event group is one token, which is what makes `publish <event group> <the
 //! line>` unambiguous. The only event group with anything in it is a path, and
@@ -19,6 +17,8 @@ use console_core_never::Never;
 use console_program_contract::{Change, EventGroup};
 
 const NOTHING_AFTER_IT: &str = "";
+
+pub const REPLY_BYTES: u32 = 4 << 20;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Message {

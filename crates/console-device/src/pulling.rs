@@ -9,7 +9,7 @@
 //! uncommitted in it is refused rather than stashed. Refusing is the only
 //! answer that cannot be wrong.
 
-use console_core_external_programs::Program as ExternalProgram;
+use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_core_state_machine::{Machine, Queue, Transition};
 use console_program_contract::{Command, Effect, Event, Exit, ExitStatus};
@@ -95,7 +95,7 @@ fn decide(
     ),
 
     (Pulling::Initial(Named::Device(host)), Event::Opened) => {
-      let Ok(asking) = Command::external(ExternalProgram::Git, &["status", "--porcelain"]);
+      let Ok(asking) = Command::external(Program::Git, &["status", "--porcelain"]);
 
       Transition::new(Pulling::Querying(host.clone()), vec![Effect::Run(asking)])
     }
@@ -121,7 +121,7 @@ fn decide(
 
     (Pulling::Fetching(_), Event::Replied(answer)) => match answer.status {
       ExitStatus::Success => {
-        let Ok(rebasing) = Command::external(ExternalProgram::Git, &["rebase", "FETCH_HEAD"]);
+        let Ok(rebasing) = Command::external(Program::Git, &["rebase", "FETCH_HEAD"]);
 
         Transition::new(Pulling::Rebasing, vec![Effect::Run(rebasing)])
       }
@@ -132,7 +132,7 @@ fn decide(
 
     (Pulling::Rebasing, Event::Replied(answer)) => match answer.status {
       ExitStatus::Success => {
-        let Ok(telling) = Command::external(ExternalProgram::Git, &["log", "--oneline", "-5"]);
+        let Ok(telling) = Command::external(Program::Git, &["log", "--oneline", "-5"]);
 
         Transition::new(Pulling::Logging, vec![Effect::Run(telling)])
       }
@@ -157,7 +157,7 @@ fn decide(
 
 pub fn fetching(host: &str) -> Result<Command, Never> {
   Command::external(
-    ExternalProgram::Git,
+    Program::Git,
     &["fetch", &format!("ssh://{host}/etc/console"), "master"],
   )
 }
@@ -187,13 +187,13 @@ mod tests {
   }
 
   fn status(said: &str) -> Result<Event<Never>, Never> {
-    let Ok(runs) = Command::external(ExternalProgram::Git, &["status", "--porcelain"]);
+    let Ok(runs) = Command::external(Program::Git, &["status", "--porcelain"]);
 
     reply(runs, said, ExitStatus::Success)
   }
 
   fn well(said: &str) -> Result<Event<Never>, Never> {
-    let Ok(runs) = Command::external(ExternalProgram::Git, &["log"]);
+    let Ok(runs) = Command::external(Program::Git, &["log"]);
 
     reply(runs, said, ExitStatus::Success)
   }
@@ -246,7 +246,7 @@ mod tests {
     );
 
     let Ok(fetching) = fetching("root@handheld");
-    let Ok(rebasing) = Command::external(ExternalProgram::Git, &["rebase", "FETCH_HEAD"]);
+    let Ok(rebasing) = Command::external(Program::Git, &["rebase", "FETCH_HEAD"]);
 
     assert_eq!(said.on(1), Ok(Some([Effect::Run(fetching)].as_slice())));
     assert_eq!(said.on(2), Ok(Some([Effect::Run(rebasing)].as_slice())));
@@ -265,7 +265,7 @@ mod tests {
   #[test]
   fn a_rebase_that_would_not_go_on_top_stops_rather_than_carrying_on() {
     let Ok(arguments) = Named::of(Some("root@handheld"));
-    let Ok(rebase) = Command::external(ExternalProgram::Git, &["rebase"]);
+    let Ok(rebase) = Command::external(Program::Git, &["rebase"]);
     let Ok(clean) = status("");
     let Ok(fetched) = well("");
     let Ok(refused) = reply(rebase, "", ExitStatus::Failure(Some(1)));

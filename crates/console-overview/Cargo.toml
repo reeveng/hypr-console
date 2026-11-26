@@ -15,6 +15,7 @@ path = "src/bin/console-overview.rs"
 
 [dependencies]
 console-compositor = { workspace = true, features = ["toplevel-mapping"] }
+console-events.workspace = true
 console-core-color.workspace = true
 console-core-fonts.workspace = true
 console-core-geometry.workspace = true

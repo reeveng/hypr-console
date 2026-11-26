@@ -11,6 +11,7 @@ bytemuck = ["dep:bytemuck"]
 serde = ["dep:serde"]
 
 [dependencies]
+console-core-bytes.workspace = true
 console-core-never.workspace = true
 console-core-point.workspace = true
 console-core-number-conversion = { path = "../console-core-number-conversion", default-features = false }

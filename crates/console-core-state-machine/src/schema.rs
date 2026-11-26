@@ -10,7 +10,7 @@
 //! Nothing here can be cut short or flipped without being met: `restore`
 //! checks the sum over the whole snapshot before any `decode` is asked, so a
 //! `ParseError` from a field is a snapshot written by a different layout, not
-//! a bad disk.
+//! a bad disk. Length-prefixed binary fields can be borrowed during decoding.
 
 use alloc::{string::String, vec::Vec};
 use core::fmt;
@@ -19,6 +19,7 @@ use std::os::unix::ffi::{OsStrExt, OsStringExt};
 #[cfg(all(feature = "std", unix))]
 use std::path::PathBuf;
 
+use console_core_bytes::{Bytes, Cursor};
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
 
@@ -99,41 +100,34 @@ impl Encoder {
 
 #[derive(Debug)]
 pub struct Decoder<'a> {
-  rest: &'a [u8],
+  cursor: Cursor<'a>,
 }
 
 impl<'a> Decoder<'a> {
   pub(crate) fn new(bytes: &'a [u8]) -> Result<Self, Never> {
-    Ok(Decoder { rest: bytes })
+    let Ok(cursor) = Cursor::new(bytes);
+
+    Ok(Decoder { cursor })
   }
 
   pub fn byte(&mut self) -> Result<u8, ParseError> {
-    match self.rest.split_first() {
-      Some((byte, rest)) => {
-        self.rest = rest;
-
-        Ok(*byte)
-      }
-      None => Err(ParseError::Truncated),
-    }
+    self.cursor.byte().map_err(|_| ParseError::Truncated)
   }
 
-  pub fn bytes(&mut self) -> Result<Vec<u8>, ParseError> {
+  pub fn bytes(&mut self) -> Result<Bytes, ParseError> {
+    let bytes = self.counted_slice()?;
+    let Ok(owned) = Bytes::copy_from_slice(bytes);
+
+    Ok(owned)
+  }
+
+  pub fn counted_slice(&mut self) -> Result<&'a [u8], ParseError> {
     let count = u64::decode(self)?;
-    let split = match ::console_core_number_conversion::checked_index(count) {
-      ::core::result::Result::Ok(value_) => ::core::option::Option::Some(value_),
-      ::core::result::Result::Err(_outside_integer_range) => ::core::option::Option::None,
-    }
-    .and_then(|size| self.rest.split_at_checked(size));
 
-    match split {
-      Some((bytes, tail)) => {
-        self.rest = tail;
-
-        Ok(bytes.to_vec())
-      }
-      None => {
-        self.rest = &[];
+    match self.cursor.take(count) {
+      Ok(bytes) => Ok(bytes),
+      Err(_truncated) => {
+        let Ok(_unread) = self.cursor.take_rest();
 
         Err(ParseError::Truncated)
       }
@@ -141,7 +135,9 @@ impl<'a> Decoder<'a> {
   }
 
   pub(crate) fn finish(self) -> Result<(), ParseError> {
-    match self.rest {
+    let Ok(rest) = self.cursor.rest();
+
+    match rest {
       [] => Ok(()),
       [_, ..] => Err(ParseError::Trailing),
     }
@@ -166,7 +162,7 @@ impl Serializable for u8 {
   )
 )]
 macro_rules! numbers {
-    ($($number:ty),*) => {
+    ($(($number:ty, $read:ident)),*) => {
         $(
             impl Serializable for $number {
                 fn encode(&self, encoder: &mut Encoder) -> Result<(), Never> {
@@ -174,21 +170,24 @@ macro_rules! numbers {
                 }
 
                 fn decode(decoder: &mut Decoder<'_>) -> Result<Self, ParseError> {
-                    match decoder.rest.split_first_chunk() {
-                        Some((array, rest)) => {
-                            decoder.rest = rest;
-
-                            Ok(<$number>::from_be_bytes(*array))
-                        }
-                        None => Err(ParseError::Truncated),
-                    }
+                    decoder.cursor.$read().map_err(|_| ParseError::Truncated)
                 }
             }
         )*
     };
 }
 
-numbers!(u16, u32, u64, i32, i64);
+numbers!((u16, u16_be), (u32, u32_be), (u64, u64_be), (i32, i32_be), (i64, i64_be));
+
+impl Serializable for Bytes {
+  fn encode(&self, encoder: &mut Encoder) -> Result<(), Never> {
+    encoder.counted(self)
+  }
+
+  fn decode(decoder: &mut Decoder<'_>) -> Result<Self, ParseError> {
+    decoder.bytes()
+  }
+}
 
 impl Serializable for String {
   fn encode(&self, encoder: &mut Encoder) -> Result<(), Never> {
@@ -198,7 +197,7 @@ impl Serializable for String {
   fn decode(decoder: &mut Decoder<'_>) -> Result<Self, ParseError> {
     let bytes = decoder.bytes()?;
 
-    String::from_utf8(bytes).map_err(|_not_text| ParseError::NotText)
+    bytes.into_utf8().map_err(|_not_text| ParseError::NotText)
   }
 }
 
@@ -211,7 +210,9 @@ impl Serializable for PathBuf {
   fn decode(decoder: &mut Decoder<'_>) -> Result<Self, ParseError> {
     let bytes = decoder.bytes()?;
 
-    Ok(PathBuf::from(std::ffi::OsString::from_vec(bytes)))
+    let Ok(raw) = bytes.into_vec();
+
+    Ok(PathBuf::from(std::ffi::OsString::from_vec(raw)))
   }
 }
 

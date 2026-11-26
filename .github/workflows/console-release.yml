@@ -34,7 +34,7 @@ jobs:
           component='(0|[1-9][0-9]*)'
           [[ "$GITHUB_REF_NAME" =~ ^console-v$component\.$component\.$component$ ]]
 
-      - name: Build Legion Go binaries
+      - name: Build Console binaries
         shell: bash
         run: |
           set -euo pipefail

@@ -33,7 +33,7 @@
 //! this from its own screen has no way of finishing the job.
 
 use console_core_arguments::{CommandLine, NoSubcommand, Operands};
-use console_core_external_programs::{Program as ExternalProgram, shell};
+use console_core_external_programs::{Program, shell};
 use console_core_internal_programs::InternalProgram;
 use console_core_never::Never;
 use console_core_places::{APPLICATION, Base};
@@ -559,7 +559,7 @@ fn at(
 
     (Step::Checking, Event::Replied(_)) => {
       let Ok(remoting) = Command::external(
-        ExternalProgram::Git,
+        Program::Git,
         &[
           "remote",
           "set-url",
@@ -596,7 +596,7 @@ fn numbering(going: &Going, whom: &str) -> Result<Transition<Migrating, Effect<N
     whom: whom.to_owned(),
     ..going.clone()
   };
-  let Ok(getent) = ExternalProgram::Getent.name();
+  let Ok(getent) = Program::Getent.name();
   let Ok(asked) = shell::join([getent, "--", "passwd", whom]);
   let Ok(runs) = on(&going_2, &asked);
 
@@ -632,7 +632,7 @@ fn the_engine(going: &Going) -> Result<Vec<Piece>, Never> {
   );
   let Ok(history) = run("\n== the history", runs, Matters::Yes);
   let Ok(pushes) = Command::external(
-    ExternalProgram::Git,
+    Program::Git,
     &[
       "push",
       &format!("ssh://{}{tree}", going.host),
@@ -843,7 +843,7 @@ fn after_local_listing(
       ],
     ),
     Tree::Was | Tree::Now => {
-      let Ok(standing) = Command::external(ExternalProgram::Git, &["status", "--porcelain"]);
+      let Ok(standing) = Command::external(Program::Git, &["status", "--porcelain"]);
 
       Transition::new(
         Migrating::At(Step::Committed, going.clone()),
@@ -964,7 +964,7 @@ impl AsRef<std::path::Path> for HomeEntry<'_> {
 
 fn looking_in_a_home(going: &Going) -> Result<String, Never> {
   let Ok(homes) = homes();
-  let Ok(ls) = ExternalProgram::Ls.name();
+  let Ok(ls) = Program::Ls.name();
   let paths: Vec<_> = homes
     .iter()
     .filter_map(|(was, _)| {
@@ -988,7 +988,7 @@ fn moving_the_pictures() -> Result<String, Never> {
 }
 
 fn making_an_attic() -> Result<String, Never> {
-  let Ok(mktemp) = ExternalProgram::Mktemp.name();
+  let Ok(mktemp) = Program::Mktemp.name();
   let Ok(template) = console_core_temporary_directories::migration_attic_template();
 
   shell::join([mktemp, "-d", "--", template])
@@ -1011,8 +1011,8 @@ fn carding(going: &Going) -> Result<Command, Never> {
 }
 
 fn once(going: &Going, command: &str) -> Result<Command, Never> {
-  let Ok(runuser) = ExternalProgram::Runuser.name();
-  let Ok(env) = ExternalProgram::Env.name();
+  let Ok(runuser) = Program::Runuser.name();
+  let Ok(env) = Program::Env.name();
 
   on(
     going,
@@ -1024,7 +1024,7 @@ fn once(going: &Going, command: &str) -> Result<Command, Never> {
 }
 
 fn on(going: &Going, command: &str) -> Result<Command, Never> {
-  Command::external(ExternalProgram::Ssh, &["--", going.host.as_str(), command])
+  Command::external(Program::Ssh, &["--", going.host.as_str(), command])
 }
 
 fn piece(runs: Command, shown: Shown, matters: Matters) -> Result<Piece, Never> {
@@ -1055,7 +1055,7 @@ fn letting(runs: Command) -> Result<Piece, Never> {
 }
 
 fn message_piece(says: &str) -> Result<Piece, Never> {
-  let runs = Command::external(ExternalProgram::True, &[])?;
+  let runs = Command::external(Program::True, &[])?;
 
   Ok(Piece {
     says: Some(says.to_string()),
@@ -1154,7 +1154,7 @@ mod tests {
   }
 
   fn replies(given: &[Reply]) -> Result<Vec<Event<Never>>, Never> {
-    let Ok(runs) = Command::external(ExternalProgram::Ssh, &["root@handheld", "true"]);
+    let Ok(runs) = Command::external(Program::Ssh, &["root@handheld", "true"]);
     let mut events = vec![Event::Opened];
 
     for reply in given {

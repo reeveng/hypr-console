@@ -162,10 +162,10 @@ use console_core_number_conversion::{fitted, index, toward_zero_i32};
 use console_core_shapes::{Edge, Font, Panel, Picture, Pixels, Round, Shape, Text, Weight};
 use console_draw_painting::{Rendered, Run, painter};
 use console_draw_surface::{
-  Activation, Anchor, Closed, Keyboard, Margin, PointerEvent, Room, Surface, Under, Wanted,
+  Activation, Anchor, Closed, Keyboard, Margin, PointerCursor, PointerEvent, Room, Surface, Under, Wanted,
 };
 use console_events::again::Worth;
-use console_home_screen::shape::{self, Layout, Shape as Grid};
+use console_home_screen::shape::{self, Layout};
 use console_home_screen::{
   Bare, Flick, HomeScreen, LongPress, Moved, On, Reached, Spot, Touch, Way, classify_touch,
   flicked, long_press, moved, nudged, on_a_bare_square, paned,
@@ -277,7 +277,7 @@ struct Screen {
   pointer: Pointer,
   seen: Option<(Spot, (f64, f64))>,
   settled: Option<Showing>,
-  grid: Grid,
+  grid: shape::Shape,
   finger: Option<TouchState>,
   labels: BTreeMap<(String, u32), MeasuredText>,
 }
@@ -765,7 +765,7 @@ impl Screen {
   }
 
   fn settle(&mut self, surface: &mut Surface, drew: &mut Rendered) -> Result<(), Never> {
-    let holds = holds_a_window()?;
+    let Ok((holds, over)) = see_desktop();
 
     let showing = match holds {
       Holds::AWindow => Showing::No,
@@ -782,8 +782,6 @@ impl Screen {
         let Ok(()) = self.change_surface(showing, surface, drew);
       }
     }
-
-    let over = anything_over_it()?;
 
     match (showing, over) {
       (Showing::Yes(_), Over::None) => {}
@@ -1726,9 +1724,9 @@ fn standing() -> Result<console_screen::Shape, Never> {
   })
 }
 
-fn asked_shape() -> Result<Grid, Never> {
+fn asked_shape() -> Result<shape::Shape, Never> {
   let Ok(standing) = standing();
-  let usual = Grid::usual(standing)?;
+  let usual = shape::Shape::usual(standing)?;
   let hers = console_core_places::home()?;
 
   let at = match hers {
@@ -1739,7 +1737,7 @@ fn asked_shape() -> Result<Grid, Never> {
   let Ok(held) = console_core_atomic_writes::read(&at);
 
   match held {
-    Stored::Text(said) => Grid::read(&said, standing),
+    Stored::Text(said) => shape::Shape::read(&said, standing),
     Stored::Absent => Ok(usual),
     Stored::Failed(fault) => {
       eprintln!("console-home: {}: {fault}", at.display());
@@ -1749,29 +1747,26 @@ fn asked_shape() -> Result<Grid, Never> {
   }
 }
 
-fn holds_a_window() -> Result<Holds, Never> {
-  let workspace = match console_compositor::ask(console_compositor::ActiveWorkspace) {
-    Ok(workspace) => workspace,
-    Err(_the_compositor_said_nothing) => return Ok(Holds::AWindow),
+fn see_desktop() -> Result<(Holds, Over), Never> {
+  let (workspace, layers) = match console_compositor::ask_together(
+    console_compositor::ActiveWorkspace,
+    console_compositor::Layers,
+  ) {
+    Ok(observed) => observed,
+    Err(_the_compositor_said_nothing) => return Ok((Holds::AWindow, Over::Some)),
   };
 
-  Ok(match workspace {
+  let holds = match workspace {
     Some(front) => match front.windows {
       Some(0) => Holds::None,
       Some(_held) => Holds::AWindow,
       None => Holds::AWindow,
     },
     None => Holds::AWindow,
-  })
-}
-
-fn anything_over_it() -> Result<Over, Never> {
-  let screens = match console_onscreen::screens() {
-    Ok(screens) => screens,
-    Err(_the_compositor_said_nothing) => return Ok(Over::Some),
   };
+  let Ok(over) = over_the_desktop(&layers);
 
-  over_the_desktop(&screens)
+  Ok((holds, over))
 }
 
 fn applications_with_icons(found: found::Found) -> Result<Named, Never> {
@@ -1898,6 +1893,29 @@ fn redraw(
   Ok(())
 }
 
+fn show_pointer(surface: &mut Surface, screen: &Screen, drawing: &mut Drawing, wears: &Wears) -> Result<(), Never> {
+  let Ok(pointer) = surface.pointer_pixel();
+  let target = pointer.and_then(|at| {
+    drawing.touching.iter().find(|(_, panel)| panel.covers(at) == Ok(console_core_shapes::Covers::Yes))
+  });
+  let clickable = target.filter(|(spot, _)| {
+    let Ok(name) = screen.name_at(*spot);
+
+    name.is_some() || screen.carrying.is_some()
+  });
+  let cursor = match clickable {
+    Some((_, panel)) => {
+      let Ok(indicator) = console_core_shapes::hover_indicator(panel.at, panel.size, (wears.here, wears.plate));
+      drawing.shapes.extend(indicator);
+
+      PointerCursor::Hand
+    }
+    None => PointerCursor::Default,
+  };
+
+  surface.set_pointer_cursor(cursor)
+}
+
 fn turned(turning: Turning, around: Around<'_>) -> Result<Step<Turning, ()>, Never> {
   let Around {
     wears,
@@ -1964,7 +1982,8 @@ fn turned(turning: Turning, around: Around<'_>) -> Result<Step<Turning, ()>, Nev
 
       room = (across, down);
 
-      let Ok(drawing) = drawing(&mut screen, wears, room);
+      let Ok(mut drawing) = drawing(&mut screen, wears, room);
+      let Ok(()) = show_pointer(&mut surface, &screen, &mut drawing, wears);
 
       waiting = drawing.waiting;
       touching = drawing.touching;

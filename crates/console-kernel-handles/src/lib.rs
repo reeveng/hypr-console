@@ -144,6 +144,7 @@ pub use rights::{Contains, Right, Rights};
 
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
+pub use console_core_bytes::ByteCount as Bytes;
 use console_core_never::Never;
 use console_core_number_conversion::fixed_index;
 use core::fmt;
@@ -170,9 +171,6 @@ pub const MESSAGE_COST: Bytes = Bytes(64);
 const TABLE_STEPS: u64 = 5;
 
 const MESSAGE_STEPS: u64 = 6;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Bytes(pub u64);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Budget {

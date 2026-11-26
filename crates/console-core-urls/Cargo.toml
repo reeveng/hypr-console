@@ -40,6 +40,10 @@ name = "console_core_urls"
 path = "src/lib.rs"
 test = true
 
+[dependencies.console-core-bytes]
+workspace = true
+features = ["alloc"]
+
 [dependencies.console-core-percent-decoding]
 path = "../console-core-percent-decoding"
 

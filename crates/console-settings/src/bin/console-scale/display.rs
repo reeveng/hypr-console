@@ -22,6 +22,7 @@ pub(super) enum Fault {
   Edit(io::Error),
   Editing,
   Compositor(HyprctlError),
+  Observation(console_compositor::BatchError),
   Rejected(String),
   Disconnected,
   NotApplied,
@@ -44,6 +45,7 @@ impl fmt::Display for Fault {
       Self::Edit(fault) | Self::Confirmation(fault) => fmt::Display::fmt(fault, output),
       Self::Editing => output.write_str("another display change is in progress"),
       Self::Compositor(fault) => fmt::Display::fmt(fault, output),
+      Self::Observation(fault) => fmt::Display::fmt(fault, output),
       Self::Rejected(reason) => output.write_str(reason),
       Self::Disconnected => output.write_str("the display finished disconnecting"),
       Self::NotApplied => output.write_str("the display did not accept the requested settings"),
@@ -234,8 +236,8 @@ fn restore_workspaces(before: &[setup::WorkspaceLocation]) -> Result<(), Fault> 
     [_, ..] => {}
   }
 
-  let after = console_compositor::ask(WorkspaceLocations).map_err(Fault::Compositor)?;
-  let outputs = console_compositor::ask(Outputs).map_err(Fault::Compositor)?;
+  let (after, outputs) =
+    console_compositor::ask_together(WorkspaceLocations, Outputs).map_err(Fault::Observation)?;
   let connected: std::collections::HashSet<_> = outputs
     .iter()
     .filter(|output| output.mirror.is_none())

@@ -1279,7 +1279,7 @@ fn moved(step: i32, carrying: Payload) -> Result<Option<Effect>, Never> {
 }
 
 fn at(number: i64, carrying: Payload) -> Result<Option<Effect>, Never> {
-  let Ok(gone) = Effect::workspace(WorkspaceTarget::Position(number), carrying);
+  let Ok(gone) = Effect::workspace(WorkspaceTarget::Number(number), carrying);
 
   Ok(Some(gone))
 }
@@ -1882,12 +1882,12 @@ mod tests {
       "a pad has no digits"
     );
 
-    let Ok(third) = Effect::workspace(WorkspaceTarget::Position(3), Payload::None);
+    let Ok(third) = Effect::workspace(WorkspaceTarget::Number(3), Payload::None);
 
     assert_eq!(Action::Place(3).does(ButtonPress::Down), Ok(Some(third)));
     assert_eq!(Action::Place(10).says(), Ok("go to desktop 10"));
 
-    let Ok(carried) = Effect::workspace(WorkspaceTarget::Position(3), Payload::Window);
+    let Ok(carried) = Effect::workspace(WorkspaceTarget::Number(3), Payload::Window);
 
     assert_eq!(
       typed(&table, "3", &["super", "shift"]),

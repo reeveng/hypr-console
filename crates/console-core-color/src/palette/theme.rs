@@ -338,7 +338,7 @@ fn digits(color: Rgba) -> Result<String, Never> {
     red, green, blue, ..
   } = color;
 
-  Ok(format!("{red:02x}{green:02x}{blue:02x}"))
+  console_core_bytes::hex::encode(&[red, green, blue], console_core_bytes::hex::Case::Lower)
 }
 
 fn fit_contrast(colors: &mut BTreeMap<String, String>) -> Result<(), Short> {

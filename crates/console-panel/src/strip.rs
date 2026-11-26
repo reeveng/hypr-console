@@ -7,6 +7,7 @@
 
 use crate::canvas::{Area, AreaLayout, Canvas};
 use crate::marks;
+use crate::ui::theme::{Ink, Surface};
 use console_core_color::{Oklch, palette::Wearing};
 use console_core_fonts::{EM, TextStyle};
 use console_core_geometry::{Point, Size};
@@ -37,11 +38,161 @@ pub const PRESSED: i32 = EM * 5 / 3;
 
 pub const EDGE: i32 = EM / 6;
 
+pub const WINDOW_INSET: i32 = EDGE + MARGIN;
+pub const WINDOW_TOP: i32 = (crate::fitting::STRIP - HEIGHT) / 2;
+pub const CONTENT_TOP: i32 = WINDOW_TOP + HEIGHT + GAP;
+
+pub fn window_area(width: i32) -> Result<Area, Never> {
+  let inset = WINDOW_INSET.min(width.saturating_sub(HEIGHT).max(0).saturating_div(2));
+
+  Ok(Area {
+    origin: Point {
+      x: inset,
+      y: WINDOW_TOP,
+    },
+    size: Size {
+      width: width.saturating_sub(inset.saturating_mul(2)).max(0),
+      height: HEIGHT,
+    },
+  })
+}
+
+pub fn close_area(area: Area) -> Result<Area, Never> {
+  let width = area.size.width.clamp(0, HEIGHT);
+  let Ok(right) = area.right();
+
+  Ok(Area {
+    origin: Point {
+      x: right.saturating_sub(width),
+      y: area.origin.y,
+    },
+    size: Size {
+      width,
+      height: HEIGHT,
+    },
+  })
+}
+
+pub fn title(
+  shapes: &mut Vec<Shape>,
+  area: Area,
+  said: &str,
+  colors: &Wearing,
+) -> Result<(), Never> {
+  let Ok(size) = area.pixel_size();
+  let Ok(font) = TextStyle::Headline.font();
+  let run = Run {
+    said,
+    weight: Weight::Bold,
+    width: size.width,
+  };
+  let Ok(visible) = at_most(run, &font, Lines(1));
+  let Ok(measured) = measure_text(
+    Run {
+      said: &visible,
+      ..run
+    },
+    &font,
+  );
+  let Ok(tall) = fitted::<u32, i32>(measured.height);
+
+  shapes.push(Shape::Text(Text {
+    at: Point {
+      x: area.origin.x,
+      y: area.origin.y.saturating_add(
+        area
+          .size
+          .height
+          .saturating_sub(tall)
+          .max(0)
+          .saturating_div(2),
+      ),
+    },
+    width: size.width,
+    said: visible,
+    weight: Weight::Bold,
+    font,
+    ink: colors.text,
+  }));
+
+  Ok(())
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Control {
   Ready,
+  Primary,
   Focused,
   Unavailable,
+  Loading,
+}
+
+impl Control {
+  pub(crate) fn colors(self, colors: &Wearing) -> Result<(Oklch, Oklch), Never> {
+    let Ok(recessed) = Surface::Recessed.color(colors);
+    let (fill, role) = match self {
+      Self::Ready => (recessed, Ink::Text),
+      Self::Primary | Self::Focused => (colors.pink, Ink::OnAccent),
+      Self::Unavailable => (recessed, Ink::Disabled),
+      Self::Loading => (colors.fill, Ink::Text),
+    };
+    let Ok(ink) = role.color(colors);
+
+    Ok((fill, ink))
+  }
+}
+
+#[derive(Clone, Copy)]
+pub enum Button<A> {
+  Ready(A),
+  Primary(A),
+  Disabled,
+  Loading,
+}
+
+impl<A: Copy + PartialEq> Button<A> {
+  pub fn action(self) -> Result<Option<A>, Never> {
+    Ok(match self {
+      Self::Ready(action) | Self::Primary(action) => Some(action),
+      Self::Disabled | Self::Loading => None,
+    })
+  }
+
+  pub fn face(self, focus: Option<A>) -> Result<Control, Never> {
+    Ok(match self {
+      Self::Ready(action) => match (focus == Some(action)).then_some(()) {
+        Some(()) => Control::Focused,
+        None => Control::Ready,
+      },
+      Self::Primary(_) => Control::Primary,
+      Self::Disabled => Control::Unavailable,
+      Self::Loading => Control::Loading,
+    })
+  }
+
+  pub fn place(
+    self,
+    canvas: &mut Canvas<A>,
+    area: Area,
+    label: &str,
+    colors: &Wearing,
+  ) -> Result<(), Never> {
+    let Ok(action) = self.action();
+
+    match action {
+      Some(key) => {
+        let Ok(()) = canvas.hit(area, key);
+      }
+      None => {}
+    }
+
+    let focus = action.filter(|key| {
+      canvas.interaction.focus == Some(*key) || canvas.interaction.hover == Some(*key)
+    });
+    let Ok(face) = self.face(focus);
+
+    paint_control(&mut canvas.frame.shapes, area, label, face, colors)
+  }
 }
 
 pub(crate) fn centred(
@@ -85,11 +236,7 @@ pub(crate) fn control(
   state: Control,
   colors: &Wearing,
 ) -> Result<(Panel, Text), Never> {
-  let (fill, ink) = match state {
-    Control::Ready => (colors.night, colors.text),
-    Control::Focused => (colors.pink, colors.night),
-    Control::Unavailable => (colors.night, colors.edge),
-  };
+  let Ok((fill, ink)) = state.colors(colors);
   let panel = Panel {
     at,
     size,
@@ -111,15 +258,22 @@ pub fn paint_control(
 ) -> Result<(), Never> {
   let Ok(size) = area.pixel_size();
   let Ok(face) = TextStyle::Body.font();
+  let run = Run {
+    said: label,
+    weight: Weight::Bold,
+    width: size
+      .width
+      .saturating_sub(GAP.unsigned_abs().saturating_mul(2)),
+  };
+  let Ok(visible) = at_most(run, &face, Lines(1));
   let Ok(measured) = measure_text(
     Run {
-      said: label,
-      weight: Weight::Bold,
-      width: size.width,
+      said: &visible,
+      ..run
     },
     &face,
   );
-  let Ok((panel, words)) = control(area.origin, size, label, measured, state, colors);
+  let Ok((panel, words)) = control(area.origin, size, &visible, measured, state, colors);
   shapes.extend([Shape::Panel(panel), Shape::Text(words)]);
   Ok(())
 }
@@ -235,102 +389,110 @@ pub fn header<A: Copy + PartialEq>(
   header: &Header<'_, A>,
   colors: &Wearing,
 ) -> Result<(), Never> {
-  let Ok(right) = area.right();
-  let y = area.origin.y;
-  let close_x = right.saturating_sub(HEIGHT);
-  let Ok(()) = header_control(
-    canvas,
-    Point { x: close_x, y },
-    marks::SHUT,
-    Some(header.close),
-    colors,
-  );
-  let Ok(many) = fitted::<_, u32>(header.tabs.len());
-  let Ok(font) = TextStyle::Headline.font();
-
   match header.tabs {
-    [] | [_] => {
-      let Ok(width) = fitted::<_, u32>(
-        close_x
-          .saturating_sub(area.origin.x)
-          .saturating_sub(GAP)
-          .max(0),
-      );
-      let said = match header.tabs.first() {
-        Some(tab) => *tab,
-        None => header.title,
-      };
-      let run = Run {
-        said,
-        weight: Weight::Bold,
-        width,
-      };
-      let Ok(visible) = at_most(run, &font, Lines(1));
-      let Ok(measured) = measure_text(
-        Run {
-          said: &visible,
-          ..run
-        },
-        &font,
-      );
-      let Ok(tall) = fitted::<_, i32>(measured.height);
-      canvas.frame.shapes.push(Shape::Text(Text {
-        at: Point {
-          x: area.origin.x,
-          y: y.saturating_add(HEIGHT.saturating_sub(tall).saturating_div(2)),
-        },
-        width,
-        said: visible,
-        weight: Weight::Bold,
-        font,
-        ink: colors.text,
-      }));
-    }
+    [] => title_bar(canvas, area, header.title, header.close, colors),
+    [tab] => title_bar(canvas, area, tab, header.close, colors),
     [_, _, ..] => {
-      let next_x = close_x.saturating_sub(GAP).saturating_sub(HEIGHT);
-      let Ok(()) = header_control(
-        canvas,
-        area.origin,
-        marks::BEFORE,
-        (header.selected > 0).then_some(header.previous),
-        colors,
-      );
-      let Ok(()) = header_control(
-        canvas,
-        Point { x: next_x, y },
-        marks::AFTER,
-        (header.selected.saturating_add(1) < many).then_some(header.next),
-        colors,
-      );
-      let x = area.origin.x.saturating_add(HEIGHT).saturating_add(GAP);
-      let tab_area = Area {
-        origin: Point { x, y },
-        size: Size {
-          width: next_x.saturating_sub(GAP).saturating_sub(x).max(0),
-          height: HEIGHT,
-        },
-      };
-      let Ok(()) = header_tabs(
-        canvas,
-        tab_area,
-        header,
-        Tabs {
-          many,
-          here: header.selected,
-          from: 0,
-          fits: tab_area
-            .size
-            .width
-            .saturating_div(MIN_TAB)
-            .unsigned_abs()
-            .max(1),
-        },
-        colors,
-      );
+      let Ok(close) = close_area(area);
+      let Ok(()) = tab_navigation(canvas, area, close, header, colors);
+
+      header_button(canvas, close, marks::SHUT, Some(header.close), colors)
     }
   }
+}
 
-  Ok(())
+fn tab_navigation<A: Copy + PartialEq>(
+  canvas: &mut Canvas<A>,
+  area: Area,
+  close: Area,
+  header: &Header<'_, A>,
+  colors: &Wearing,
+) -> Result<(), Never> {
+  let Ok(many) = fitted::<_, u32>(header.tabs.len());
+  let y = area.origin.y;
+  let room = close.origin.x.saturating_sub(area.origin.x);
+  let arrow = room
+    .saturating_sub(GAP.saturating_mul(3))
+    .max(0)
+    .saturating_div(4)
+    .min(HEIGHT);
+  let previous = Area {
+    size: Size {
+      width: arrow,
+      ..area.size
+    },
+    ..area
+  };
+  let next_x = close.origin.x.saturating_sub(GAP).saturating_sub(arrow);
+  let next = Area {
+    origin: Point { x: next_x, y },
+    ..previous
+  };
+  let x = area.origin.x.saturating_add(arrow).saturating_add(GAP);
+  let tabs = Area {
+    origin: Point { x, y },
+    size: Size {
+      width: next_x.saturating_sub(GAP).saturating_sub(x).max(0),
+      height: HEIGHT,
+    },
+  };
+  let Ok(()) = header_button(
+    canvas,
+    previous,
+    marks::BEFORE,
+    (header.selected > 0).then_some(header.previous),
+    colors,
+  );
+  let Ok(()) = header_tabs(
+    canvas,
+    tabs,
+    header,
+    Tabs {
+      many,
+      here: header.selected,
+      from: 0,
+      fits: tabs
+        .size
+        .width
+        .saturating_div(MIN_TAB)
+        .unsigned_abs()
+        .max(1),
+    },
+    colors,
+  );
+
+  header_button(
+    canvas,
+    next,
+    marks::AFTER,
+    (header.selected.saturating_add(1) < many).then_some(header.next),
+    colors,
+  )
+}
+
+pub fn title_bar<A: Copy + PartialEq>(
+  canvas: &mut Canvas<A>,
+  area: Area,
+  label: &str,
+  action: A,
+  colors: &Wearing,
+) -> Result<(), Never> {
+  let Ok(close) = close_area(area);
+  let heading = Area {
+    size: Size {
+      width: close
+        .origin
+        .x
+        .saturating_sub(area.origin.x)
+        .saturating_sub(GAP)
+        .max(0),
+      ..area.size
+    },
+    ..area
+  };
+  let Ok(()) = title(&mut canvas.frame.shapes, heading, label, colors);
+
+  header_button(canvas, close, marks::SHUT, Some(action), colors)
 }
 
 pub(crate) fn header_control<A: Copy + PartialEq>(
@@ -347,20 +509,22 @@ pub(crate) fn header_control<A: Copy + PartialEq>(
       height: HEIGHT,
     },
   };
-  let state = match action {
-    Some(key) => {
-      let Ok(()) = canvas.hit(area, key);
+  header_button(canvas, area, said, action, colors)
+}
 
-      match (canvas.interaction.focus == action || canvas.interaction.hover == action)
-        .then_some(())
-      {
-        Some(()) => Control::Focused,
-        None => Control::Ready,
-      }
-    }
-    None => Control::Unavailable,
+fn header_button<A: Copy + PartialEq>(
+  canvas: &mut Canvas<A>,
+  area: Area,
+  said: &str,
+  action: Option<A>,
+  colors: &Wearing,
+) -> Result<(), Never> {
+  let button = match action {
+    Some(key) => Button::Ready(key),
+    None => Button::Disabled,
   };
-  paint_control(&mut canvas.frame.shapes, area, said, state, colors)
+
+  button.place(canvas, area, said, colors)
 }
 
 fn header_tabs<A: Copy + PartialEq>(
@@ -390,12 +554,18 @@ fn header_tabs<A: Copy + PartialEq>(
         height: HEIGHT,
       },
     };
-    let state = match (index == header.selected).then_some(()) {
-      Some(()) => TabFace::Selected,
-      None => TabFace::Other,
+    let action = (header.select)(index);
+    let state = match (
+      (index == header.selected).then_some(()),
+      (canvas.interaction.focus == Some(action)).then_some(()),
+    ) {
+      (Some(()), _) => TabFace::Selected,
+      (None, Some(())) => TabFace::Focused,
+      (None, None) => TabFace::Other,
     };
+
     let Ok(()) = paint_tab(&mut canvas.frame.shapes, cell, said, state, colors);
-    let Ok(()) = canvas.hit(cell, (header.select)(index));
+    let Ok(()) = canvas.hit(cell, action);
   }
 
   Ok(())
@@ -503,6 +673,97 @@ mod switching {
     assert_eq!(switched(3, Stop::Tab(1), TabMotion::Number(3)), Ok(Some(2)));
     assert_eq!(switched(3, Stop::Tab(1), TabMotion::Number(4)), Ok(None));
     assert_eq!(switched(0, Stop::Outside, TabMotion::Next), Ok(None));
+  }
+}
+
+#[cfg(test)]
+mod chrome {
+  use super::*;
+  use crate::canvas::{Interaction, Style};
+
+  #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+  enum Action {
+    Tab(u32),
+    Previous,
+    Next,
+    Close,
+  }
+
+  #[test]
+  fn a_narrow_header_keeps_the_visible_tab_and_navigation_reachable()
+  -> Result<(), console_core_color::palette::PaletteError> {
+    let colors = crate::ui::theme::bundled()?;
+    let Ok(area) = window_area(210);
+    let Ok(mut canvas) = Canvas::new(
+      area,
+      Style::from(&colors),
+      Interaction {
+        focus: Some(Action::Tab(1)),
+        hover: None,
+      },
+    );
+    let Ok(()) = header(
+      &mut canvas,
+      area,
+      &Header {
+        title: "Example",
+        tabs: &["First", "Second", "Third"],
+        selected: 1,
+        select: Action::Tab,
+        previous: Action::Previous,
+        next: Action::Next,
+        close: Action::Close,
+      },
+      &colors,
+    );
+    let targets = &canvas.frame.targets;
+    let Ok(first) = targets.tab(None, crate::canvas::FocusDirection::Next);
+    let Ok(second) = targets.tab(first, crate::canvas::FocusDirection::Next);
+    let Ok(third) = targets.tab(second, crate::canvas::FocusDirection::Next);
+    let Ok(fourth) = targets.tab(third, crate::canvas::FocusDirection::Next);
+    assert_eq!(
+      (first, second, third, fourth),
+      (
+        Some(Action::Previous),
+        Some(Action::Tab(1)),
+        Some(Action::Next),
+        Some(Action::Close)
+      )
+    );
+
+    let Ok(close) = close_area(area);
+    let Ok(clicked) = targets.action(Point {
+      x: f64::from(close.origin.x.saturating_add(1)),
+      y: f64::from(close.origin.y.saturating_add(1)),
+    });
+    assert_eq!(clicked, Some(Action::Close));
+    Ok(())
+  }
+
+  #[test]
+  fn loading_and_unavailable_controls_have_distinct_palette_roles()
+  -> Result<(), console_core_color::palette::PaletteError> {
+    let colors = crate::ui::theme::bundled()?;
+    assert_eq!(Button::<Action>::Loading.action(), Ok(None));
+    assert_eq!(Button::<Action>::Disabled.action(), Ok(None));
+    let at = Point { x: 0, y: 0 };
+    let size = Size {
+      width: 128,
+      height: 48,
+    };
+    let measured = Size {
+      width: 48,
+      height: 18,
+    };
+    let Ok((loading, label)) = control(at, size, "Loading…", measured, Control::Loading, &colors);
+    let Ok((unavailable, disabled)) =
+      control(at, size, "Open", measured, Control::Unavailable, &colors);
+    assert_eq!((loading.fill, label.ink), (colors.fill, colors.text));
+    assert_eq!(
+      (unavailable.fill, disabled.ink),
+      (colors.night, colors.edge)
+    );
+    Ok(())
   }
 }
 

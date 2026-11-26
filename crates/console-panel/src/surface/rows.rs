@@ -9,11 +9,12 @@ use crate::row_window::{RowViewport, visible_rows};
 use crate::strip;
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index};
+use console_draw_painting::measure_text;
 
 use super::{
   BETWEEN_ROWS, Band, Card, FINGER, INSIDE_A_ROW, MeasuredMarks, Point, RowText, Run,
   SELECTED_MARK, Shape, Text, TextStyle, Weight, beside_the_words, font, inside_left,
-  inside_right, painting, width,
+  inside_right, width,
 };
 
 pub(super) enum LayoutCache {
@@ -214,7 +215,7 @@ pub(super) struct StackedText {
 impl StackedText {
   fn measure(row: &Row, width: u32) -> Result<Self, Never> {
     let Ok(body) = font(TextStyle::Body);
-    let Ok(title) = painting::measure_text(
+    let Ok(title) = measure_text(
       Run {
         said: &row.says,
         weight: Weight::Bold,
@@ -228,7 +229,7 @@ impl StackedText {
       Some(()) => title_height,
       None => {
         let Ok(callout) = font(TextStyle::Callout);
-        let Ok(detail) = painting::measure_text(
+        let Ok(detail) = measure_text(
           Run {
             said: &row.aside,
             weight: Weight::Plain,

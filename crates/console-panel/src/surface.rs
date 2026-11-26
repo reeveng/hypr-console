@@ -57,22 +57,18 @@ use std::time::Duration;
 use console_actor::Actor;
 use console_core_color::Oklch;
 use console_core_color::palette::{ThemeSettings, Wearing};
-use console_core_controls::{
-  Answer as Answered, Choice, Inks as ControlInks, Lettering, Picker, Press, Slider, Switch,
-};
+use console_core_controls::{Choice, Lettering, Picker, Press, Slider, Switch};
 use console_core_fonts::{EM, TextStyle};
 use console_core_geometry::{Point, Rectangle, Size};
-use console_core_highlight::{Activation, Heading as Toward};
-use console_core_iteration::Step as Stepped;
+use console_core_highlight::Activation;
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index, toward_zero_i32};
 use console_core_shapes::{
-  Clip, Covers, Edge, Font, Panel as ShapePanel, Picture as ShapePicture, Pixels, Round, Shape,
-  Text, Weight,
+  Clip, Covers, Edge, Font, Pixels, Round, Shape, Text, Weight, hover_indicator,
 };
 use console_core_state_machine::SingleEffectMachine;
 pub use console_draw_painting::text::FontCatalog;
-use console_draw_painting::{self as painting, Frame, Run};
+use console_draw_painting::{Frame, Run};
 pub use console_draw_surface::Drawing;
 use console_draw_surface::standing::{AnimationFrame, DmaBufSupport, DrawingStatus};
 pub use console_draw_surface::standing::{DrawingSender, drawing_notifications};
@@ -80,15 +76,13 @@ use console_events::again::Worth;
 use console_events::subscription::{Received, Subscriber, Subscriptions};
 use console_input_text::{InputDeletion, TextField, Typed};
 use console_operating_system_linux::program_lifetime::BoundToParent;
-use console_operating_system_linux::program_runtime::commands::{
-  Linux as CommandPlatform, Timing,
-};
+use console_operating_system_linux::program_runtime::commands::{Linux, Timing};
 use console_program_runtime::commands::{Invocation, Streams};
 
 use console_draw_surface::{
-  Anchor, Composition, InputContent, KeyPress, KeyPressKind, Keyboard, KeyboardFocus, Keysym,
-  Margin, Part, PhysicalKeyPress, PointerEvent, Room, Surface, Surrounding, TextInputState,
-  Under, Visible, Wanted, Window,
+  Anchor, Composition, Hover, InputContent, KeyPress, KeyPressKind, Keyboard, KeyboardFocus,
+  Keysym, Margin, Part, PhysicalKeyPress, PointerCursor, PointerEvent, RepaintHover, Room,
+  Surface, Surrounding, TextInputState, Under, Visible, Wanted, Window,
 };
 
 use crate::description;
@@ -133,10 +127,9 @@ const PICKER_MOST: i32 = EM * 22;
 const CARD_ROUND: u32 = (EM * 8 / 9).unsigned_abs();
 const CARD_EDGE: u32 = (EM / 9).unsigned_abs();
 const TAB_ROUND: u32 = strip::ROUND;
-const ROW_ROUND: u32 = (EM * 2 / 3).unsigned_abs();
+const ROW_ROUND: u32 = crate::canvas::ROW_RADIUS;
 const BETWEEN_ROWS: i32 = fitting::ROW - FINGER;
 const INSIDE_A_ROW: i32 = EM * 8 / 9;
-const CARET: u32 = (EM / 9).unsigned_abs();
 const DRAGGED: f64 = 12.0;
 const A_NOTCH: f64 = 10.0;
 const COMPACT_WIDE: i32 = 640;
@@ -286,27 +279,9 @@ pub(crate) struct Measured<'a> {
   tabs: &'a [MeasuredTab],
   rows: &'a RowMeasurements,
   marks: MeasuredMarks,
-  typed: MeasuredLine,
+  typed: crate::field::Editing,
   answers: Vec<Size<u32>>,
   reveal: Size<u32>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct MeasuredLine {
-  size: Size<u32>,
-  cursor: MeasuredCursor,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum MeasuredCursor {
-  Editing(u32),
-  Composing { underline: (u32, u32), caret: Caret },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Caret {
-  At(u32),
-  Hidden,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -324,7 +299,7 @@ enum Filled {
 fn sized_as(said: &str, weight: Weight, style: TextStyle) -> Result<Size<u32>, Never> {
   let Ok(font) = font(style);
 
-  painting::measure_text(
+  console_draw_painting::measure_text(
     Run {
       said,
       weight,
@@ -351,14 +326,14 @@ fn measure_tabs(pages: &[Page], wide: u32) -> Result<Vec<MeasuredTab>, Never> {
       weight: Weight::Plain,
       width: wide,
     };
-    let title = painting::measure_text(run, &font)?;
+    let title = console_draw_painting::measure_text(run, &font)?;
 
     let run_2 = Run {
       said: &page.title,
       weight: Weight::Bold,
       width: wide,
     };
-    let chosen = painting::measure_text(run_2, &font)?;
+    let chosen = console_draw_painting::measure_text(run_2, &font)?;
 
     measured.push(MeasuredTab { title, chosen });
   }
@@ -376,14 +351,14 @@ fn measure_row(row: &Row, wide: u32) -> Result<MeasuredRow, Never> {
     weight,
     width: wide,
   };
-  let says = painting::measure_text(says_run, &row_font)?;
+  let says = console_draw_painting::measure_text(says_run, &row_font)?;
 
   let aside_run = Run {
     said: &row.aside,
     weight: Weight::Plain,
     width: wide,
   };
-  let aside = painting::measure_text(aside_run, &aside_font)?;
+  let aside = console_draw_painting::measure_text(aside_run, &aside_font)?;
 
   let Ok((less, more)) = crate::page::ends_of(row);
   let less_2 = sized_as(less, Weight::Bold, TextStyle::Body)?;
@@ -410,7 +385,7 @@ fn measure_row(row: &Row, wide: u32) -> Result<MeasuredRow, Never> {
           width: wide,
         };
 
-        painting::measure_text(run, &glyph_font)?
+        console_draw_painting::measure_text(run, &glyph_font)?
       }
       crate::page::Face::Swatch(_) => NO_ROOM,
       crate::page::Face::Written(says_2) => sized_as(says_2, Weight::Plain, TextStyle::Title)?,
@@ -550,9 +525,10 @@ fn text_input_state(state: &State, card: &Card) -> Result<Option<TextInputState>
     ::core::option::Option::None => {}
   }
 
-  let (field, at, sensitive, identity) = match state.asking.as_ref() {
+  let (field, at, wide, sensitive, identity) = match state.asking.as_ref() {
     Some(prompt) => {
       let Ok(at) = asked_at(card);
+      let Ok(wide) = asked_wide(card);
       let at_2 = Point {
         x: at.x,
         y: at.y.saturating_add(fitting::ROW),
@@ -560,6 +536,7 @@ fn text_input_state(state: &State, card: &Card) -> Result<Option<TextInputState>
       (
         &prompt.typed,
         at_2,
+        wide,
         prompt.secret != Secret::No,
         ::core::primitive::u64::wrapping_shl(1_u64, 32_u32) | u64::from(prompt.identity),
       )
@@ -573,8 +550,10 @@ fn text_input_state(state: &State, card: &Card) -> Result<Option<TextInputState>
       }
 
       let Ok(left) = inside_left(card);
+      let Ok(right) = inside_right(card);
+      let Ok(wide) = width(right.saturating_sub(left));
       let top = match state.opened {
-        Opened::Expanded => card.y.saturating_sub(FINGER),
+        Opened::Expanded => card.y.saturating_sub(fitting::ROW),
         Opened::No => card
           .y
           .saturating_add(fitting::STRIP)
@@ -582,7 +561,11 @@ fn text_input_state(state: &State, card: &Card) -> Result<Option<TextInputState>
       };
       (
         &state.typed,
-        Point { x: left, y: top },
+        Point {
+          x: left,
+          y: top.saturating_add(BETWEEN_ROWS.saturating_div(2)),
+        },
+        wide,
         false,
         u64::from(state.here),
       )
@@ -600,25 +583,18 @@ fn text_input_state(state: &State, card: &Card) -> Result<Option<TextInputState>
       }))
     }
   };
-  let Ok((_, before, _)) = in_the_line(state);
-  let Ok(measured) = sized_as(&before, Weight::Plain, TextStyle::Body);
-  let Ok(width) = fitted::<u32, i32>(measured.width);
-  let x = at.x.saturating_add(INSIDE_A_ROW).saturating_add(width).min(
-    card
-      .x
-      .saturating_add(card.width)
-      .saturating_sub(INSIDE_A_ROW),
-  );
-  let cursor = Part {
-    at: Point { x, y: at.y.max(0) },
-    size: Size {
-      width: CARET,
-      height: FINGER.unsigned_abs(),
-    },
-  };
+  let Ok(typed) = measured_line(state);
+  let Ok(area) = line_area(at, wide);
+  let Ok(cursor) = crate::field::Field {
+    area,
+    trailing: 0,
+    content: crate::field::Content::Value(""),
+    editing: typed,
+  }
+  .caret();
   Ok(Some(TextInputState {
     content,
-    cursor: Some(cursor),
+    cursor,
     identity,
   }))
 }
@@ -675,25 +651,7 @@ fn measured_now<'a>(
   rows: &'a RowMeasurements,
   marks: MeasuredMarks,
 ) -> Result<Measured<'a>, Never> {
-  let Ok((said, before, _filled)) = in_the_line(state);
-  let Ok(size) = sized_as(&said, Weight::Plain, TextStyle::Body);
-  let Ok(caret) = sized_as(&before, Weight::Plain, TextStyle::Body);
-  let cursor = match state.preedit.as_ref() {
-    Some(preedit) => {
-      let Ok(underline) = preedit_underline(state, preedit);
-      let visibility = match (preedit.cursor_begin >= 0 || preedit.cursor_end >= 0).then_some(())
-      {
-        Some(()) => Caret::At(caret.width),
-        None => Caret::Hidden,
-      };
-      MeasuredCursor::Composing {
-        underline,
-        caret: visibility,
-      }
-    }
-    None => MeasuredCursor::Editing(caret.width),
-  };
-  let typed = MeasuredLine { size, cursor };
+  let Ok(typed) = measured_line(state);
   let mut answers = Vec::new();
 
   match &state.sure {
@@ -819,7 +777,7 @@ impl Lands {
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct HitRegion {
   lands: Lands,
-  panel: ShapePanel,
+  panel: console_core_shapes::Panel,
 }
 
 fn font(style: TextStyle) -> Result<Font, Never> {
@@ -920,7 +878,7 @@ fn width(wide: i32) -> Result<u32, Never> {
 fn centred(
   said: &str,
   measured: Size<u32>,
-  within: &ShapePanel,
+  within: &console_core_shapes::Panel,
   weight: Weight,
   face: Font,
   ink: Oklch,
@@ -962,31 +920,17 @@ fn button(button: Button<'_>, wearing: &Wearing) -> Result<(Vec<Shape>, HitRegio
 
 fn title_shapes(
   state: &State,
-  measured: &Measured,
-  band: Band,
-  left: i32,
-  wide: u32,
+  area: crate::canvas::Area,
   wearing: &Wearing,
 ) -> Result<Vec<Shape>, Never> {
-  let (title, said) = match (state.pages.first(), measured.tabs.first()) {
-    (Some(page), Some(tab)) => (page.title.clone(), tab.chosen),
-    (Some(page), None) => (page.title.clone(), NO_ROOM),
-    (None, _) => return Ok(Vec::new()),
+  let page = match state.pages.first() {
+    Some(page) => page,
+    None => return Ok(Vec::new()),
   };
-  let Ok(down) = middle(band, said);
-  let Ok(face) = font(TextStyle::Headline);
+  let mut shapes = Vec::new();
+  let Ok(()) = strip::title(&mut shapes, area, &page.title, wearing);
 
-  Ok(vec![Shape::Text(Text {
-    at: Point {
-      x: left.saturating_add(INSIDE_A_ROW),
-      y: down,
-    },
-    width: wide,
-    said: title,
-    weight: Weight::Bold,
-    font: face,
-    ink: wearing.text,
-  })])
+  Ok(shapes)
 }
 
 fn arrow_shapes(
@@ -1040,10 +984,10 @@ fn arrow_shapes(
     shapes.extend([Shape::Panel(panel), Shape::Text(words)]);
 
     match look {
-      strip::Control::Ready | strip::Control::Focused => {
+      strip::Control::Ready | strip::Control::Primary | strip::Control::Focused => {
         touching.push(HitRegion { panel, lands })
       }
-      strip::Control::Unavailable => {}
+      strip::Control::Unavailable | strip::Control::Loading => {}
     }
   }
 
@@ -1103,18 +1047,15 @@ fn header(
   match ::core::primitive::bool::then_some(many > 1, ()) {
     ::core::option::Option::Some(()) => {}
     ::core::option::Option::None => {
-      let Ok(wide) = width(shut_x.saturating_sub(strip::GAP).saturating_sub(left));
-      let Ok(title) = title_shapes(
-        state,
-        measured,
-        Band {
-          top,
+      let x = left.saturating_add(INSIDE_A_ROW);
+      let area = crate::canvas::Area {
+        origin: Point { x, y: top },
+        size: Size {
+          width: shut_x.saturating_sub(strip::GAP).saturating_sub(x),
           height: FINGER,
         },
-        left,
-        wide,
-        wearing,
-      );
+      };
+      let Ok(title) = title_shapes(state, area, wearing);
 
       shapes.extend(title);
 
@@ -1190,7 +1131,7 @@ fn tab_shapes(
     let Ok(step) = fitted::<_, i32>(index);
     let Ok(tab) = fitted::<_, u32>(which);
     let here = tab == state.here;
-    let cell = ShapePanel {
+    let cell = console_core_shapes::Panel {
       at: Point {
         x: run_left.saturating_add(step.saturating_mul(tab_wide_i)),
         y: top,
@@ -1368,7 +1309,7 @@ fn zoomed_in(
 fn place_picture<P: std::borrow::Borrow<Pixels>>(
   moving: &Moving,
   pixels: P,
-) -> Result<ShapePicture<P>, Never> {
+) -> Result<console_core_shapes::Picture<P>, Never> {
   let source = pixels.borrow();
   let Ok(Part { at, size }) = picture_part(
     moving,
@@ -1377,7 +1318,7 @@ fn place_picture<P: std::borrow::Borrow<Pixels>>(
       height: source.height,
     },
   );
-  Ok(ShapePicture { at, size, pixels })
+  Ok(console_core_shapes::Picture { at, size, pixels })
 }
 
 fn picture_part(moving: &Moving, source: Size<u32>) -> Result<Part, Never> {
@@ -1396,7 +1337,7 @@ fn picture_part(moving: &Moving, source: Size<u32>) -> Result<Part, Never> {
 
 fn said_over<P>(
   moving: &Moving,
-  picture: &ShapePicture<P>,
+  picture: &console_core_shapes::Picture<P>,
   said: &[String],
 ) -> Result<Vec<Shape>, Never> {
   match ::core::primitive::bool::then_some(said.is_empty(), ()) {
@@ -1407,7 +1348,7 @@ fn said_over<P>(
   let said_2 = said.join("\n");
   let Ok(face) = font(TextStyle::Body);
   let wrap = picture.size.width.saturating_mul(9).saturating_div(10);
-  let Ok(measured) = painting::measure_text(
+  let Ok(measured) = console_draw_painting::measure_text(
     Run {
       said: &said_2,
       weight: Weight::Plain,
@@ -1431,7 +1372,7 @@ fn said_over<P>(
     .saturating_add(picture_tall)
     .saturating_sub(tall)
     .saturating_sub(INSIDE_A_ROW);
-  let backing = ShapePanel {
+  let backing = console_core_shapes::Panel {
     at: Point {
       x: left.saturating_sub(pad),
       y: top.saturating_sub(pad),
@@ -1581,7 +1522,7 @@ fn repainted(
         at: picture.at,
         size: picture.size,
       };
-      let local = ShapePicture {
+      let local = console_core_shapes::Picture {
         at: Point { x: 0, y: 0 },
         size: picture.size,
         pixels,
@@ -1589,7 +1530,7 @@ fn repainted(
       let Ok(caption_here) = said_over(moving, &local, caption);
 
       match surface_2.draw_layer(part, |target, buffer_size, _scale| {
-        let _painted = painting::over_picture(
+        let _painted = console_draw_painting::over_picture(
           target,
           Frame {
             device: buffer_size,
@@ -1610,11 +1551,23 @@ fn repainted(
         }
       }
 
-      let Ok(said) = said_over(moving, &picture, caption);
+      let Ok(caption_shapes) = said_over(moving, &picture, caption);
+      let mut said = Vec::new();
+
+      match caption_shapes.is_empty().then_some(()) {
+        Some(()) => {}
+        None => {
+          said.push(Shape::Clip(Clip::To {
+            at: part.at,
+            size: part.size,
+          }));
+          said.extend(caption_shapes);
+        }
+      }
 
       Ok(
         match surface_2.draw_over(part, |target, buffer_size, _scale| {
-          let _painted = painting::over_picture(
+          let _painted = console_draw_painting::over_picture(
             target,
             Frame {
               device: buffer_size,
@@ -1687,7 +1640,6 @@ fn shown(picture: &Picture) -> Result<Option<Pixels>, Never> {
 }
 
 const LEVEL_SAID: u32 = (EM * 28 / 9).unsigned_abs();
-const CARET_TALL: i32 = EM * 4 / 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Lit {
@@ -1977,16 +1929,21 @@ fn row_surface(
     (Highlight::No, _) => Lit::No,
   };
 
+  let tone = match lit {
+    Lit::Row => crate::canvas::RowTone::Focused,
+    Lit::Beside | Lit::No => crate::canvas::RowTone::Normal,
+  };
+  let Ok(row_colors) = tone.colors(wearing);
   let ground = match (lit, heading) {
-    (Lit::Row, _) => Some((wearing.pink, Edge::None)),
+    (Lit::Row, _) => Some((row_colors.fill, Edge::None)),
     (Lit::Beside, _) => Some((
-      wearing.ground,
+      row_colors.fill,
       Edge::Of {
         wide: CARD_EDGE,
         color: wearing.pink,
       },
     )),
-    (Lit::No, Heading::No) => Some((wearing.ground, Edge::None)),
+    (Lit::No, Heading::No) => Some((row_colors.fill, Edge::None)),
     (Lit::No, Heading::Yes) => None,
   };
 
@@ -1996,7 +1953,7 @@ fn row_surface(
   };
 
   match ground_2 {
-    Some((fill, edge)) => shapes.push(Shape::Panel(ShapePanel {
+    Some((fill, edge)) => shapes.push(Shape::Panel(console_core_shapes::Panel {
       at: Point { x: left, y: top },
       size: Size {
         width: box_wide,
@@ -2011,10 +1968,12 @@ fn row_surface(
 
   let Ok(progress) = row.progress();
   let (ink, quiet) = match (lit, heading, progress) {
-    (Lit::Row, _, _) => (wearing.night, wearing.night),
+    (Lit::Row, _, _) => (row_colors.ink, row_colors.quiet),
     (Lit::Beside | Lit::No, Heading::Yes, _)
-    | (Lit::Beside | Lit::No, Heading::No, Progress::Running) => (wearing.soft, wearing.soft),
-    (Lit::Beside | Lit::No, Heading::No, Progress::Idle) => (wearing.text, wearing.soft),
+    | (Lit::Beside | Lit::No, Heading::No, Progress::Running) => {
+      (row_colors.quiet, row_colors.quiet)
+    }
+    (Lit::Beside | Lit::No, Heading::No, Progress::Idle) => (row_colors.ink, row_colors.quiet),
   };
 
   let Ok(taken) = beside_the_words(&row.picture);
@@ -2025,7 +1984,7 @@ fn row_surface(
     Some(pixels) => {
       let Ok(square) = fitted::<i32, u32>(strip::PICTURE);
 
-      shapes.push(Shape::Picture(ShapePicture {
+      shapes.push(Shape::Picture(console_core_shapes::Picture {
         at: Point {
           x: left.saturating_add(INSIDE_A_ROW).saturating_sub(strip::GAP),
           y: top.saturating_add(tall.saturating_sub(strip::PICTURE).saturating_div(2)),
@@ -2242,12 +2201,12 @@ fn bar_after_the_words(
   measured_row: &MeasuredRow,
   wearing: &Wearing,
 ) -> Result<(), Never> {
-  let Ok(worn) = ControlInks::worn(wearing);
+  let Ok(worn) = console_core_controls::Inks::worn(wearing);
   let (set, knob) = match lit {
     Lit::Row => (wearing.night, wearing.night),
     Lit::Beside | Lit::No => (wearing.pink, wearing.text),
   };
-  let inks = ControlInks {
+  let inks = console_core_controls::Inks {
     track: wearing.soft,
     set,
     knob,
@@ -2309,7 +2268,7 @@ fn selected_mark(
   }
 
   let Ok(side) = fitted::<i32, u32>(SELECTED_MARK);
-  let mark = Shape::Panel(ShapePanel {
+  let mark = Shape::Panel(console_core_shapes::Panel {
     at: Point {
       x: far.saturating_sub(SELECTED_MARK),
       y: band
@@ -2356,7 +2315,7 @@ fn named_shapes(
     | Picture::Bar(_) => return Ok(None),
   };
   let Ok(square) = fitted::<i32, u32>(strip::PICTURE);
-  let within = ShapePanel {
+  let within = console_core_shapes::Panel {
     at: Point {
       x: left.saturating_add(INSIDE_A_ROW).saturating_sub(strip::GAP),
       y: band
@@ -2387,7 +2346,7 @@ const BIG: u32 = (EM * 4).unsigned_abs();
 const BIG_GLYPH: u32 = (EM * 2).unsigned_abs();
 
 fn measured_in(said: &str, weight: Weight, face: &Font) -> Result<Size<u32>, Never> {
-  painting::measure_text(
+  console_draw_painting::measure_text(
     Run {
       said,
       weight,
@@ -2448,7 +2407,7 @@ fn headline_shapes(
   let Ok(right) = inside_right(card);
   let Ok(wide) = width(right.saturating_sub(left));
   let Ok(tall) = width(band.height.saturating_sub(BETWEEN_ROWS));
-  let within = ShapePanel {
+  let within = console_core_shapes::Panel {
     at: Point {
       x: left,
       y: band.top.saturating_add(BETWEEN_ROWS.saturating_div(2)),
@@ -2699,7 +2658,7 @@ fn trailing_headline_shapes(
     .top
     .saturating_add(band.height)
     .saturating_sub(INSIDE_A_ROW);
-  let rule = ShapePanel {
+  let rule = console_core_shapes::Panel {
     at: Point {
       x: left,
       y: rule_at,
@@ -2829,7 +2788,7 @@ fn press_shapes(
       }
       crate::page::Placed::Frame => corner,
     };
-    let panel = ShapePanel {
+    let panel = console_core_shapes::Panel {
       at: Point { x: across, y: down },
       size: Size {
         width: wide,
@@ -2859,7 +2818,7 @@ fn press_shapes(
           (Highlight::No, crate::page::Active::No) => Edge::None,
         };
 
-        shapes.push(Shape::Panel(ShapePanel {
+        shapes.push(Shape::Panel(console_core_shapes::Panel {
           fill: color,
           edge,
           ..panel
@@ -2875,23 +2834,7 @@ fn press_shapes(
         continue;
       }
     };
-    let (fill, ink) = match (stood, press.now, press.style) {
-      (Highlight::Yes, _, _) => (wearing.pink, wearing.night),
-      (Highlight::No, crate::page::Active::Yes, crate::page::ButtonStyle::Gray) => {
-        (wearing.night, wearing.pink)
-      }
-      (Highlight::No, crate::page::Active::Yes, crate::page::ButtonStyle::Tinted) => {
-        (wearing.ground, wearing.pink)
-      }
-      (Highlight::No, crate::page::Active::No, crate::page::ButtonStyle::Gray) => {
-        (wearing.night, wearing.text)
-      }
-      (Highlight::No, crate::page::Active::No, crate::page::ButtonStyle::Tinted) => {
-        (wearing.ground, wearing.text)
-      }
-      (Highlight::No, _, crate::page::ButtonStyle::Filled) => (wearing.text, wearing.night),
-    };
-    let panel_2 = ShapePanel { fill, ..panel };
+    let Ok((panel_2, ink)) = press_face(panel, press, stood, wearing);
     let said = match measured_row.presses.get(at) {
       Some(said) => *said,
       None => NO_ROOM,
@@ -2927,9 +2870,43 @@ fn press_shapes(
   Ok((shapes, touching))
 }
 
+fn press_face(
+  panel: console_core_shapes::Panel,
+  press: &crate::page::ButtonPress,
+  stood: Highlight,
+  wearing: &Wearing,
+) -> Result<(console_core_shapes::Panel, Oklch), Never> {
+  use crate::page::{Active, ButtonStyle};
+
+  let Ok((fill, ink)) = match (stood, press.now, press.style) {
+    (Highlight::Yes, _, _) => strip::Control::Focused.colors(wearing),
+    (Highlight::No, _, ButtonStyle::Filled) => strip::Control::Primary.colors(wearing),
+    (Highlight::No, Active::Yes, ButtonStyle::Gray) => Ok((wearing.night, wearing.pink)),
+    (Highlight::No, Active::Yes, ButtonStyle::Tinted) => Ok((wearing.ground, wearing.pink)),
+    (Highlight::No, Active::No, ButtonStyle::Gray) => strip::Control::Ready.colors(wearing),
+    (Highlight::No, Active::No, ButtonStyle::Tinted) => Ok((wearing.ground, wearing.text)),
+  };
+  let edge = match (stood, press.style) {
+    (Highlight::Yes, ButtonStyle::Filled) => Edge::Of {
+      wide: CARD_EDGE,
+      color: wearing.night,
+    },
+    (Highlight::Yes, ButtonStyle::Gray | ButtonStyle::Tinted) | (Highlight::No, _) => panel.edge,
+  };
+
+  Ok((
+    console_core_shapes::Panel {
+      fill,
+      edge,
+      ..panel
+    },
+    ink,
+  ))
+}
+
 fn bar_shapes(
   row: &Row,
-  (line, inks): (Line, ControlInks),
+  (line, inks): (Line, console_core_controls::Inks),
   track: Span,
 ) -> Result<(Vec<Shape>, Vec<HitRegion>), Never> {
   let bar = match &row.picture {
@@ -2971,7 +2948,7 @@ fn bar_shapes(
           row: line.row,
           frame,
         },
-        panel: ShapePanel {
+        panel: console_core_shapes::Panel {
           at: Point {
             x: track.from,
             y: line.top,
@@ -3066,7 +3043,7 @@ fn cell_shapes(
       None => {}
     }
 
-    let within = ShapePanel {
+    let within = console_core_shapes::Panel {
       at: Point {
         x: from.saturating_add(each.saturating_sub(lit_wide_i).saturating_div(2)),
         y: band.top,
@@ -3298,7 +3275,7 @@ fn switch_shapes(
   let Ok(sized) = Switch::sized(tall);
   let Ok(wide) = fitted::<u32, i32>(sized.width);
   let Ok(frame) = control_frame(line, wide);
-  let Ok(inks) = ControlInks::worn(wearing);
+  let Ok(inks) = console_core_controls::Inks::worn(wearing);
   let Ok(shapes) = switch.shapes(frame, inks);
 
   Ok((
@@ -3322,10 +3299,10 @@ fn slider_shapes(
     .saturating_add(strip::GAP.saturating_mul(3));
   let wide = far.saturating_sub(from).clamp(0, SLIDER_MOST);
   let Ok(frame) = control_frame(Line { far, ..line }, wide);
-  let Ok(worn) = ControlInks::worn(wearing);
+  let Ok(worn) = console_core_controls::Inks::worn(wearing);
 
   let inks = match lit {
-    Lit::Row => ControlInks {
+    Lit::Row => console_core_controls::Inks {
       knob: wearing.night,
       ..worn
     },
@@ -3340,7 +3317,7 @@ fn slider_shapes(
       row: line.row,
       frame,
     },
-    panel: ShapePanel {
+    panel: console_core_shapes::Panel {
       at: Point {
         x: frame.origin.x,
         y: line.top,
@@ -3424,7 +3401,7 @@ fn picker_shapes(
     weight: Weight::Plain,
     tall: measured_row.says.height,
   };
-  let Ok(inks) = ControlInks::worn(wearing);
+  let Ok(inks) = console_core_controls::Inks::worn(wearing);
   let Ok(shapes) = picker.shapes(frame, inks, &lettering);
   let Ok(across) = width(frame.size.width);
   let Ok(tall) = width(line.height);
@@ -3433,7 +3410,7 @@ fn picker_shapes(
       row: line.row,
       frame,
     },
-    panel: ShapePanel {
+    panel: console_core_shapes::Panel {
       at: Point {
         x: frame.origin.x,
         y: line.top,
@@ -3526,14 +3503,14 @@ fn aside_label(
     None => {}
   }
 
-  let Ok(shortened) = painting::at_most(
+  let Ok(shortened) = console_draw_painting::at_most(
     Run {
       said,
       weight: Weight::Plain,
       width,
     },
     face,
-    painting::Lines(1),
+    console_draw_painting::Lines(1),
   );
   let Ok(measured) = measured_in(&shortened, Weight::Plain, face);
 
@@ -3542,114 +3519,59 @@ fn aside_label(
     None => {}
   }
 
-  let ellipsis = painting::CUT.to_string();
+  let ellipsis = console_draw_painting::CUT.to_string();
   let Ok(measured_ellipsis) = measured_in(&ellipsis, Weight::Plain, face);
 
   Ok((measured_ellipsis.width <= width).then_some((ellipsis, measured_ellipsis)))
 }
 
+fn measured_line(state: &State) -> Result<crate::field::Editing, Never> {
+  let Ok((_, before, _)) = in_the_line(state);
+  let Ok(measured) = crate::field::measure(&before);
+  let (caret, preedit) = match state.preedit.as_ref() {
+    Some(preedit) => {
+      let Ok(underline) = preedit_underline(state, preedit);
+      let visibility =
+        (preedit.cursor_begin >= 0 || preedit.cursor_end >= 0).then_some(measured.width);
+      (visibility, Some(underline))
+    }
+    None => (Some(measured.width), None),
+  };
+  Ok(crate::field::Editing::Active { caret, preedit })
+}
+
+fn line_area(at: Point<i32>, wide: u32) -> Result<crate::canvas::Area, Never> {
+  let Ok(width) = fitted::<u32, i32>(wide);
+  Ok(crate::canvas::Area {
+    origin: at,
+    size: Size {
+      width,
+      height: crate::field::HEIGHT,
+    },
+  })
+}
+
 fn line_shapes(
   state: &State,
-  typed: MeasuredLine,
+  typed: crate::field::Editing,
   at: Point<i32>,
   wide: u32,
   wearing: &Wearing,
 ) -> Result<Vec<Shape>, Never> {
-  let Ok(finger) = fitted::<i32, u32>(FINGER);
-  let Ok((said, _before, filled)) = in_the_line(state);
-  let words_x = at.x.saturating_add(INSIDE_A_ROW);
-  let Ok(down) = middle(
-    Band {
-      top: at.y,
-      height: FINGER,
-    },
-    typed.size,
-  );
-  let Ok(caret_tall) = fitted::<i32, u32>(CARET_TALL);
-  let (caret, preedit) = match typed.cursor {
-    MeasuredCursor::Editing(width) => (Caret::At(width), None),
-    MeasuredCursor::Composing { underline, caret } => (caret, Some(underline)),
+  let Ok((said, _, filled)) = in_the_line(state);
+  let content = match filled {
+    Filled::Typed => crate::field::Content::Value(&said),
+    Filled::Empty => crate::field::Content::Placeholder(&said),
   };
-  let ink = match filled {
-    Filled::Typed => wearing.text,
-    Filled::Empty => wearing.soft,
-  };
-
-  let Ok(face_body) = font(TextStyle::Body);
-
-  let mut shapes = vec![
-    Shape::Panel(ShapePanel {
-      at,
-      size: Size {
-        width: wide,
-        height: finger,
-      },
-      round: Round(TAB_ROUND),
-      fill: wearing.night,
-      edge: Edge::Of {
-        wide: CARD_EDGE,
-        color: wearing.pink,
-      },
-    }),
-    Shape::Text(Text {
-      at: Point {
-        x: words_x,
-        y: down,
-      },
-      width: wide.saturating_sub(INSIDE_A_ROW.unsigned_abs().saturating_mul(2)),
-      said,
-      weight: Weight::Plain,
-      font: face_body,
-      ink,
-    }),
-  ];
-  match caret {
-    Caret::At(width) => {
-      let Ok(written) = fitted::<u32, i32>(match filled {
-        Filled::Typed => width,
-        Filled::Empty => 0,
-      });
-      shapes.push(Shape::Panel(ShapePanel {
-        at: Point {
-          x: words_x.saturating_add(written).saturating_add(1),
-          y: at
-            .y
-            .saturating_add(FINGER.saturating_sub(CARET_TALL).saturating_div(2)),
-        },
-        size: Size {
-          width: CARET,
-          height: caret_tall,
-        },
-        round: Round(0),
-        fill: wearing.pink,
-        edge: Edge::None,
-      }));
-    }
-    Caret::Hidden => {}
+  let Ok(area) = line_area(at, wide);
+  let mut shapes = Vec::new();
+  let Ok(_cursor) = crate::field::Field {
+    area,
+    trailing: 0,
+    content,
+    editing: typed,
   }
-
-  match preedit {
-    Some((from, through)) => {
-      let room = wide.saturating_sub(INSIDE_A_ROW.unsigned_abs().saturating_mul(2));
-      let Ok(left) = fitted::<u32, i32>(from.min(room));
-      let across = through.min(room).saturating_sub(from.min(room));
-      shapes.push(Shape::Panel(ShapePanel {
-        at: Point {
-          x: words_x.saturating_add(left),
-          y: at.y.saturating_add(FINGER.saturating_sub(6)),
-        },
-        size: Size {
-          width: across,
-          height: 2,
-        },
-        round: Round(0),
-        fill: wearing.pink,
-        edge: Edge::None,
-      }));
-    }
-    ::core::option::Option::None => {}
-  }
-
+  .paint(&mut shapes, wearing);
   Ok(shapes)
 }
 
@@ -4010,7 +3932,7 @@ pub(crate) fn shapes(
     ),
   };
 
-  shapes.push(Shape::Panel(ShapePanel {
+  shapes.push(Shape::Panel(console_core_shapes::Panel {
     at: Point {
       x: card.x,
       y: card.y,
@@ -4233,7 +4155,7 @@ pub(crate) fn shapes(
 
         touching.push(HitRegion {
           lands: Lands::Row(index_2),
-          panel: ShapePanel {
+          panel: console_core_shapes::Panel {
             at: Point {
               x: left,
               y: visible_top,
@@ -4995,8 +4917,8 @@ fn nudge_level(rows: &[Row], at: u32, step: i32) -> Result<Outcome, Never> {
   };
 
   let toward = match ::core::primitive::bool::then_some(step > 0, ()) {
-    ::core::option::Option::Some(()) => Toward::Right,
-    ::core::option::Option::None => Toward::Left,
+    ::core::option::Option::Some(()) => console_core_highlight::Heading::Right,
+    ::core::option::Option::None => console_core_highlight::Heading::Left,
   };
 
   let Ok(holds) = crate::page::holds(row);
@@ -5006,28 +4928,35 @@ fn nudge_level(rows: &[Row], at: u32, step: i32) -> Result<Outcome, Never> {
       let Ok(answer) = switch.moved(toward);
 
       match answer {
-        Answered::Now(_) => Outcome::Chose(at),
-        Answered::Same | Answered::Passes => Outcome::None,
+        console_core_controls::Answer::Now(_) => Outcome::Chose(at),
+        console_core_controls::Answer::Same | console_core_controls::Answer::Passes => {
+          Outcome::None
+        }
       }
     }
     Holds::Control(Control::Slider(slider)) => {
       let Ok(answer) = slider.moved(toward);
 
       match (answer, row.level.as_ref()) {
-        (Answered::Now(_), Some(level)) => {
+        (console_core_controls::Answer::Now(_), Some(level)) => {
           level(step);
 
           Outcome::Redrawn
         }
-        (Answered::Now(_), None) | (Answered::Same | Answered::Passes, _) => Outcome::None,
+        (console_core_controls::Answer::Now(_), None)
+        | (console_core_controls::Answer::Same | console_core_controls::Answer::Passes, _) => {
+          Outcome::None
+        }
       }
     }
     Holds::Choices => {
       let Ok(answer) = chosen_toward(row, toward);
 
       match answer {
-        Answered::Now(which) => Outcome::Picked { row: at, which },
-        Answered::Same | Answered::Passes => Outcome::None,
+        console_core_controls::Answer::Now(which) => Outcome::Picked { row: at, which },
+        console_core_controls::Answer::Same | console_core_controls::Answer::Passes => {
+          Outcome::None
+        }
       }
     }
     Holds::Level => match row.level.as_ref() {
@@ -5042,7 +4971,10 @@ fn nudge_level(rows: &[Row], at: u32, step: i32) -> Result<Outcome, Never> {
   })
 }
 
-fn chosen_toward(row: &Row, toward: Toward) -> Result<Answered<u32>, Never> {
+fn chosen_toward(
+  row: &Row,
+  toward: console_core_highlight::Heading,
+) -> Result<console_core_controls::Answer<u32>, Never> {
   match &row.choices {
     Some(choices) => {
       let Ok(measured) = choices_of(choices);
@@ -5053,14 +4985,14 @@ fn chosen_toward(row: &Row, toward: Toward) -> Result<Answered<u32>, Never> {
       }
       .moved(toward)
     }
-    None => Ok(Answered::Passes),
+    None => Ok(console_core_controls::Answer::Passes),
   }
 }
 
 fn chosen_under(
   row: &Row,
   (press, frame): (Press, Rectangle<i32>),
-) -> Result<Answered<u32>, Never> {
+) -> Result<console_core_controls::Answer<u32>, Never> {
   match &row.choices {
     Some(choices) => {
       let Ok(measured) = choices_of(choices);
@@ -5071,7 +5003,7 @@ fn chosen_under(
       }
       .pressed(press, frame)
     }
-    None => Ok(Answered::Passes),
+    None => Ok(console_core_controls::Answer::Passes),
   }
 }
 
@@ -5090,10 +5022,10 @@ fn press_picker(
       let Ok(answer) = chosen_under(found_2, (press, frame));
 
       match answer {
-        Answered::Now(which) => {
+        console_core_controls::Answer::Now(which) => {
           let Ok(()) = picked(state, rows, PickedArguments { at: row, which });
         }
-        Answered::Same | Answered::Passes => {}
+        console_core_controls::Answer::Same | console_core_controls::Answer::Passes => {}
       }
     }
     ::core::option::Option::None => {}
@@ -5151,7 +5083,7 @@ fn slid(
   let Ok(answer) = standing.pressed(press, frame);
 
   Ok(match answer {
-    Answered::Now(now) => {
+    console_core_controls::Answer::Now(now) => {
       let Ok(was) = standing.at();
       let Ok(is) = now.at();
       let Ok(from) = fitted::<u32, i32>(was);
@@ -5161,7 +5093,7 @@ fn slid(
 
       Some(is)
     }
-    Answered::Same | Answered::Passes => None,
+    console_core_controls::Answer::Same | console_core_controls::Answer::Passes => None,
   })
 }
 
@@ -5217,12 +5149,12 @@ fn sought_under(
   );
 
   Ok(match answer {
-    Answered::Now(landed) => {
+    console_core_controls::Answer::Now(landed) => {
       let Ok(fraction) = crate::page::fraction(landed);
 
       Some(fraction)
     }
-    Answered::Same | Answered::Passes => None,
+    console_core_controls::Answer::Same | console_core_controls::Answer::Passes => None,
   })
 }
 
@@ -5805,15 +5737,69 @@ fn scroll_room(state: &State, card: &Card) -> Result<i32, Never> {
 }
 
 fn hit_test(touching: &[HitRegion], hit: Point<i32>) -> Result<Option<Lands>, Never> {
-  let target_at = |point| {
-    touching.iter().find_map(|region| {
-      let Ok(covers) = region.panel.covers(point);
+  let Ok(region) = hit_region(touching, hit);
 
-      (covers == Covers::Yes).then_some(region.lands)
+  Ok(region.map(|region_2| region_2.lands))
+}
+
+fn hit_region(touching: &[HitRegion], hit: Point<i32>) -> Result<Option<HitRegion>, Never> {
+  Ok(
+    touching
+      .iter()
+      .find(|region| region.panel.covers(hit) == Ok(Covers::Yes))
+      .copied(),
+  )
+}
+
+fn hover_region(
+  view: &Panelled,
+  rows: &[Row],
+  pointer: Option<Point<i32>>,
+) -> Result<Option<HitRegion>, Never> {
+  Ok(pointer.and_then(|point| {
+    let Ok(hit) = hit_region(&view.touching, point);
+
+    hit.filter(|region| match region.lands {
+      Lands::Row(index) => {
+        let Ok(selectable) = selectable_row(rows, index);
+
+        selectable.is_some()
+      }
+      Lands::Answer(_)
+      | Lands::Nudge { .. }
+      | Lands::Else(_)
+      | Lands::ButtonPress { .. }
+      | Lands::Seek { .. }
+      | Lands::Slider { .. }
+      | Lands::Picker { .. }
+      | Lands::Tab(_)
+      | Lands::More(_)
+      | Lands::Back
+      | Lands::Reveal => true,
     })
+  }))
+}
+
+fn decorate_hover(
+  view: &mut Panelled,
+  surface: &mut Surface,
+  (hover, wearing): (Option<HitRegion>, &Wearing),
+) -> Result<(), Never> {
+  let cursor = match hover {
+    Some(region) => {
+      let Ok(indicator) = hover_indicator(
+        region.panel.at,
+        region.panel.size,
+        (wearing.pink, wearing.night),
+      );
+      view.shapes.extend(indicator);
+
+      PointerCursor::Hand
+    }
+    None => PointerCursor::Default,
   };
 
-  Activation::At(hit).resolve(|| None, target_at)
+  surface.set_pointer_cursor(cursor)
 }
 
 fn sync_watch(watching: &mut Option<(u32, BoundToParent)>, state: &State) -> Result<(), Never> {
@@ -5841,7 +5827,7 @@ fn sync_watch(watching: &mut Option<(u32, BoundToParent)>, state: &State) -> Res
     program: std::path::PathBuf::from(program),
     arguments: rest.to_vec(),
   };
-  let Ok(mut platform) = CommandPlatform::new(Timing::Background);
+  let Ok(mut platform) = Linux::new(Timing::Background);
 
   match platform.alongside(&invocation, Streams::QUIET) {
     Ok(running) => *watching = Some((state.here, running)),
@@ -6634,6 +6620,7 @@ fn serving(
     measured_rows: RefCell::new(BTreeMap::new()),
     fits: 1,
     panelled,
+    hover: Hover::default(),
     pending_animation: crate::frames::FrameReceived::No,
     finger: None,
     reported,
@@ -6672,16 +6659,16 @@ fn dispatch_opening(
       (StopRequest::Requested, _, _)
       | (StopRequest::Open, DrawingStatus::Settled, _)
       | (StopRequest::Open, DrawingStatus::AwaitingFeedback, Some(())) => {
-        Ok(Stepped::Halt(Ok(stop)))
+        Ok(console_core_iteration::Step::Halt(Ok(stop)))
       }
       (StopRequest::Open, DrawingStatus::AwaitingFeedback, None) => {
         match drawing_surface.wait(&[descriptor], Some(remaining)) {
           Ok(()) => {
             let Ok(_opening_can_only_be_woken_to_close) = waking.state();
 
-            Ok(Stepped::Again(drawing_surface))
+            Ok(console_core_iteration::Step::Again(drawing_surface))
           }
-          Err(fault) => Ok(Stepped::Halt(Err(fault))),
+          Err(fault) => Ok(console_core_iteration::Step::Halt(Err(fault))),
         }
       }
     }
@@ -6816,6 +6803,7 @@ struct Turning<'a> {
   measured_rows: RowMeasurements,
   fits: u32,
   panelled: Panelled,
+  hover: Hover<HitRegion>,
   pending_animation: crate::frames::FrameReceived,
   finger: Option<Touch>,
   reported: &'a mut Reported,
@@ -6831,12 +6819,12 @@ struct Still<'a> {
 fn turned<'a>(
   mut turning: Turning<'a>,
   still: Still<'_>,
-) -> Result<Stepped<Turning<'a>, ()>, Never> {
+) -> Result<console_core_iteration::Step<Turning<'a>, ()>, Never> {
   let Ok(outcome) = turn_once(&mut turning, still);
 
   Ok(match outcome {
-    ActionOutcome::Close => Stepped::Halt(()),
-    ActionOutcome::Stay => Stepped::Again(turning),
+    ActionOutcome::Close => console_core_iteration::Step::Halt(()),
+    ActionOutcome::Stay => console_core_iteration::Step::Again(turning),
   })
 }
 
@@ -6862,16 +6850,15 @@ fn turn_once(turning: &mut Turning<'_>, still: Still<'_>) -> Result<ActionOutcom
     measured_rows,
     fits,
     panelled,
+    hover,
     finger,
     reported,
     ..
   } = turning;
 
-  let Ok(stopping) = shut.stop();
-
-  match stopping {
-    StopRequest::Requested => return Ok(ActionOutcome::Close),
-    StopRequest::Open => {}
+  match shut.stop() {
+    Ok(StopRequest::Requested) => return Ok(ActionOutcome::Close),
+    Ok(StopRequest::Open) => {}
   }
 
   let logical = match surface.logical() {
@@ -6988,37 +6975,7 @@ fn turn_once(turning: &mut Turning<'_>, still: Still<'_>) -> Result<ActionOutcom
   }
 
   let Ok(defer_rows) = DeferredRows::for_page(state.framing, *painted, page);
-  let Ok(updated) = read_completed(state, asked, *stale);
-
-  match updated {
-    Dirty::Yes => *dirty = Dirty::Yes,
-    Dirty::No => {}
-  }
-
-  let Ok(current_page) = nth(&state.model.pages, state.model.here);
-
-  match (*stale, current_page, defer_rows, asked.as_ref()) {
-    (Stale::Yes, Some(page_2), DeferredRows::ReadNow, None) => {
-      match &page_2.rows {
-        crate::page::Rows::Fixed(rows) => {
-          let rows_2 = rows.clone();
-          let Ok(()) = apply_rows(state, rows_2);
-          *asked = None;
-          *dirty = Dirty::Yes;
-        }
-        crate::page::Rows::Computed(_) => {
-          let Ok(started) = reading(page_2);
-          *asked = Some(started);
-        }
-      }
-
-      *stale = Stale::No;
-    }
-    (Stale::No, _, _, _)
-    | (_, None, _, _)
-    | (_, _, DeferredRows::AfterFirstFrame, _)
-    | (_, _, _, Some(_)) => {}
-  }
+  let Ok(()) = refresh_rows(state, asked, (stale, dirty), defer_rows);
 
   match { ::core::primitive::bool::then_some(shut.stop() == Ok(StopRequest::Requested), ()) } {
     ::core::option::Option::Some(()) => {
@@ -7039,6 +6996,14 @@ fn turn_once(turning: &mut Turning<'_>, still: Still<'_>) -> Result<ActionOutcom
     }
     ::core::option::Option::None => {}
   }
+
+  let Ok(pointer) = observe_hover(
+    surface,
+    panelled,
+    &state.rows,
+    finger.as_ref(),
+    (hover, dirty),
+  );
 
   match dirty {
     Dirty::No => {}
@@ -7070,7 +7035,10 @@ fn turn_once(turning: &mut Turning<'_>, still: Still<'_>) -> Result<ActionOutcom
 
       let measured = measured_now(state, measured_tabs, measured_rows, marks_measured)?;
 
-      let Ok(drawn) = shapes(state, &card, *fits, &measured, wearing);
+      let Ok(mut drawn) = shapes(state, &card, *fits, &measured, wearing);
+      let Ok(next_hover) = hover_region(&drawn, &state.rows, pointer);
+      let Ok(()) = decorate_hover(&mut drawn, surface, (next_hover, wearing));
+      let Ok(_painted_in_this_frame) = hover.observe(next_hover);
       let already_drawn = *painted == Visible::Yes && panelled.shapes == drawn.shapes;
 
       match { ::core::primitive::bool::then_some(panelled.moving != drawn.moving, ()) } {
@@ -7111,7 +7079,7 @@ fn turn_once(turning: &mut Turning<'_>, still: Still<'_>) -> Result<ActionOutcom
           surface,
           state,
           panelled,
-          (logical, *wearing),
+          (logical, *wearing, next_hover),
           &card,
           reported,
         ),
@@ -7159,6 +7127,70 @@ fn turn_once(turning: &mut Turning<'_>, still: Still<'_>) -> Result<ActionOutcom
 
   let Ok(()) = defer_rows.read(state, asked, stale);
   handle_input(turning, &card, logical, room, accessibility_changed, waking)
+}
+
+fn refresh_rows(
+  state: &mut State,
+  asked: &mut Option<Reading>,
+  (stale, dirty): (&mut Stale, &mut Dirty),
+  defer_rows: DeferredRows,
+) -> Result<(), Never> {
+  let Ok(updated) = read_completed(state, asked, *stale);
+
+  match updated {
+    Dirty::Yes => *dirty = Dirty::Yes,
+    Dirty::No => {}
+  }
+
+  let Ok(current_page) = nth(&state.model.pages, state.model.here);
+
+  match (*stale, current_page, defer_rows, asked.as_ref()) {
+    (Stale::Yes, Some(page_2), DeferredRows::ReadNow, None) => {
+      match &page_2.rows {
+        crate::page::Rows::Fixed(rows) => {
+          let rows_2 = rows.clone();
+          let Ok(()) = apply_rows(state, rows_2);
+          *asked = None;
+          *dirty = Dirty::Yes;
+        }
+        crate::page::Rows::Computed(_) => {
+          let Ok(started) = reading(page_2);
+          *asked = Some(started);
+        }
+      }
+
+      *stale = Stale::No;
+    }
+    (Stale::No, _, _, _)
+    | (_, None, _, _)
+    | (_, _, DeferredRows::AfterFirstFrame, _)
+    | (_, _, _, Some(_)) => {}
+  }
+
+  Ok(())
+}
+
+fn observe_hover(
+  surface: &Surface,
+  panelled: &Panelled,
+  rows: &[Row],
+  finger: Option<&Touch>,
+  (hover, dirty): (&mut Hover<HitRegion>, &mut Dirty),
+) -> Result<Option<Point<i32>>, Never> {
+  let Ok(position) = surface.pointer_pixel();
+  let pointer = match finger.map(|touch| touch.dragged) {
+    Some(Dragged::Yes) => None,
+    Some(Dragged::No) | None => position,
+  };
+  let Ok(hovered) = hover_region(panelled, rows, pointer);
+  let Ok(feedback) = hover.observe(hovered);
+
+  match feedback {
+    Some(RepaintHover) => *dirty = Dirty::Yes,
+    None => {}
+  }
+
+  Ok(pointer)
 }
 
 #[derive(Clone, Copy)]
@@ -7237,7 +7269,7 @@ fn redraw_card(
   surface: &mut Surface,
   state: &State,
   panelled: &Panelled,
-  (points, wearing): (Size<u32>, Wearing),
+  (points, wearing, hover): (Size<u32>, Wearing, Option<HitRegion>),
   card: &Card,
   reported: &mut Reported,
 ) -> Result<(), console_draw_surface::standing::SurfaceError> {
@@ -7271,7 +7303,10 @@ fn redraw_card(
   };
 
   let preparation = reported.preparation.take();
-  let Ok(appearance) = fixed_appearance(state, points, wearing);
+  let Ok(appearance) = match hover {
+    Some(_) => Ok(None),
+    None => fixed_appearance(state, points, wearing),
+  };
   let Ok(rows) = fitted::<_, u64>(state.rows.len());
   let fixed = appearance.map(|appearance_2| prepared::Fixed {
     appearance: appearance_2,
@@ -7327,7 +7362,7 @@ fn paint_card(
   let paint = |pixels: &mut [u8], device, _scale| {
     let frame = Frame { device, points };
 
-    match painting::onto(pixels, frame, &panelled.shapes) {
+    match console_draw_painting::onto(pixels, frame, &panelled.shapes) {
       Ok(()) => {}
       Err(fault) => console_core_logging::warn!("console-panel: painting the card: {fault}"),
     }
@@ -7351,7 +7386,7 @@ fn paint_region(
     points: part.size,
   };
 
-  match painting::onto_region(pixels, frame, shapes, part.at) {
+  match console_draw_painting::onto_region(pixels, frame, shapes, part.at) {
     Ok(()) => {}
     Err(fault) => console_core_logging::warn!("console-panel: painting the card region: {fault}"),
   }
@@ -7732,7 +7767,7 @@ impl PanelInput<'_> {
   fn moved(&mut self, at: (f64, f64)) -> Result<(), Never> {
     let held = match self.finger.as_mut() {
       Some(touch) => touch,
-      None => return self.hovered(at),
+      None => return Ok(()),
     };
     let Ok(sliding) = sliding_under(held.lands);
 
@@ -7803,33 +7838,6 @@ impl PanelInput<'_> {
         let y = held.scroll.saturating_sub(pixels);
         let Ok(()) = self.scroll(y);
       }
-    }
-
-    Ok(())
-  }
-
-  fn hovered(&mut self, at: (f64, f64)) -> Result<(), Never> {
-    let Ok(pointer) = pointer_position(at);
-    let Ok(lands) = hit_test(&self.view.touching, pointer);
-    let index = match (lands, self.state.leaving) {
-      (Some(Lands::Row(index)), Leaving::No) => index,
-      (Some(_) | None, _) => return Ok(()),
-    };
-
-    match (self.state.at == Some(index)).then_some(()) {
-      Some(()) => return Ok(()),
-      None => {}
-    }
-
-    let Ok(focus) = selectable_row(&self.state.rows, index);
-
-    match focus {
-      Some(hovered_row) => {
-        self.state.at = Some(hovered_row);
-        self.state.beside = Beside::No;
-        *self.dirty = Dirty::Yes;
-      }
-      None => {}
     }
 
     Ok(())
@@ -8454,7 +8462,7 @@ mod tests {
       let Ok(measured) = super::measured_now(&state, &tabs, &measurements, marks);
       let Ok(panel) = shapes(&state, &card, fits, &measured, &wearing);
       let laid_out = started.elapsed();
-      super::painting::onto(&mut pixels, frame, &panel.shapes)?;
+      console_draw_painting::onto(&mut pixels, frame, &panel.shapes)?;
       let elapsed = started.elapsed();
       std::hint::black_box(&pixels);
 
@@ -8531,6 +8539,19 @@ mod tests {
 
     let Ok(card) = card();
     let hit = landing(&state, &card, Lands::Row(2))?;
+    let wearing = sample_palette()?;
+    let Ok(view) = drawn(&state, &card, &wearing);
+    assert_eq!(
+      super::hover_region(&view, &state.rows, Some(hit.panel.at)),
+      Ok(None)
+    );
+    let brightness_hit = landing(&state, &card, Lands::Row(3))?;
+    assert_eq!(
+      super::hover_region(&view, &state.rows, Some(brightness_hit.panel.at)),
+      Ok(Some(brightness_hit))
+    );
+    assert_eq!(super::hover_region(&view, &state.rows, None), Ok(None));
+    assert_eq!(state.at, Some(1));
     let Ok(_tap) = super::tapped(&mut state, Some(hit.lands), hit.panel.at, &card);
     assert_eq!(state.at, Some(1));
 
@@ -9535,7 +9556,7 @@ mod tests {
     let name = text("Writer").ok_or("missing application name")?;
     let detail = text(title).ok_or("missing complete window title")?;
     let next_text = text("Next window").ok_or("missing next window")?;
-    let Ok(lines) = super::painting::wrapped(
+    let Ok(lines) = console_draw_painting::wrapped(
       super::Run {
         said: &detail.said,
         weight: detail.weight,
@@ -9543,7 +9564,7 @@ mod tests {
       },
       &detail.font,
     );
-    let Ok(size) = super::painting::measure_text(
+    let Ok(size) = console_draw_painting::measure_text(
       super::Run {
         said: &detail.said,
         weight: detail.weight,
@@ -9933,6 +9954,37 @@ mod tests {
   }
 
   #[test]
+  fn a_primary_key_keeps_its_accent_and_marks_keyboard_focus() -> Result<(), Failure> {
+    let wearing = sample_palette()?;
+    let Ok(key) = crate::page::ButtonPress::labelled("=", crate::page::Active::No, |_| {});
+    let Ok(primary) = key.styled(crate::page::ButtonStyle::Filled);
+    let frame = console_core_shapes::Panel {
+      at: super::Point { x: 0, y: 0 },
+      size: Size {
+        width: 48,
+        height: 48,
+      },
+      round: super::Round(12),
+      fill: wearing.night,
+      edge: super::Edge::None,
+    };
+    let Ok((ready, ink)) = super::press_face(frame, &primary, super::Highlight::No, &wearing);
+    let Ok((focused, _)) = super::press_face(frame, &primary, super::Highlight::Yes, &wearing);
+
+    assert_eq!((ready.fill, ink), (wearing.pink, wearing.night));
+    assert_eq!(focused.fill, ready.fill);
+    assert_eq!(ready.edge, super::Edge::None);
+    assert_eq!(
+      focused.edge,
+      super::Edge::Of {
+        wide: super::CARD_EDGE,
+        color: wearing.night
+      }
+    );
+    Ok(())
+  }
+
+  #[test]
   fn a_strip_of_buttons_draws_each_one_where_a_finger_can_press_it() -> Result<(), Failure> {
     let (record, taken) = mpsc::sync_channel(8);
     let Ok(transport) = transport(&record);
@@ -10018,7 +10070,7 @@ mod tests {
 
     let Ok(panelled) = drawn(&state, &card, &wearing);
     let Ok(button_wide) = fitted::<i32, u32>(super::PRESS_WIDE);
-    let behind: Vec<&super::ShapePanel> = panelled
+    let behind: Vec<&console_core_shapes::Panel> = panelled
       .shapes
       .iter()
       .filter_map(|shape| match shape {
@@ -10082,7 +10134,7 @@ mod tests {
     let Ok(keypad) = keypad_page();
     let state = state_of(vec![keypad])?;
     let Ok(panelled) = drawn(&state, &card, &wearing);
-    let keys: Vec<&super::ShapePanel> = panelled
+    let keys: Vec<&console_core_shapes::Panel> = panelled
       .touching
       .iter()
       .filter(|region| matches!(region.lands, super::Lands::ButtonPress { row: 1, which: _ }))
@@ -12371,7 +12423,7 @@ mod tests {
       .iter()
       .find(|text| text.said == "Nas, AZ, Cormega, Foxy Brown")
       .ok_or("the short artist credit was changed")?;
-    let Ok(lines) = super::painting::wrapped(
+    let Ok(lines) = console_draw_painting::wrapped(
       super::Run {
         said: &credit.said,
         weight: credit.weight,
@@ -12381,7 +12433,7 @@ mod tests {
     );
 
     assert_eq!(lines.len(), 1);
-    assert!(credit.said.ends_with(super::painting::CUT));
+    assert!(credit.said.ends_with(console_draw_painting::CUT));
     assert_eq!(short.at.y.saturating_sub(credit.at.y), crate::fitting::ROW);
 
     Ok(())

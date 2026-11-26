@@ -3,17 +3,20 @@ use std::convert::Infallible;
 use console_core_color::{Oklch, palette::Wearing};
 use console_core_fonts::TextStyle;
 use console_core_geometry::{Point, Size};
-use console_core_shapes::{Edge, Panel, Picture, Pixels, Round, Shape, Text, Weight};
-use console_draw_painting::{self as painting, Frame, Lines, Run};
-use console_draw_surface::{Surface, SurfaceError};
-use console_panel::canvas::{Area, Canvas, Frame as Chrome, Interaction, Style};
-use console_panel::strip::{self, Header};
+use console_panel::ui::canvas::{self, Area, AreaLayout, Canvas, Interaction, Style};
+use console_panel::ui::painting::{self, Frame, Lines, Run};
+use console_panel::ui::shapes::{
+  Edge, Panel, Picture, Pixels, Round, Shape, Text, Weight, hover_indicator,
+};
+use console_panel::ui::strip::{self, Button, Header};
+use console_panel::ui::surface::{Surface, SurfaceError};
+use console_panel::ui::theme;
 
 use super::Camera;
 
-const MARGIN: u32 = 16;
-const GAP: u32 = 8;
-const ROW: u32 = 48;
+const MARGIN: u32 = strip::WINDOW_INSET.unsigned_abs();
+const GAP: u32 = strip::GAP.unsigned_abs();
+const ROW: u32 = strip::HEIGHT.unsigned_abs();
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Action {
@@ -38,16 +41,16 @@ impl Action {
 pub(super) struct Layout {
   pub points: Size<u32>,
   preview: Panel,
-  header: Chrome<Action>,
+  header: canvas::Frame<Action>,
   status: Panel,
-  capture: Panel,
+  capture: Area,
 }
 
 impl Layout {
   pub fn new(points: Size<u32>, camera: &Camera, colors: &Wearing) -> Result<Self, Infallible> {
     let wide = points.width.saturating_sub(MARGIN.wrapping_mul(2));
     let bottom = points.height.saturating_sub(MARGIN.wrapping_add(ROW));
-    let top = MARGIN.wrapping_add(ROW).wrapping_add(GAP);
+    let top = strip::CONTENT_TOP.unsigned_abs();
     let status_top = bottom.saturating_sub(26);
     let Ok(preview) = bounds(
       Point { x: MARGIN, y: top },
@@ -69,16 +72,16 @@ impl Layout {
     );
     let main_width = 176.min(wide.saturating_sub(GAP.wrapping_mul(2)).wrapping_div(2));
     let main_left = MARGIN.wrapping_add(wide.saturating_sub(main_width).wrapping_div(2));
-    let Ok(main_button) = bounds(
-      Point {
-        x: main_left,
-        y: bottom,
+    let Ok(x) = coordinate(main_left);
+    let Ok(y) = coordinate(bottom);
+    let Ok(capture_width) = coordinate(main_width);
+    let main_button = Area {
+      origin: Point { x, y },
+      size: Size {
+        width: capture_width,
+        height: strip::HEIGHT,
       },
-      Size {
-        width: main_width,
-        height: ROW,
-      },
-    );
+    };
     Ok(Self {
       points,
       preview,
@@ -89,32 +92,42 @@ impl Layout {
   }
 
   pub fn action(&self, at: (f64, f64), camera: &Camera) -> Result<Option<Action>, Infallible> {
-    let (x, y) = at;
-    let Ok(action) = self.header.targets.action(Point { x, y });
-    let Ok(capture) = capture_action(camera);
-    let panel = self.capture;
-    let Ok(width) = coordinate(panel.size.width);
-    let Ok(height) = coordinate(panel.size.height);
-    let right = f64::from(panel.at.x.saturating_add(width));
-    let bottom = f64::from(panel.at.y.saturating_add(height));
+    let Ok(target) = self.hit(Point::from(at), camera);
 
-    Ok(
-      match ((f64::from(panel.at.x)..right).contains(&x)
-        && (f64::from(panel.at.y)..bottom).contains(&y))
-      .then_some(())
-      {
-        Some(()) => capture,
-        None => action,
-      },
-    )
+    Ok(target.map(|(_, action)| action))
+  }
+
+  pub fn hit(
+    &self,
+    at: Point<f64>,
+    camera: &Camera,
+  ) -> Result<Option<(Area, Action)>, Infallible> {
+    let Ok(capture) = capture_action(camera);
+    let area = self.capture;
+    let Ok(inside) = area.contains_point(at);
+
+    match inside {
+      console_core_geometry::Containment::Inside => Ok(capture.map(|action| (area, action))),
+      console_core_geometry::Containment::Outside => {
+        let Ok(hit) = self.header.targets.hit(at);
+
+        Ok(hit)
+      }
+    }
   }
 }
 
 pub(super) fn capture_action(camera: &Camera) -> Result<Option<Action>, Infallible> {
+  let Ok(button) = capture_button(camera);
+  let Ok(action) = button.action();
+  Ok(action)
+}
+
+fn capture_button(camera: &Camera) -> Result<Button<Action>, Infallible> {
   Ok(match (&camera.stream, &camera.frame) {
-    (None, _) => Some(Action::Retry),
-    (Some(_), Some(_)) => Some(Action::Take),
-    (Some(_), None) => None,
+    (None, _) => Button::Primary(Action::Retry),
+    (Some(_), Some(_)) => Button::Primary(Action::Take),
+    (Some(_), None) => Button::Loading,
   })
 }
 
@@ -122,24 +135,16 @@ fn header(
   points: Size<u32>,
   camera: &Camera,
   colors: &Wearing,
-) -> Result<Chrome<Action>, Infallible> {
+) -> Result<canvas::Frame<Action>, Infallible> {
   let Ok(width) = coordinate(points.width);
   let Ok(height) = coordinate(points.height);
   let root = Area {
     origin: Point { x: 0, y: 0 },
     size: Size { width, height },
   };
-  let style = Style {
-    rule: colors.edge,
-    lifted: colors.panel,
-    accent: colors.pink,
-    ink: colors.text,
-    quiet: colors.soft,
-    disabled: colors.edge,
-  };
   let Ok(mut canvas) = Canvas::new(
     root,
-    style,
+    Style::from(colors),
     Interaction {
       focus: None,
       hover: None,
@@ -150,23 +155,17 @@ fn header(
     .iter()
     .map(|source| source.label.as_str())
     .collect();
-  let margin = strip::MARGIN;
-  let area = Area {
-    origin: Point {
-      x: margin,
-      y: margin,
-    },
-    size: Size {
-      width: width.saturating_sub(margin.saturating_mul(2)),
-      height: strip::HEIGHT,
-    },
+  let tabs = match labels.as_slice() {
+    [] | [_] => &[],
+    available => available,
   };
+  let Ok(area) = strip::window_area(width);
   let Ok(()) = strip::header(
     &mut canvas,
     area,
     &Header {
       title: "Camera",
-      tabs: &labels,
+      tabs,
       selected: camera.selected,
       select: Action::Source,
       previous: Action::Previous,
@@ -182,51 +181,31 @@ pub(super) fn paint(
   surface: &mut Surface,
   layout: &Layout,
   camera: &Camera,
-  wearing: &Wearing,
+  (wearing, hover): (&Wearing, Option<Area>),
 ) -> Result<(), SurfaceError> {
   let points = layout.points;
   let Ok(window) = bounds(Point { x: 0, y: 0 }, points);
+  let Ok(ground) = theme::Surface::Window.color(wearing);
+  let Ok(recess) = theme::Surface::Recessed.color(wearing);
   let background = [
     Shape::Panel(Panel {
-      fill: wearing.panel,
+      fill: ground,
       ..window
     }),
     Shape::Panel(Panel {
-      fill: wearing.night,
+      fill: recess,
       ..layout.preview
     }),
   ];
-  let panel = layout.capture;
-  let Ok(action) = capture_action(camera);
-  let enabled = action.is_some();
+  let Ok(button) = capture_button(camera);
+  let Ok(action) = button.action();
   let mut controls = Vec::new();
-  controls.push(Shape::Panel(Panel {
-    fill: wearing.panel,
-    round: Round(8),
-    edge: Edge::Of {
-      wide: 1,
-      color: match { ::core::primitive::bool::then_some(enabled, ()) } {
-        ::core::option::Option::Some(()) => wearing.pink,
-        ::core::option::Option::None => wearing.edge,
-      },
-    },
-    ..panel
-  }));
+  let Ok(state) = button.face(None);
   let Ok(title) = match action {
     Some(available) => available.label(),
-    None => Action::Take.label(),
+    None => Ok("Starting camera…"),
   };
-  let Ok(text) = label(
-    panel,
-    title,
-    TextStyle::Callout,
-    match ::core::primitive::bool::then_some(enabled, ()) {
-      ::core::option::Option::Some(()) => wearing.text,
-      ::core::option::Option::None => wearing.soft,
-    },
-    1,
-  );
-  controls.push(text);
+  let Ok(()) = strip::paint_control(&mut controls, layout.capture, title, state, wearing);
 
   let Ok(picture) = preview_picture(layout.preview, camera.frame.as_ref());
 
@@ -246,6 +225,15 @@ pub(super) fn paint(
       controls.push(message);
     }
     ::core::option::Option::None => {}
+  }
+
+  match hover {
+    Some(area) => {
+      let Ok(size) = area.pixel_size();
+      let Ok(indicator) = hover_indicator(area.origin, size, (wearing.pink, wearing.night));
+      controls.extend(indicator);
+    }
+    None => {}
   }
 
   surface.draw(|pixels, device, _scale| {

@@ -47,11 +47,11 @@ use console_core_geometry::Size;
 use console_core_iteration::Step;
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index, toward_zero_u64};
-use console_core_shapes::Pixels;
 use console_core_subtitle_files::{Cue, Seconds, Written};
 use console_films::{FramesPerSecond, Picture};
 use console_music_player::sounding::{PositionReader, Sounding, Tempo, Wanted};
 use console_operating_system_linux::program_runtime::compute::Vulkan;
+use console_panel::ui::shapes::Pixels;
 
 pub use console_films::Sound;
 

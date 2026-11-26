@@ -45,24 +45,6 @@ const AUTHENTICATION_CANCELED: i32 = 126;
 
 pub type UpdateError = Box<dyn Error>;
 
-pub enum ReleaseSupport {
-  Tagged,
-  External,
-}
-
-pub fn release_support() -> std::io::Result<ReleaseSupport> {
-  match std::fs::read_to_string("/sys/class/dmi/id/product_name") {
-    Ok(product) => Ok(match product.trim() {
-      "83E1" => ReleaseSupport::Tagged,
-      _ => ReleaseSupport::External,
-    }),
-    Err(fault) => match (fault.kind() == std::io::ErrorKind::NotFound).then_some(()) {
-      Some(()) => Ok(ReleaseSupport::External),
-      None => Err(fault),
-    },
-  }
-}
-
 pub fn door(_arguments: &[String]) -> Result<Door, Never> {
   Door::closing(WHO)
 }
@@ -85,21 +67,7 @@ pub fn open() -> Result<(), UpdateError> {
 
   match drawn {
     DrawnBy::ByTheHost => Ok(()),
-    DrawnBy::Here => open_here(),
-  }
-}
-
-fn open_here() -> Result<(), UpdateError> {
-  let support = release_support()?;
-
-  match support {
-    ReleaseSupport::External => {
-      let Ok(build) = external_build();
-      let Ok(()) = surface::show(build, 0, None);
-
-      Ok(())
-    }
-    ReleaseSupport::Tagged => {
+    DrawnBy::Here => {
       let Ok((build, work, selected)) = prepare();
       let Ok(()) = surface::show(build, 0, None);
       let Ok(()) = work.close();
@@ -110,38 +78,6 @@ fn open_here() -> Result<(), UpdateError> {
 }
 
 pub fn card(_asked: &[String]) -> Result<Card, Never> {
-  match release_support() {
-    Ok(ReleaseSupport::Tagged) => tagged_card(),
-    Ok(ReleaseSupport::External) => {
-      let Ok(build) = external_build();
-      Card::new(build)
-    }
-    Err(fault) => {
-      console_core_logging::warn!("Console Updates: reading hardware model: {fault}");
-      let Ok(build) = external_build();
-      Card::new(build)
-    }
-  }
-}
-
-fn external_build() -> Result<Build, Never> {
-  Ok(Box::new(|| {
-    let Ok(deployment) = Row::text("Update method", Aside("Source or system package"));
-    let Ok(tagged) = Row::text("Tagged releases", Aside("Legion Go 83E1"));
-    let Ok(settings) = InternalProgram::SettingsPanel.path();
-    let Ok(open) = Handler::run(&[settings, "Configuration"]);
-    let Ok(about) = Row::new("About Console", Aside(""), open);
-    let Ok(page) = Page::new(
-      "Console Updates",
-      Rows::Fixed(vec![deployment, tagged, about]),
-    );
-    let Ok(compact) = page.compact();
-
-    vec![compact]
-  }))
-}
-
-fn tagged_card() -> Result<Card, Never> {
   let Ok((build, work, selected)) = prepare();
   let Ok(card) = Card::new(build);
 
@@ -230,10 +166,10 @@ struct Actions {
 
 fn rows(view: &View, actions: &Actions) -> Result<Vec<Row>, Never> {
   let Ok(check) = match &view.check {
-    Check::Checking(_) => Row::naming("Checking for updates…", Aside("")),
+    Check::Checking(_) => Row::naming("Check for updates", Aside("Checking…")),
     Check::Ready { attempt, result } => {
       let aside = match result {
-        CheckResult::NotChecked => "",
+        CheckResult::NotChecked => "GitHub Releases",
         CheckResult::Current => "Up to date",
         CheckResult::Available(_) => "Update available",
         CheckResult::Failed(_) => "Check failed",
@@ -243,8 +179,7 @@ fn rows(view: &View, actions: &Actions) -> Result<Vec<Row>, Never> {
       Row::new("Check for updates", Aside(aside), action)
     }
   };
-  let Ok(undo) = undo_row(&view.rollback, &actions.select);
-  let mut drawn = vec![check, undo];
+  let mut drawn = vec![check];
 
   match &view.check {
     Check::Ready {
@@ -279,6 +214,9 @@ fn rows(view: &View, actions: &Actions) -> Result<Vec<Row>, Never> {
     } => {}
   }
 
+  let Ok(undo) = undo_row(&view.rollback, &actions.select);
+  drawn.push(undo);
+
   Ok(drawn)
 }
 
@@ -312,6 +250,32 @@ fn undo_row(rollback: &Rollback, select: &SyncSender<Choice>) -> Result<Row, Nev
     Rollback::Absent => Row::naming(UNDO, Aside("No previous release")),
     Rollback::Pending => Row::naming(UNDO, Aside("A release switch is pending")),
     Rollback::Unavailable => Row::naming(UNDO, Aside("Previous release unavailable")),
+  }
+}
+
+#[cfg(test)]
+mod row_tests {
+  use super::{Actions, Check, CheckResult, Rollback, View, rows, sync_channel};
+
+  #[test]
+  fn an_available_update_fits_before_the_rollback_row() {
+    let (checking, _checks) = sync_channel(1);
+    let (select, _choices) = sync_channel(1);
+    let Ok(drawn) = rows(
+      &View {
+        check: Check::Ready {
+          attempt: 1,
+          result: CheckResult::Available("console-v1.2.3".to_owned()),
+        },
+        rollback: Rollback::Absent,
+      },
+      &Actions { checking, select },
+    );
+    let labels: Vec<_> = drawn.iter().map(|row| row.says.as_str()).collect();
+    assert_eq!(
+      labels,
+      ["Check for updates", "Install update", "Undo last update"]
+    );
   }
 }
 

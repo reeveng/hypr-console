@@ -81,26 +81,29 @@
 //! other half, because a fault that repeats faster than it can be read is a
 //! fault no one reads.
 
-use std::collections::BTreeMap;
-use std::io::{ErrorKind, Read, Write};
+use std::collections::{BTreeMap, VecDeque};
+use std::fs::File;
+use std::io::{ErrorKind, IoSlice, Read, Write};
 use std::os::fd::AsFd;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
-use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
+use std::sync::mpsc::{Receiver, SyncSender, TryRecvError, sync_channel};
 use std::time::Duration;
 
 use console_core_iteration::{Endless, Step, iterate};
 use console_core_never::Never;
-use console_core_number_conversion::fitted;
+use console_core_number_conversion::{fitted, fixed_index, index};
 use console_program_contract::{Change, EventGroup};
 use console_program_lifetime::threads;
 use console_waiting::latch::{self, Latch};
 use rustix::event::{Nsecs, PollFd, PollFlags, Secs, Timespec, poll};
 
 use crate::Unserved;
+use crate::ipc::{self, Fault, Reply, Request, Trace};
 use crate::pool::{Pool, Who};
 use crate::sources::Subscribed;
 use crate::wire::{self, Message};
+use crate::workspace::{self, Published};
 
 const BREATH: Duration = Duration::from_millis(200);
 
@@ -108,10 +111,19 @@ pub const OUTBOX: u64 = 4 << 20;
 
 pub const BATCH: u64 = 64 << 10;
 
+pub const REQUEST_BYTES: u64 = 16 << 10;
+
+const READS_PER_TURN: u32 = 4;
+const WRITE_BYTES: u64 = 64 << 10;
+const ACCEPTS_PER_TURN: u32 = 32;
+const PUBLICATIONS_PER_TURN: u32 = 64;
+const IPC_FAULT_RESERVE: u64 = 128;
+
 struct Client {
   connection: UnixStream,
   heard: Vec<u8>,
-  outbox: Vec<u8>,
+  outbox: VecDeque<u8>,
+  workspace: WorkspaceWatch,
 }
 
 pub type Holding = fn(&EventGroup, SyncSender<Change>) -> Result<Subscribed, Never>;
@@ -159,15 +171,46 @@ struct Serving<'source> {
   sources: SyncSender<Change>,
   holding: &'source dyn Fn(&EventGroup, SyncSender<Change>) -> Result<Subscribed, Never>,
   carried: u64,
+  publishing: Publication,
+  workspace: WorkspaceDesk,
+  trace: Trace,
+}
+
+enum WorkspaceWatch {
+  Off,
+  Current,
+  Pending,
+}
+
+struct WorkspaceDesk {
+  source: Option<workspace::Subscription>,
+  latest: Published,
+  line: String,
+  wake: File,
+}
+
+#[derive(Clone, Copy)]
+enum Publication {
+  Idle,
+  Queued,
 }
 
 pub fn serve(
   socket: &Path,
   holding: impl Fn(&EventGroup, SyncSender<Change>) -> Result<Subscribed, Never>,
 ) -> Result<(), Unserved> {
+  serve_traced(socket, holding, Trace::Quiet)
+}
+
+pub fn serve_traced(
+  socket: &Path,
+  holding: impl Fn(&EventGroup, SyncSender<Change>) -> Result<Subscribed, Never>,
+  trace: Trace,
+) -> Result<(), Unserved> {
   let listening = bound(socket)?;
   let waking = latch::pipe().map_err(Unserved::Waking)?;
   let Latch { waiting, saying } = waking;
+  let workspace_wake = saying.try_clone().map_err(Unserved::Waking)?;
   let (sources, arriving) = sync_channel::<Change>(256);
   let (carrying, published) = sync_channel::<Change>(256);
 
@@ -175,6 +218,7 @@ pub fn serve(
     let Ok(()) = relay_sources(arriving, carrying, saying);
   }));
 
+  let Ok(latest) = stale();
   let serving = Serving {
     pool: Pool::default(),
     clients: BTreeMap::new(),
@@ -182,6 +226,14 @@ pub fn serve(
     sources,
     holding: &holding,
     carried: 0,
+    publishing: Publication::Idle,
+    workspace: WorkspaceDesk {
+      source: None,
+      latest,
+      line: String::new(),
+      wake: workspace_wake,
+    },
+    trace,
   };
 
   let served = iterate((serving, Door::Open), |(mut serving_2, door)| {
@@ -199,7 +251,8 @@ pub fn serve(
       match watched {
         Watched::Latch => {
           let Ok(()) = latch::drain(&waiting);
-          let Ok(()) = publish_pending(&mut serving_2, &published);
+          serving_2.publishing = Publication::Queued;
+          let Ok(()) = workspace_updates(&mut serving_2);
 
           match ::core::primitive::bool::then_some(
             flags.intersects(PollFlags::HUP | PollFlags::ERR | PollFlags::NVAL),
@@ -221,6 +274,14 @@ pub fn serve(
         Watched::Client(who) => {
           let Ok(()) = read_client(&mut serving_2, who, flags);
         }
+      }
+    }
+
+    match serving_2.publishing {
+      Publication::Idle => {}
+      Publication::Queued => {
+        let Ok(publishing) = publish_pending(&mut serving_2, &published);
+        serving_2.publishing = publishing;
       }
     }
 
@@ -321,7 +382,10 @@ fn ready(
   }
 
   for (who, client) in &serving.clients {
-    let flags = match ::core::primitive::bool::then_some(client.outbox.is_empty(), ()) {
+    let flags = match (client.outbox.is_empty()
+      && !matches!(client.workspace, WorkspaceWatch::Pending))
+    .then_some(())
+    {
       ::core::option::Option::Some(()) => PollFlags::IN,
       ::core::option::Option::None => PollFlags::IN | PollFlags::OUT,
     };
@@ -330,7 +394,7 @@ fn ready(
     which.push(Watched::Client(*who));
   }
 
-  let Ok(breath) = breath(door);
+  let Ok(breath) = breath(door, serving.publishing);
 
   match poll(&mut watch, breath.as_ref()) {
     Ok(_) => {}
@@ -347,9 +411,13 @@ fn ready(
   )
 }
 
-fn breath(door: Door) -> Result<Option<Timespec>, Never> {
-  Ok(match door {
-    Door::Resting => {
+fn breath(door: Door, publishing: Publication) -> Result<Option<Timespec>, Never> {
+  Ok(match (door, publishing) {
+    (_, Publication::Queued) => Some(Timespec {
+      tv_sec: 0,
+      tv_nsec: 0,
+    }),
+    (Door::Resting, Publication::Idle) => {
       let Ok(seconds) = fitted::<u64, Secs>(BREATH.as_secs());
       let Ok(nanoseconds) = fitted::<u32, Nsecs>(BREATH.subsec_nanos());
 
@@ -358,7 +426,7 @@ fn breath(door: Door) -> Result<Option<Timespec>, Never> {
         tv_nsec: nanoseconds,
       })
     }
-    Door::Open | Door::Retrying => None,
+    (Door::Open | Door::Retrying, Publication::Idle) => None,
   })
 }
 
@@ -367,7 +435,9 @@ fn let_in(
   listening: &UnixListener,
   door: Door,
 ) -> Result<Door, Never> {
-  for accepted in listening.incoming() {
+  let Ok(budget) = index(ACCEPTS_PER_TURN);
+
+  for accepted in listening.incoming().take(budget) {
     let fault = match accepted {
       Ok(stream) => {
         let Ok(()) = arrived(serving, stream);
@@ -392,7 +462,7 @@ fn let_in(
     });
   }
 
-  Ok(door)
+  Ok(Door::Open)
 }
 
 fn arrived(serving: &mut Serving<'_>, stream: UnixStream) -> Result<(), Never> {
@@ -412,104 +482,316 @@ fn arrived(serving: &mut Serving<'_>, stream: UnixStream) -> Result<(), Never> {
     Client {
       connection: stream,
       heard: Vec::new(),
-      outbox: Vec::new(),
+      outbox: VecDeque::new(),
+      workspace: WorkspaceWatch::Off,
     },
   );
 
   Ok(())
 }
 
+#[cfg_attr(
+  dylint_lib = "explicit057_no_unbounded_wait",
+  expect(
+    explicit057_no_unbounded_wait,
+    reason = "arrived sets each client descriptor nonblocking before accepting requests"
+  )
+)]
 fn read_client(serving: &mut Serving<'_>, who: Who, flags: PollFlags) -> Result<(), Never> {
   match ::core::primitive::bool::then_some(
-    flags.intersects(PollFlags::IN | PollFlags::HUP | PollFlags::ERR),
+    flags.intersects(PollFlags::IN | PollFlags::HUP | PollFlags::ERR | PollFlags::NVAL),
     (),
   ) {
     ::core::option::Option::Some(()) => {}
     ::core::option::Option::None => return Ok(()),
   }
 
-  let Ok((lines, still)) = read(serving, who);
+  let mut buffer = [0_u8; 8 << 10];
 
-  for bytes in lines
-    .split(|byte| *byte == b'\n')
-    .filter(|line| !line.is_empty())
-  {
-    let line = match std::str::from_utf8(bytes) {
-      Ok(line) => line,
+  for _attempt in 0..READS_PER_TURN {
+    let socket = match serving.clients.get_mut(&who) {
+      Some(client) => &mut client.connection,
+      None => return Ok(()),
+    };
+    let bytes = match socket.read(&mut buffer) {
+      Ok(0) => return let_go(serving, who),
+      Ok(many) => match buffer.get(..many) {
+        Some(present) => present,
+        None => return let_go(serving, who),
+      },
       Err(fault) => {
-        console_core_logging::warn!("console-events: {who} sent invalid UTF-8: {fault}");
+        let Ok(refusal) = refused(&fault);
 
-        continue;
+        match refusal {
+          Rejected::NotYet => return Ok(()),
+          Rejected::Interrupted => continue,
+          Rejected::Gone => return let_go(serving, who),
+        }
       }
     };
-    let Ok(message) = wire::decoded(line);
 
-    match message {
-      Some(message_2) => {
-        let Ok(()) = received(serving, who, message_2);
-      }
-      None => {
-        console_core_logging::warn!("console-events: {who} said {line:?}, which is nothing")
+    for part in bytes.split_inclusive(|byte| *byte == b'\n') {
+      let client = match serving.clients.get_mut(&who) {
+        Some(client) => client,
+        None => return Ok(()),
+      };
+
+      match frame(&mut client.heard, part, serving.trace) {
+        Ok(Some(Frame::Legacy(message))) => {
+          let Ok(()) = received(serving, who, message);
+        }
+        Ok(Some(Frame::Versioned { serial, request })) => {
+          let Ok(()) = requested(serving, who, serial, request);
+        }
+        Ok(None) => {}
+        Err(FrameError::TooLong) => {
+          console_core_logging::warn!("console-events: {who} exceeded the request limit");
+
+          return let_go(serving, who);
+        }
+        Err(FrameError::Invalid) => {
+          console_core_logging::warn!("console-events: {who} sent an invalid request");
+
+          return let_go(serving, who);
+        }
       }
     }
   }
 
-  match still {
-    Still::Connected => Ok(()),
-    Still::Gone => let_go(serving, who),
+  Ok(())
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum FrameError {
+  TooLong,
+  Invalid,
+}
+
+struct RequestSerial(u64);
+
+enum Frame {
+  Legacy(Message),
+  Versioned {
+    serial: RequestSerial,
+    request: Result<Request, Fault>,
+  },
+}
+
+fn frame(heard: &mut Vec<u8>, part: &[u8], trace: Trace) -> Result<Option<Frame>, FrameError> {
+  let terminated = part.strip_suffix(b"\n");
+  let bytes = match terminated {
+    Some(bytes) => bytes,
+    None => part,
+  };
+  let Ok(total) = fixed_index(heard.len().saturating_add(bytes.len()));
+
+  match (total <= REQUEST_BYTES).then_some(()) {
+    Some(()) => heard.extend_from_slice(bytes),
+    None => return Err(FrameError::TooLong),
+  }
+
+  match (terminated, heard.is_empty()) {
+    (None, _) | (Some(_), true) => return Ok(None),
+    (Some(_), false) => {}
+  }
+
+  let decoded = match std::str::from_utf8(heard) {
+    Ok(line) => decode_request(line, trace),
+    Err(_invalid_utf8) => Err(FrameError::Invalid),
+  };
+  heard.clear();
+
+  decoded.map(Some)
+}
+
+fn decode_request(line: &str, trace: Trace) -> Result<Frame, FrameError> {
+  match line.starts_with("ipc ").then_some(()) {
+    Some(()) => {
+      let Ok(()) = ipc::trace_line(line, trace, ipc::Direction::Receive);
+      Request::read(line)
+        .map(|(serial, request)| Frame::Versioned {
+          serial: RequestSerial(serial),
+          request,
+        })
+        .map_err(|_malformed_header| FrameError::Invalid)
+    }
+    None => {
+      let Ok(message) = wire::decoded(line);
+
+      message.map(Frame::Legacy).ok_or(FrameError::Invalid)
+    }
   }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Still {
-  Connected,
-  Gone,
+fn stale() -> Result<Published, Never> {
+  Ok(Published {
+    payload: ipc::STALE_PAYLOAD.to_owned(),
+    fresh_at: None,
+  })
 }
 
-#[cfg_attr(
-  dylint_lib = "explicit057_no_unbounded_wait",
-  expect(
-    explicit057_no_unbounded_wait,
-    reason = "arrived sets every client socket nonblocking before storing it, and this read stops when it would block"
-  )
-)]
-fn read(serving: &mut Serving<'_>, who: Who) -> Result<(Vec<u8>, Still), Never> {
-  let client = match serving.clients.get_mut(&who) {
-    Some(client) => client,
-    None => return Ok((Vec::new(), Still::Gone)),
+impl WorkspaceDesk {
+  fn start(&mut self) -> Result<(), Fault> {
+    match &self.source {
+      Some(_) => return Ok(()),
+      None => {}
+    }
+
+    let wake = self.wake.try_clone().map_err(|_| Fault::Unavailable)?;
+    let source = workspace::Subscription::start(wake).map_err(|fault| {
+      console_core_logging::warn!("console-events: starting the workspace source: {fault}");
+      Fault::Unavailable
+    })?;
+    self.source = Some(source);
+
+    Ok(())
+  }
+}
+
+fn requested(
+  serving: &mut Serving<'_>,
+  who: Who,
+  serial: RequestSerial,
+  request: Result<Request, Fault>,
+) -> Result<(), Never> {
+  let reply = match request {
+    Ok(request_2) => answer_request(serving, who, &serial, request_2),
+    Err(fault) => Err(fault),
   };
-  let buffer = Box::new([0_u8; 64 << 10]);
+  let Ok(snapshot_bytes) = fixed_index(serving.workspace.line.len());
+  let waiting = match serving.clients.get(&who) {
+    Some(client) => {
+      let Ok(waiting) = queued(client, snapshot_bytes);
 
-  let heard = iterate((client, buffer), |(client_2, mut buffer_2)| {
-    let fault = match client_2.connection.read(buffer_2.as_mut_slice()) {
-      Ok(0) => return Ok(Step::Halt((client_2, Still::Gone))),
-      Ok(many) => {
-        client_2.heard.extend(buffer_2.iter().take(many));
+      waiting
+    }
+    None => return Ok(()),
+  };
+  let line = match reply {
+    Ok(line) => {
+      let Ok(bytes) = fixed_index(line.len());
+      let fits = bytes <= u64::from(ipc::REPLY_BYTES)
+        && waiting.saturating_add(bytes) <= OUTBOX.saturating_sub(IPC_FAULT_RESERVE);
 
-        return Ok(Step::Again((client_2, buffer_2)));
+      match fits.then_some(()) {
+        Some(()) => Ok(line),
+        None => Reply::Fault(Fault::Overloaded).line(serial.0),
       }
-      Err(fault) => fault,
+    }
+    Err(fault) => Reply::Fault(fault).line(serial.0),
+  };
+
+  match line {
+    Ok(line_2) => {
+      let Ok(()) = ipc::trace_line(&line_2, serving.trace, ipc::Direction::Send);
+
+      send(serving, who, line_2.as_bytes())
+    }
+    Err(fault) => {
+      console_core_logging::warn!("console-events: formatting IPC reply: {fault}");
+
+      let_go(serving, who)
+    }
+  }
+}
+
+fn answer_request(
+  serving: &mut Serving<'_>,
+  who: Who,
+  serial: &RequestSerial,
+  request: Request,
+) -> Result<String, Fault> {
+  match request {
+    Request::Ping => Reply::Pong
+      .line(serial.0)
+      .map_err(|_not_serializable| Fault::Unavailable),
+    Request::GetWorkspace { max_age_ms } => {
+      serving.workspace.start()?;
+      let latest = &serving.workspace.latest;
+      let current = latest
+        .fresh_at
+        .filter(|stamp| stamp.elapsed() <= Duration::from_millis(u64::from(max_age_ms)));
+      let payload = match current {
+        Some(_within_the_limit) => latest.payload.as_str(),
+        None => ipc::STALE_PAYLOAD,
+      };
+
+      let Ok(line) = ipc::workspace_frame(payload, serial.0);
+
+      Ok(line)
+    }
+    Request::WatchWorkspace => {
+      serving.workspace.start()?;
+      let client = serving.clients.get_mut(&who).ok_or(Fault::Unavailable)?;
+      client.workspace = WorkspaceWatch::Current;
+      let Ok(line) = ipc::workspace_frame(&serving.workspace.latest.payload, serial.0);
+
+      Ok(line)
+    }
+  }
+}
+
+fn workspace_updates(serving: &mut Serving<'_>) -> Result<(), Never> {
+  for _publication in 0..4 {
+    let outcome = match &serving.workspace.source {
+      Some(source) => source.updates.try_recv(),
+      None => break,
     };
-    let Ok(refused) = refused(&fault);
+    let published = match outcome {
+      Ok(update) => update,
+      Err(TryRecvError::Empty) => break,
+      Err(TryRecvError::Disconnected) => {
+        serving.workspace.source = None;
+        let Ok(lost) = stale();
 
-    Ok(match refused {
-      Rejected::NotYet => Step::Halt((client_2, Still::Connected)),
-      Rejected::Interrupted => Step::Again((client_2, buffer_2)),
-      Rejected::Gone => Step::Halt((client_2, Still::Gone)),
-    })
-  });
+        lost
+      }
+    };
+    let Ok(()) = publish_workspace(serving, published);
+  }
 
-  let (client_3, still) = match heard {
-    Ok(heard_2) => heard_2,
-    Err(Endless) => return Ok((Vec::new(), Still::Gone)),
+  Ok(())
+}
+
+fn publish_workspace(serving: &mut Serving<'_>, update: Published) -> Result<(), Never> {
+  let Ok(encoded) = ipc::workspace_frame(&update.payload, 0);
+  let Ok(size) = fixed_index(encoded.len());
+  let (published, line) = match (size <= u64::from(ipc::REPLY_BYTES)).then_some(()) {
+    Some(()) => (update, encoded),
+    None => {
+      console_core_logging::warn!("console-events: workspace snapshot exceeded its wire limit");
+      let Ok(lost) = stale();
+      let Ok(smaller) = ipc::workspace_frame(&lost.payload, 0);
+
+      (lost, smaller)
+    }
   };
+  let Ok(()) = ipc::trace_line(&line, serving.trace, ipc::Direction::Publish);
+  let Ok(bytes) = fixed_index(line.len());
+  serving.workspace.latest = published;
+  serving.workspace.line = line;
 
-  let rest = match client_3.heard.iter().rposition(|byte| *byte == b'\n') {
-    Some(end) => client_3.heard.split_off(end.saturating_add(1)),
-    None => return Ok((Vec::new(), still)),
-  };
+  let mut gone = Vec::new();
 
-  Ok((std::mem::replace(&mut client_3.heard, rest), still))
+  for (who, client) in &mut serving.clients {
+    match client.workspace {
+      WorkspaceWatch::Off => {}
+      WorkspaceWatch::Current | WorkspaceWatch::Pending => {
+        let Ok(outbox) = fixed_index(client.outbox.len());
+
+        match (outbox.saturating_add(bytes) <= OUTBOX).then_some(()) {
+          Some(()) => client.workspace = WorkspaceWatch::Pending,
+          None => gone.push(*who),
+        }
+      }
+    }
+  }
+
+  for who in gone {
+    let Ok(()) = let_go(serving, who);
+  }
+
+  Ok(())
 }
 
 fn let_go(serving: &mut Serving<'_>, who: Who) -> Result<(), Never> {
@@ -565,19 +847,24 @@ fn hold(serving: &mut Serving<'_>, event_group: &EventGroup) -> Result<(), Never
   Ok(())
 }
 
-fn publish_pending(serving: &mut Serving<'_>, published: &Receiver<Change>) -> Result<(), Never> {
-  for change in published.try_iter() {
+fn publish_pending(
+  serving: &mut Serving<'_>,
+  published: &Receiver<Change>,
+) -> Result<Publication, Never> {
+  for _publication in 0..PUBLICATIONS_PER_TURN {
+    let change = match published.try_recv() {
+      Ok(change) => change,
+      Err(TryRecvError::Empty | TryRecvError::Disconnected) => return Ok(Publication::Idle),
+    };
     let Ok(()) = publish(serving, &change);
 
-    match ::core::primitive::bool::then_some(serving.carried > BATCH, ()) {
-      ::core::option::Option::Some(()) => {
-        let Ok(()) = flush(serving);
-      }
+    match ::core::primitive::bool::then_some(serving.carried >= BATCH, ()) {
+      ::core::option::Option::Some(()) => return Ok(Publication::Queued),
       ::core::option::Option::None => {}
     }
   }
 
-  Ok(())
+  Ok(Publication::Queued)
 }
 
 fn publish(serving: &mut Serving<'_>, change: &Change) -> Result<(), Never> {
@@ -599,31 +886,37 @@ fn publish(serving: &mut Serving<'_>, change: &Change) -> Result<(), Never> {
 }
 
 fn send(serving: &mut Serving<'_>, who: Who, line: &[u8]) -> Result<(), Never> {
+  let Ok(snapshot_bytes) = fixed_index(serving.workspace.line.len());
   let client = match serving.clients.get_mut(&who) {
     Some(client) => client,
     None => return Ok(()),
   };
-  let Ok(held) = fitted::<_, u64>(client.outbox.len());
+  let Ok(waiting) = queued(client, snapshot_bytes);
+  let Ok(bytes) = fixed_index(line.len());
 
-  match ::core::primitive::bool::then_some(held > OUTBOX, ()) {
-    ::core::option::Option::Some(()) => {
-      eprintln!(
-        "console-events: {who} is holding {OUTBOX} bytes it has not read and is let go; \
-                 it will connect again and be told what is true then"
-      );
+  match (waiting.saturating_add(bytes) > OUTBOX).then_some(()) {
+    Some(()) => {
+      console_core_logging::warn!("console-events: {who} exceeded its outbox budget");
 
       return let_go(serving, who);
     }
-    ::core::option::Option::None => {}
+    None => {}
   }
 
-  client.outbox.extend_from_slice(line);
-
-  let Ok(long) = fitted::<_, u64>(line.len());
-
-  serving.carried = serving.carried.saturating_add(long);
+  client.outbox.extend(line.iter().copied());
+  serving.carried = serving.carried.saturating_add(bytes);
 
   Ok(())
+}
+
+fn queued(client: &Client, snapshot_bytes: u64) -> Result<u64, Never> {
+  let pending = match client.workspace {
+    WorkspaceWatch::Pending => snapshot_bytes,
+    WorkspaceWatch::Current | WorkspaceWatch::Off => 0,
+  };
+  let Ok(outbox) = fixed_index(client.outbox.len());
+
+  Ok(outbox.saturating_add(pending))
 }
 
 fn flush(serving: &mut Serving<'_>) -> Result<(), Never> {
@@ -632,7 +925,7 @@ fn flush(serving: &mut Serving<'_>) -> Result<(), Never> {
   let mut gone: Vec<Who> = Vec::new();
 
   for (who, client) in &mut serving.clients {
-    let Ok(wrote) = wrote(client);
+    let Ok(wrote) = wrote(client, &serving.workspace.line);
 
     match wrote {
       Wrote::Retained => {}
@@ -652,33 +945,73 @@ enum Wrote {
   Gone,
 }
 
-fn wrote(client: &mut Client) -> Result<Wrote, Never> {
-  let written = iterate(client, |client_2| {
-    match ::core::primitive::bool::then_some(client_2.outbox.is_empty(), ()) {
-      ::core::option::Option::Some(()) => return Ok(Step::Halt(Wrote::Retained)),
-      ::core::option::Option::None => {}
+fn wrote(client: &mut Client, newest: &str) -> Result<Wrote, Never> {
+  match (client.outbox.is_empty(), &client.workspace) {
+    (true, WorkspaceWatch::Pending) => {
+      client.outbox.extend(newest.as_bytes().iter().copied());
+      client.workspace = WorkspaceWatch::Current;
     }
+    (true, WorkspaceWatch::Off | WorkspaceWatch::Current) => return Ok(Wrote::Retained),
+    (false, _) => {}
+  }
 
-    let fault = match client_2.connection.write(&client_2.outbox) {
-      Ok(0) => return Ok(Step::Halt(Wrote::Gone)),
-      Ok(many) => {
-        let _ = client_2.outbox.drain(..many);
+  let (head, tail) = client.outbox.as_slices();
+  let Ok(head_size) = fixed_index(head.len());
+  let Ok(tail_size) = fixed_index(tail.len());
+  let head_bytes = head_size.min(WRITE_BYTES);
+  let tail_bytes = tail_size.min(WRITE_BYTES.saturating_sub(head_bytes));
+  let Ok(head_end) = index(head_bytes);
+  let Ok(tail_end) = index(tail_bytes);
+  let first = match head.get(..head_end) {
+    Some(present) => present,
+    None => return Ok(Wrote::Gone),
+  };
+  let second = match tail.get(..tail_end) {
+    Some(present) => present,
+    None => return Ok(Wrote::Gone),
+  };
+  let batch = [IoSlice::new(first), IoSlice::new(second)];
 
-        return Ok(Step::Again(client_2));
-      }
-      Err(fault) => fault,
-    };
-    let Ok(refused) = refused(&fault);
+  Ok(match client.connection.write_vectored(&batch) {
+    Ok(0) => Wrote::Gone,
+    Ok(many) => {
+      drop(client.outbox.drain(..many));
 
-    Ok(match refused {
-      Rejected::NotYet => Step::Halt(Wrote::Retained),
-      Rejected::Interrupted => Step::Again(client_2),
-      Rejected::Gone => Step::Halt(Wrote::Gone),
-    })
-  });
-
-  Ok(match written {
-    Ok(written_2) => written_2,
-    Err(Endless) => Wrote::Gone,
+      Wrote::Retained
+    }
+    Err(fault) => match refused(&fault) {
+      Ok(Rejected::NotYet | Rejected::Interrupted) => Wrote::Retained,
+      Ok(Rejected::Gone) => Wrote::Gone,
+    },
   })
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn frames_are_bounded_before_appending_and_survive_read_boundaries() {
+    let mut partial = Vec::new();
+    assert!(matches!(
+      frame(&mut partial, b"subsc", Trace::Quiet),
+      Ok(None)
+    ));
+    assert!(matches!(
+      frame(&mut partial, b"ribe sound\n", Trace::Quiet),
+      Ok(Some(Frame::Legacy(Message::Subscribe(EventGroup::Sound))))
+    ));
+    assert!(partial.is_empty());
+
+    let maximum = [b'x'; 16 << 10];
+    assert!(matches!(
+      frame(&mut partial, &maximum, Trace::Quiet),
+      Ok(None)
+    ));
+    assert!(matches!(
+      frame(&mut partial, b"more", Trace::Quiet),
+      Err(FrameError::TooLong)
+    ));
+    assert_eq!(partial.len(), maximum.len());
+  }
 }

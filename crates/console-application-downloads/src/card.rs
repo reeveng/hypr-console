@@ -229,13 +229,11 @@ fn thing(
 
   let Ok(fetching) = fetched_by(kind, found);
 
-  let Ok(row) = Row::new(&found.title, Aside(&aside), chose);
-  let Ok(pictured) = row.picturing(picture);
-  let Ok(pictured_2) = pictured.selectable(&found.id);
-  let Ok(pictured_3) =
-    pictured_2.while_running(&fetching, &format!("{DOWNLOADING} {}", found.title));
+  let Ok(row) = Row::stacked_action(picture, &found.title, Aside(&aside), chose);
+  let Ok(keyed) = row.selectable(&found.id);
+  let Ok(progress) = keyed.while_running(&fetching, &format!("{DOWNLOADING} {}", found.title));
 
-  pictured_3.offering(offers)
+  progress.offering(offers)
 }
 
 fn chose(held: &Panel, tab: u32, kind: Kind, found: &Found) -> Result<Handler, Never> {

@@ -16,7 +16,7 @@ use alloc::{string::String, vec::Vec};
 use console_core_never::Never;
 use core::fmt;
 
-pub mod forgiving_base64;
+pub use console_core_bytes::base64 as forgiving_base64;
 pub mod mime;
 
 #[derive(Clone, Copy)]
@@ -249,21 +249,14 @@ fn remove_base64_suffix(text: &str) -> Result<Option<&str>, Never> {
 }
 
 fn percent_encode(byte: u8, text: &mut String) -> Result<(), Never> {
-  let Ok(high) = hexadecimal(byte.wrapping_shr(4));
-  let Ok(low) = hexadecimal(byte & 0x0f);
+  let Ok([high, low]) =
+    console_core_bytes::hex::encode_byte(byte, console_core_bytes::hex::Case::Upper);
 
   text.push('%');
-  text.push(high);
-  text.push(low);
+  text.push(char::from(high));
+  text.push(char::from(low));
 
   Ok(())
-}
-
-fn hexadecimal(nibble: u8) -> Result<char, Never> {
-  Ok(char::from(match nibble {
-    0..=9 => b'0'.wrapping_add(nibble),
-    other => b'A'.wrapping_add(other.wrapping_sub(10)),
-  }))
 }
 
 enum Part<'a> {

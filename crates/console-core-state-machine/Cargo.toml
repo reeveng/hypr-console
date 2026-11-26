@@ -8,9 +8,10 @@ license.workspace = true
 [features]
 default = ["std"]
 std = ["alloc"]
-alloc = ["dep:console-core-checksums", "dep:console-core-number-conversion"]
+alloc = ["dep:console-core-bytes", "dep:console-core-checksums", "dep:console-core-number-conversion"]
 
 [dependencies]
+console-core-bytes = { workspace = true, features = ["alloc"], optional = true }
 console-core-checksums = { workspace = true, optional = true }
 console-core-never.workspace = true
 console-core-number-conversion = { path = "../console-core-number-conversion", default-features = false, optional = true }

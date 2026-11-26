@@ -21,13 +21,13 @@ use console_core_fonts::{EM, TextStyle};
 use console_core_geometry::{Point, Size};
 use console_core_never::Never;
 use console_core_number_conversion::{Float, fitted, index, toward_zero_i32};
-use console_core_shapes::{Edge as Border, Panel, Round, Shape, Text};
+use console_core_shapes::{Edge, Panel, Round, Shape, Text};
 use console_draw_painting::{Lines, Run, at_most};
 
 use crate::reading::Urgency;
 use crate::serving::{Action, Choice, Target};
 
-pub use console_onscreen::NOTIFICATION as WHO;
+pub const WHO: &str = console_onscreen::NOTIFICATION;
 
 pub use console_core_color::palette::{PaletteError, SPENDS, Wearing};
 
@@ -292,7 +292,7 @@ pub fn card(
     },
     round: Round(round),
     fill: wearing.panel,
-    edge: Border::Of {
+    edge: Edge::Of {
       wide: border,
       color: worn.edge,
     },
@@ -346,7 +346,7 @@ pub fn card(
         },
         round: Round(round),
         fill: wearing.ground,
-        edge: Border::None,
+        edge: Edge::None,
       }));
       shapes.push(Shape::Panel(Panel {
         at: Point { x: across, y: down },
@@ -356,7 +356,7 @@ pub fn card(
         },
         round: Round(round),
         fill: wearing.fill,
-        edge: Border::None,
+        edge: Edge::None,
       }));
     }
     None => {}
@@ -451,7 +451,7 @@ fn buttons(
       },
       round: Round(round),
       fill: wearing.ground,
-      edge: Border::None,
+      edge: Edge::None,
     };
     let region = HitRegion {
       target: Target {
@@ -540,7 +540,7 @@ pub fn cards(said: &[(CardContent<'_>, Measured)], wearing: &Wearing) -> Result<
         },
         round: Round(round),
         fill: wearing.panel,
-        edge: Border::Of {
+        edge: Edge::Of {
           wide: 1,
           color: worn.edge,
         },
@@ -562,7 +562,7 @@ pub fn cards(said: &[(CardContent<'_>, Measured)], wearing: &Wearing) -> Result<
         },
         round: Round(0),
         fill: wearing.panel,
-        edge: Border::None,
+        edge: Edge::None,
       },
     });
     shapes.extend(card.shapes);

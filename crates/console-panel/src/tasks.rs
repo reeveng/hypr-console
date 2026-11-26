@@ -56,7 +56,7 @@ use console_operating_system_linux::program_lifetime::ProcessIdentity;
 use console_operating_system_linux::program_runtime::commands::{self, Linux, Timing};
 use console_program_contract::{Answer, Command, ExitStatus, Notification};
 use console_program_lifetime::{Insistence, Interruption, threads};
-use console_program_runtime::commands::{self as execution_commands, Reporter, Streams};
+use console_program_runtime::commands::{Reporter, Streams};
 
 use crate::page::{
   Act, ActionOutcome, Progress, Retained, Row, Showing, Subject, WhileRunning, YET, retained,
@@ -567,7 +567,7 @@ fn ran(
   application: Application,
 ) -> Result<Answer, Never> {
   let Ok(mut platform) = Linux::new(Timing::Background);
-  let starting = match execution_commands::resolve(&mut platform, command) {
+  let starting = match console_program_runtime::commands::resolve(&mut platform, command) {
     Ok(invocation) => platform.fork(&invocation, Streams::COLLECT),
     Err(fault) => Err(fault),
   };
@@ -632,7 +632,6 @@ mod tests {
   use std::process::Stdio;
 
   use console_core_external_programs::Program;
-  use console_core_state_machine::run as pressed;
   use console_operating_system_linux::program_lifetime::forked;
 
   use crate::page::Aside;
@@ -693,7 +692,7 @@ mod tests {
       identity: None,
       interruption: Interruption::None,
     };
-    let Ok(said) = pressed::<Tasks>(
+    let Ok(said) = console_core_state_machine::run::<Tasks>(
       &(),
       &[
         TaskEvent::Start(started.clone()),
@@ -723,7 +722,7 @@ mod tests {
       interruption: Interruption::None,
     };
     let Ok(answer) = answered(&one, ExitStatus::Success);
-    let Ok(said) = pressed::<Tasks>(
+    let Ok(said) = console_core_state_machine::run::<Tasks>(
       &(),
       &[
         TaskEvent::Start(started.clone()),
@@ -756,7 +755,7 @@ mod tests {
       identity: None,
       interruption: Interruption::None,
     };
-    let Ok(said) = pressed::<Tasks>(
+    let Ok(said) = console_core_state_machine::run::<Tasks>(
       &(),
       &[
         TaskEvent::Start(first.clone()),
@@ -844,7 +843,7 @@ mod tests {
     for status in statuses {
       let Ok(answer) = answered(&command, status);
       let Ok(started) = Started::of(command.clone(), command.clone());
-      let Ok(trace) = pressed::<Tasks>(
+      let Ok(trace) = console_core_state_machine::run::<Tasks>(
         &(),
         &[
           TaskEvent::Start(started),
@@ -902,7 +901,7 @@ mod tests {
     let Ok(one) = pairing("A");
     let Ok(started) = Started::of(one.clone(), one.clone());
     let identity = an_identity()?;
-    let Ok(said) = pressed::<Tasks>(
+    let Ok(said) = console_core_state_machine::run::<Tasks>(
       &(),
       &[
         TaskEvent::Start(started),
@@ -943,7 +942,7 @@ mod tests {
     let Ok(one) = pairing("A");
     let Ok(started) = Started::of(one.clone(), one.clone());
     let identity = an_identity()?;
-    let Ok(said) = pressed::<Tasks>(
+    let Ok(said) = console_core_state_machine::run::<Tasks>(
       &(),
       &[
         TaskEvent::Start(started),
@@ -976,7 +975,7 @@ mod tests {
     let Ok(beside) = Started::of(other.clone(), other.clone());
     let identity = an_identity()?;
     let elsewhere = an_identity()?;
-    let Ok(said) = pressed::<Tasks>(
+    let Ok(said) = console_core_state_machine::run::<Tasks>(
       &(),
       &[
         TaskEvent::Start(started),
@@ -1006,7 +1005,7 @@ mod tests {
   #[test]
   fn interrupting_what_is_not_running_does_nothing() {
     let Ok(one) = pairing("A");
-    let Ok(said) = pressed::<Tasks>(&(), &[TaskEvent::Interrupt(one)]);
+    let Ok(said) = console_core_state_machine::run::<Tasks>(&(), &[TaskEvent::Interrupt(one)]);
 
     assert_eq!(said.effects(), Ok(Vec::new()));
     assert_eq!(said.state, Running::default());

@@ -9,6 +9,7 @@ license.workspace = true
 console-core-external-programs.workspace = true
 console-core-never.workspace = true
 console-core-number-conversion.workspace = true
+console-core-places.workspace = true
 rustix.workspace = true
 serde = "1"
 serde_json = "1"

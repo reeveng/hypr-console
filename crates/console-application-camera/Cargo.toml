@@ -19,10 +19,7 @@ camera = [
   "dep:console-core-iteration",
   "dep:console-core-number-conversion",
   "dep:console-core-png-files",
-  "dep:console-core-shapes",
   "dep:console-core-state-machine",
-  "dep:console-draw-painting",
-  "dep:console-draw-surface",
   "dep:console-operating-system-linux",
   "dep:console-pictures",
   "dep:console-panel",
@@ -43,10 +40,7 @@ console-core-logging = { workspace = true, features = ["std"] }
 console-core-number-conversion = { workspace = true, optional = true }
 console-core-places.workspace = true
 console-core-png-files = { workspace = true, optional = true }
-console-core-shapes = { workspace = true, optional = true }
 console-core-state-machine = { workspace = true, optional = true }
-console-draw-painting = { workspace = true, optional = true }
-console-draw-surface = { workspace = true, optional = true }
 console-operating-system-linux = { workspace = true, optional = true }
 console-panel = { workspace = true, optional = true }
 console-pictures = { workspace = true, optional = true }

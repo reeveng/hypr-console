@@ -13,7 +13,7 @@ use console_wayland::client::globals::GlobalListContents;
 use console_wayland::client::protocol::{wl_registry, wl_seat};
 use console_wayland::client::{Dispatch, QueueHandle, delegate_noop};
 use console_wayland::protocols::ext::idle_notify::v1::client::{
-  ext_idle_notification_v1 as notification, ext_idle_notifier_v1 as notifier,
+  ext_idle_notification_v1, ext_idle_notifier_v1,
 };
 use console_wayland::waiting;
 use rustix::event::{PollFd, PollFlags, Timespec, poll};
@@ -160,7 +160,7 @@ impl Watcher {
     let (globals, mut queue) = console_wayland::registry::queue(&connection)?;
     let handle = queue.handle();
     let seat = console_wayland::registry::seat(&globals, &handle, 1..=1)?;
-    let manager: notifier::ExtIdleNotifierV1 = globals.bind(&handle, 1..=1, ())?;
+    let manager: ext_idle_notifier_v1::ExtIdleNotifierV1 = globals.bind(&handle, 1..=1, ())?;
     let _subscription = manager.get_idle_notification(IDLE_MILLISECONDS, &seat, &handle, ());
     let mut watch = Self(SeatState::Active);
     let Ok(()) = watch.publish(shared);
@@ -187,18 +187,18 @@ impl Watcher {
   }
 }
 
-impl Dispatch<notification::ExtIdleNotificationV1, ()> for Watcher {
+impl Dispatch<ext_idle_notification_v1::ExtIdleNotificationV1, ()> for Watcher {
   fn event(
     state: &mut Self,
-    _: &notification::ExtIdleNotificationV1,
-    event: notification::Event,
+    _: &ext_idle_notification_v1::ExtIdleNotificationV1,
+    event: ext_idle_notification_v1::Event,
     _: &(),
     _: &console_wayland::client::Connection,
     _: &QueueHandle<Self>,
   ) {
     let seat = match event.opcode() {
-      notification::EVT_IDLED_OPCODE => SeatState::Idle,
-      notification::EVT_RESUMED_OPCODE => SeatState::Active,
+      ext_idle_notification_v1::EVT_IDLED_OPCODE => SeatState::Idle,
+      ext_idle_notification_v1::EVT_RESUMED_OPCODE => SeatState::Active,
       _unknown_opcode => return,
     };
     state.0 = seat;
@@ -218,4 +218,4 @@ impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for Watcher {
 }
 
 delegate_noop!(Watcher: ignore wl_seat::WlSeat);
-delegate_noop!(Watcher: ignore notifier::ExtIdleNotifierV1);
+delegate_noop!(Watcher: ignore ext_idle_notifier_v1::ExtIdleNotifierV1);

@@ -26,7 +26,7 @@ use console_program_contract::{Command, Effect, Event};
 use console_core_never::Never;
 
 use crate::library::Kind;
-use crate::management::{Management, Request as ManagementRequest, Work};
+use crate::management::{self, Management, Work};
 use crate::player::{Order, Over};
 
 pub const PLAY: u32 = 2;
@@ -74,7 +74,7 @@ pub enum MusicEvent {
   Repeating(Over),
   Chose { path: PathBuf, kind: Kind },
   Shown(PathBuf),
-  Manage(ManagementRequest),
+  Manage(management::Request),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

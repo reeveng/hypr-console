@@ -633,6 +633,17 @@ impl Row {
     })
   }
 
+  pub fn stacked_action(
+    picture: Picture,
+    says: &str,
+    aside: Aside<'_>,
+    does: Handler,
+  ) -> Result<Self, Never> {
+    let Ok(row) = Self::stacked(picture, says, aside);
+
+    row.choosing(does)
+  }
+
   pub fn chief(mut self) -> Result<Self, Never> {
     self.chief = true;
 

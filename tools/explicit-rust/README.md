@@ -56,6 +56,9 @@ which stable cannot do; `rust-toolchain.toml` pins the nightly and the
    Review the diff after any [automatic fix](#applying-automatic-fixes). Keep
    exceptions local and give the concrete reason the rule's concern is absent.
    Match the surrounding hand formatting.
+5. Keep imported names consistent with their definitions. Qualify paths when
+   names collide. If a collision requires an alias, use a local allow that
+   names the conflict ([EXPLICIT106](#import-names)).
 
 ### State machines and effects
 
@@ -219,6 +222,7 @@ process, and login boundaries.
     EXPLICIT103  a thread started for each item of a list
     EXPLICIT104  a secret typed out in the source
     EXPLICIT105  a machine handler waiting for external work
+    EXPLICIT106  an import renamed with `as`
 
 All of them are written. Each is one crate with a `ui/` case beside it.
 
@@ -1052,6 +1056,30 @@ documentation, or block comments still receive the diagnostic for review.
 The head it points at is not itself judged. Whether a `//!` earns its place is a
 reading, and a lint cannot do a reading; the backlog carries that as work for a
 person.
+
+## Import names
+
+Use an item's original name in imports and re-exports. When two items have
+the same name, use qualified paths such as `std::fmt::Error` and
+`std::io::Error`. If the collision requires an alias, choose a name that
+identifies its source, use it consistently, and put the allow on the
+individual import. Name both conflicting items in the reason.
+
+```rust
+#[cfg_attr(
+    dylint_lib = "explicit106_no_import_alias",
+    allow(
+        explicit106_no_import_alias,
+        reason = "this module uses both its own Error and std::fmt::Error"
+    )
+)]
+use std::fmt::Error as FormattingError;
+```
+
+EXPLICIT106 denies `as` clauses in authored `use`, `pub use`, and
+`extern crate` declarations. This covers grouped imports, redundant aliases
+such as `use std::path::Path as Path;`, and anonymous aliases such as
+`use std::fmt::Write as _;`. A collision still requires the explicit allow.
 
 ## Where a rule does not apply
 

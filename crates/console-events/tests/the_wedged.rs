@@ -19,13 +19,15 @@ pub mod pool;
 use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::Path;
-use std::sync::mpsc::Receiver;
+use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
+use std::time::{Duration, Instant};
 
 use console_core_never::Never;
 use console_core_number_conversion::index;
 use console_events::subscription::{Received, connect_at};
 use console_events::wire::{self, Message};
-use console_program_contract::EventGroup;
+use console_program_contract::{Change, EventGroup};
+use console_waiting::{Outcome, Ready, Schedule, until_handed};
 use pool::{BEFORE_LONG, Failure, change, heard_before, serve_at, socket};
 
 const WORDS: u32 = 3_000;
@@ -33,6 +35,8 @@ const WORDS: u32 = 3_000;
 const LONG: u32 = 4096;
 
 const LAST: &str = "the last word";
+const PROBE: &str = "while the reader is wedged";
+const HEALTHY_LATENCY: Duration = Duration::from_millis(500);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Delivered {
@@ -46,10 +50,10 @@ enum Connection {
   StillOpen,
 }
 
-fn to_the_end(heard: &Receiver<Received>) -> Result<Delivered, Never> {
+fn until_word(heard: &Receiver<Received>, word: &str) -> Result<Delivered, Never> {
   let Ok(ended) = heard_before(heard, BEFORE_LONG, |received| match received {
     Received::Event(change) => {
-      match ::core::primitive::bool::then_some(change.text == LAST, ()) {
+      match ::core::primitive::bool::then_some(change.text == word, ()) {
         ::core::option::Option::Some(()) => Some(Delivered::TheLastWord),
         ::core::option::Option::None => None,
       }
@@ -94,7 +98,54 @@ fn read_out(wedged: &mut UnixStream) -> Result<Connection, Never> {
   Ok(Connection::StillOpen)
 }
 
+enum Offer {
+  Pending(Change),
+  Accepted,
+  Closed,
+}
+
+fn publish(sender: &SyncSender<Change>, event: Change) -> std::io::Result<()> {
+  let Ok(schedule) = Schedule::asking_every(BEFORE_LONG, Duration::from_millis(1));
+  let mut pending = Offer::Pending(event);
+  let Ok(attempted) = until_handed(schedule, &mut pending, |state| {
+    let next = std::mem::replace(state, Offer::Closed);
+    let change = match next {
+      Offer::Pending(waiting) => waiting,
+      Offer::Accepted | Offer::Closed => return Ok(Ready::Yes),
+    };
+
+    Ok(match sender.try_send(change) {
+      Ok(()) => {
+        *state = Offer::Accepted;
+
+        Ready::Yes
+      }
+      Err(TrySendError::Full(retry)) => {
+        *state = Offer::Pending(retry);
+
+        Ready::NotYet
+      }
+      Err(TrySendError::Disconnected(_undelivered)) => Ready::Yes,
+    })
+  });
+
+  match (attempted, pending) {
+    (Outcome::Happened, Offer::Accepted) => Ok(()),
+    (Outcome::Happened, Offer::Closed | Offer::Pending(_)) => {
+      Err(std::io::Error::from(std::io::ErrorKind::BrokenPipe))
+    }
+    (Outcome::RanOut, _) => Err(std::io::Error::from(std::io::ErrorKind::TimedOut)),
+  }
+}
+
 #[test]
+#[cfg_attr(
+  dylint_lib = "explicit057_no_unbounded_wait",
+  expect(
+    explicit057_no_unbounded_wait,
+    reason = "the publisher sends a fixed number of messages and abandons the run if one reaches its send deadline"
+  )
+)]
 fn a_program_that_stopped_reading_does_not_stop_the_words_reaching_anyone_else()
 -> Result<(), Failure> {
   let at = socket("wedged")?;
@@ -111,27 +162,55 @@ fn a_program_that_stopped_reading_does_not_stop_the_words_reaching_anyone_else()
 
   let Ok(long) = index(LONG);
   let long_2 = "a".repeat(long);
+  let (probed, samples) = sync_channel(2);
+  let delivered = std::thread::scope(|scope| -> Result<(), Failure> {
+    let sending = scope.spawn(move || -> std::io::Result<()> {
+      for word in 0..WORDS {
+        let Ok(said) = change(&format!("{word} {long}", long = long_2));
+        publish(&saying, said)?;
 
-  for word in 0..WORDS {
-    let Ok(said) = change(&format!("{word} {long}", long = long_2));
+        match word {
+          120 => {
+            let Ok(probe) = change(PROBE);
+            probed
+              .send(Instant::now())
+              .map_err(|_closed| std::io::Error::from(std::io::ErrorKind::BrokenPipe))?;
+            publish(&saying, probe)?;
+          }
+          _ => {}
+        }
+      }
 
-    saying
-      .send(said)
-      .map_err(|_| "the pool stopped listening")?;
-  }
+      let Ok(last) = change(LAST);
+      probed
+        .send(Instant::now())
+        .map_err(|_closed| std::io::Error::from(std::io::ErrorKind::BrokenPipe))?;
+      publish(&saying, last)?;
 
-  let Ok(last) = change(LAST);
+      Ok(())
+    });
 
-  saying
-    .send(last)
-    .map_err(|_| "the pool stopped listening")?;
+    for marker in [PROBE, LAST] {
+      let Ok(delivered) = until_word(heard, marker);
+      let began = samples.recv_timeout(BEFORE_LONG)?;
+      let elapsed = began.elapsed();
+      assert_eq!(
+        delivered,
+        Delivered::TheLastWord,
+        "healthy subscriber missed {marker}"
+      );
+      assert!(
+        elapsed <= HEALTHY_LATENCY,
+        "healthy subscriber took {elapsed:?} for {marker}"
+      );
+    }
 
-  assert_eq!(
-    to_the_end(heard),
-    Ok(Delivered::TheLastWord),
-    "a program that had stopped reading held up every word to everyone else, so the bar \
-         goes quiet because a panel behind a picker went to sleep"
-  );
+    let map_err = sending.join().map_err(|_| "publication worker panicked")?;
+    map_err?;
+
+    Ok(())
+  });
+  delivered?;
 
   wedged.set_read_timeout(Some(BEFORE_LONG))?;
 

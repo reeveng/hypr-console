@@ -19,8 +19,7 @@
 //! first number no one was on, which put the new one in whatever gap a closed
 //! window had left rather than under the + that was tapped.
 //!
-//! Numbered workspaces use consecutive labels in compositor ID order. The
-//! Console shortcuts use that order as well, while clicks keep the actual ID.
+//! A numbered workspace has the same ID in its label, shortcut, and click.
 //! Asking the machine is the program's, because it is the half that needs a
 //! machine.
 
@@ -70,6 +69,12 @@ pub enum FocusUpdate {
   Unchanged,
   NoWorkspace,
   Workspace(Workspace),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PressEffect {
+  Panel(PanelEffect),
+  Action(BarAction),
 }
 
 pub fn music(paused: Paused, playing: Playing) -> Result<Reading, Never> {
@@ -175,25 +180,14 @@ impl BarState {
     Ok(effects)
   }
 
-  pub fn pressed(&mut self, action: BarAction) -> Result<Vec<BarAction>, Never> {
+  pub fn pressed(&mut self, action: BarAction) -> Result<Vec<PressEffect>, Never> {
     let Ok(panel) = Panel::of(action);
 
     match panel {
       Some(panel_2) => {
         let Ok(effects) = self.told(PanelEvent::Pressed(panel_2));
 
-        Ok(
-          effects
-            .into_iter()
-            .map(|effect| match effect {
-              PanelEffect::Start(panel_3) => {
-                let Ok(action_2) = panel_3.action();
-
-                action_2
-              }
-            })
-            .collect(),
-        )
+        Ok(effects.into_iter().map(PressEffect::Panel).collect())
       }
       None => {
         let Ok(()) = match action {
@@ -215,7 +209,7 @@ impl BarState {
           | BarAction::Power(_) => Ok::<(), Never>(()),
         };
 
-        Ok(vec![action])
+        Ok(vec![PressEffect::Action(action)])
       }
     }
   }
@@ -254,7 +248,6 @@ impl BarState {
     let Ok(board) = icon(KEYBOARD, Tone::Pressed, keyboard, BarAction::Keyboard);
     let Ok(history) = icon(CLIPBOARD, Tone::Pressed, clipboard, BarAction::Clipboard);
     let mut left = vec![door, board, history];
-    let mut counted: u32 = 0;
 
     for workspace in &self.workspaces {
       let Ok(kind) = WorkspaceKind::of(&workspace.named);
@@ -265,11 +258,7 @@ impl BarState {
       }
 
       let named = match ::core::primitive::bool::then_some(workspace.id > 0, ()) {
-        ::core::option::Option::Some(()) => {
-          counted = counted.saturating_add(1);
-
-          counted.to_string()
-        }
+        ::core::option::Option::Some(()) => workspace.id.to_string(),
         ::core::option::Option::None => workspace.named.clone(),
       };
 
@@ -561,7 +550,7 @@ mod tests {
   }
 
   #[test]
-  fn workspace_labels_skip_special_workspaces_and_clicks_keep_the_underlying_id() {
+  fn workspace_labels_keep_their_ids_across_gaps_and_skip_special_workspaces() {
     let Ok(state) = sample_state();
     let held = BarState {
       workspaces: [
@@ -570,7 +559,7 @@ mod tests {
         (-98, "special:console-quick"),
         (2, "2"),
         (3, "3"),
-        (5, "5"),
+        (9, "9"),
       ]
       .iter()
       .map(|(id, name)| Workspace {
@@ -595,10 +584,10 @@ mod tests {
       named,
       [
         ("Project", -1337),
-        ("1", 2),
-        ("2", 3),
-        ("3", 5),
-        (ANOTHER, 6)
+        ("2", 2),
+        ("3", 3),
+        ("9", 9),
+        (ANOTHER, 10)
       ]
     );
   }
@@ -669,8 +658,13 @@ mod tests {
       state.panels.lit(Panel::Settings(SettingsTab::Battery)),
       Ok(Lit::Yes)
     );
-    assert_eq!(switching, [BarAction::Workspace(3)]);
-    assert_eq!(opening, [BarAction::Settings(SettingsTab::Battery)]);
+    assert_eq!(switching, [PressEffect::Action(BarAction::Workspace(3))]);
+    assert_eq!(
+      opening,
+      [PressEffect::Panel(PanelEffect::Start(Panel::Settings(
+        SettingsTab::Battery
+      )))]
+    );
   }
 
   #[test]
@@ -702,7 +696,9 @@ mod tests {
     assert_eq!(clipboard(&state, &preferences), Some(Lit::No));
     assert_eq!(
       state.pressed(BarAction::Clipboard),
-      Ok(vec![BarAction::Clipboard])
+      Ok(vec![PressEffect::Panel(PanelEffect::Start(
+        Panel::Clipboard
+      ))])
     );
     assert_eq!(clipboard(&state, &preferences), Some(Lit::Yes));
     let Ok(()) = preferences.toggle(Item::Clipboard);
@@ -756,7 +752,10 @@ mod tests {
       let Ok(icon) = tab.icon();
       let Ok(glyph) = icon.glyph();
 
-      assert_eq!(opening, [action]);
+      assert_eq!(
+        opening,
+        [PressEffect::Panel(PanelEffect::Start(Panel::Settings(tab)))]
+      );
       assert_eq!(
         open_applets,
         [Slot {

@@ -66,8 +66,7 @@ use console_core_fonts::{EM, Font, ICONS, TextStyle};
 use console_core_geometry::{Point, Size};
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index};
-use console_core_shapes::{Covers, Edge, Panel, Round, Shape, Text, Weight};
-use console_draw_surface::Activation;
+use console_core_shapes::{Covers, Edge, Panel, Round, Shape, Text, Weight, hover_indicator};
 
 use std::collections::BTreeMap;
 use std::num::NonZeroU32;
@@ -77,7 +76,7 @@ use crate::preferences::Placement;
 use crate::reading::Tone;
 use crate::settings::SettingsTab;
 
-pub use console_onscreen::BAR as WHO;
+pub const WHO: &str = console_onscreen::BAR;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Share(u32);
@@ -183,9 +182,11 @@ impl Fitting {
   }
 
   pub fn sidebar_content_width(&self, width: u32) -> Result<u32, Never> {
-    Ok(width
-      .saturating_sub(self.thin)
-      .saturating_sub(self.margin.saturating_mul(4)))
+    Ok(
+      width
+        .saturating_sub(self.thin)
+        .saturating_sub(self.margin.saturating_mul(4)),
+    )
   }
 
   pub fn font(&self, face: Face) -> Result<Font, Never> {
@@ -973,18 +974,41 @@ fn centered(panel: Panel, run: MeasuredRun) -> Result<i32, Never> {
 
 impl Rendered {
   pub fn on(&self, at: Point<i32>) -> Result<Option<BarAction>, Never> {
-    Activation::At(at).resolve(
-      || None,
-      |point| {
-        self
-          .touching
-          .iter()
-          .find_map(|touching| match touching.panel.covers(point) {
-            Ok(Covers::Yes) => Some(touching.action),
-            Ok(Covers::No) | Err(_) => None,
-          })
-      },
-    )
+    let Ok(hit) = self.hit_at(Some(at));
+
+    Ok(hit.map(|region| region.action))
+  }
+
+  pub fn hit_at(&self, at: Option<Point<i32>>) -> Result<Option<&HitRegion>, Never> {
+    Ok(at.and_then(|point| {
+      self
+        .touching
+        .iter()
+        .find(|hit| hit.panel.covers(point) == Ok(Covers::Yes))
+    }))
+  }
+
+  pub fn show_hover(
+    &mut self,
+    at: Option<Point<i32>>,
+    wearing: Wearing,
+  ) -> Result<Option<HitRegion>, Never> {
+    let Ok(hit) = self.hit_at(at);
+    let target = hit.copied();
+
+    match target {
+      Some(region) => {
+        let Ok(indicator) = hover_indicator(
+          region.panel.at,
+          region.panel.size,
+          (wearing.pink, wearing.night),
+        );
+        self.shapes.extend(indicator);
+      }
+      None => {}
+    }
+
+    Ok(target)
   }
 }
 

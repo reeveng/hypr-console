@@ -1,3 +1,4 @@
+use console_core_bytes::{base64, hex};
 use console_core_never::Never;
 use console_core_paths::StrictNum;
 use std::fmt::Display;
@@ -1277,23 +1278,9 @@ impl XmlWriterExt for XmlWriter {
 
   #[inline(never)]
   fn write_color(&mut self, id: AId, c: Color) -> Result<(), XmlFault> {
-    fn nibble(value: u8) -> Result<u8, Never> {
-      Ok(match value {
-        0..=9 => b'0'.saturating_add(value),
-        10.. => b'a'.saturating_add(value.saturating_sub(10)),
-      })
-    }
-
-    fn int2hex(value: u8) -> Result<(u8, u8), Never> {
-      let Ok(high) = nibble(::core::primitive::u8::wrapping_shr(value, 4_u32));
-      let Ok(low) = nibble(value & 0xf);
-
-      Ok((high, low))
-    }
-
-    let Ok((r1, r2)) = int2hex(c.red);
-    let Ok((g1, g2)) = int2hex(c.green);
-    let Ok((b1, b2)) = int2hex(c.blue);
+    let Ok([r1, r2]) = hex::encode_byte(c.red, hex::Case::Lower);
+    let Ok([g1, g2]) = hex::encode_byte(c.green, hex::Case::Lower);
+    let Ok([b1, b2]) = hex::encode_byte(c.blue, hex::Case::Lower);
 
     self.write_attribute_raw(
       {
@@ -1626,8 +1613,7 @@ impl XmlWriterExt for XmlWriter {
       }
     };
 
-    let encoded =
-      base64::display::Base64Display::new(data, &base64::engine::general_purpose::STANDARD);
+    let Ok(encoded) = base64::display(data);
 
     self.write_attribute_fmt(
       "xlink:href",

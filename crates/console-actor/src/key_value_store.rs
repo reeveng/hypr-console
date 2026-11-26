@@ -19,6 +19,7 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 use console_core_atomic_writes::{Ungone, Unwritten, gone, whole_with_folders};
+use console_core_bytes::Bytes;
 use console_core_never::Never;
 
 #[derive(Debug)]
@@ -74,11 +75,11 @@ impl KeyValueStore {
     Ok(KeyValueStore { directory })
   }
 
-  pub fn get(&self, key: &str) -> Result<Option<Vec<u8>>, PlatformError> {
+  pub fn get(&self, key: &str) -> Result<Option<Bytes>, PlatformError> {
     let at = self.at(key)?;
 
     match std::fs::read(&at) {
-      Ok(bytes) => Ok(Some(bytes)),
+      Ok(bytes) => Ok(Some(Bytes::from(bytes))),
       Err(fault) => {
         match ::core::primitive::bool::then_some(fault.kind() == ErrorKind::NotFound, ()) {
           ::core::option::Option::Some(()) => Ok(None),

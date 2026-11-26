@@ -41,6 +41,39 @@ const SCREEN: Size<u32> = Size {
 const SPENT: &str = "ground=2b2029\ntext=f7e7f3\nsoft=c9aec4\npink=ff9ecb\nnight=231b26\nbutter=f2d692\ncoral=ff8f8f\nleaf=9fd88f\nfill=723b5f";
 
 #[test]
+fn pointer_feedback_marks_the_click_target_and_leaves_the_progress_strip_plain()
+-> Result<(), Box<dyn Error>> {
+  let Ok((bar, _)) = bar(Filling::At(250));
+  let wearing = sample_palette()?;
+  let Ok(mut drawn) = showing::along(&bar, &wearing, SCREEN);
+  let plain = drawn.clone();
+  let region = plain
+    .touching
+    .iter()
+    .find(|hit| hit.action == BarAction::Calendar)
+    .ok_or("calendar click target is missing")?;
+  let point = region.panel.at;
+  assert_eq!(drawn.show_hover(Some(point), wearing), Ok(Some(*region)));
+  assert_eq!(drawn.on(point), Ok(Some(region.action)));
+  assert_eq!(drawn.touching, plain.touching);
+  let marker = drawn
+    .shapes
+    .strip_prefix(plain.shapes.as_slice())
+    .ok_or("bar changed behind the marker")?;
+  assert!(matches!(marker, [Shape::Line(edge), Shape::Line(accent)]
+    if edge.width > accent.width && accent.color == wearing.pink));
+
+  let Ok(last_row) = fitted::<_, i32>(plain.room.height.saturating_sub(1));
+  let progress = Point { x: 1, y: last_row };
+  let mut cleared = plain.clone();
+  assert_eq!(cleared.show_hover(Some(progress), wearing), Ok(None));
+  assert_eq!(cleared.show_hover(None, wearing), Ok(None));
+  assert_eq!(cleared, plain);
+
+  Ok(())
+}
+
+#[test]
 fn bottom_bar_keeps_the_horizontal_layout_with_progress_on_the_inner_edge()
 -> Result<(), Box<dyn Error>> {
   let Ok(mut state) = sample_state();
@@ -548,4 +581,155 @@ fn a_row_hangs_under_the_bar_inside_the_screen_and_a_thumb_on_each_choice_lands_
   }
 
   Ok(())
+}
+
+#[test]
+fn the_volume_tiles_match_full_paints_after_reusing_a_buffer() -> Result<(), Box<dyn Error>> {
+  use console_draw_surface::memory::Shared;
+  use console_draw_surface::retained::{BufferRevision, Retained};
+  use console_status_bar::retained::{Scene, Volume, VolumeTiles, pixels};
+
+  let Ok(mut held) = sample_state();
+  set_test_volume(&mut held, Volume::High)?;
+  let Ok(fitting) = Fitting::of_em();
+  let preferences = Preferences::default();
+  let wearing = sample_palette()?;
+  let scene = Scene {
+    held: &held,
+    preferences: &preferences,
+    slots: &[],
+    wearing,
+    room: SCREEN,
+    fitting,
+    filling: Filling::None,
+    focus: None,
+  };
+  let Ok(rendered) = scene.render();
+  let device = Size {
+    width: rendered.room.width.saturating_mul(5).div_ceil(2),
+    height: rendered.room.height.saturating_mul(5).div_ceil(2),
+  };
+  let frame = Frame {
+    points: rendered.room,
+    device,
+  };
+  let prepared = VolumeTiles::prepare(scene, device)?;
+  let tiles = prepared.ok_or("volume tiles should fit the slot")?;
+  let initial = pixels(&rendered, device)?;
+  let Ok(length) = fitted::<_, u64>(initial.len());
+  let mut actual = vec![0; initial.len()];
+  let mut retained = Retained::default();
+  retained.replace(device, initial)?;
+  let buffer = Shared::of(length)?;
+  let mut revision = BufferRevision::default();
+  retained.copy_to(&buffer, &mut revision)?;
+  let mut changed = held.clone();
+  let mut packed = PackedTileCapture::new(&tiles)?;
+
+  for volume in [
+    Volume::Low,
+    Volume::Silent,
+    Volume::Medium,
+    Volume::High,
+    Volume::Unavailable,
+  ] {
+    set_test_volume(&mut changed, volume)?;
+    tiles.update(volume, &mut retained)?;
+    let Ok(expected_frame) = (Scene {
+      held: &changed,
+      ..scene
+    })
+    .render();
+    let expected = pixels(&expected_frame, device)?;
+    retained.copy_to(&buffer, &mut revision)?;
+    buffer.read_pixels_at(&mut actual, 0)?;
+    assert!(actual == expected, "retained pixels differ for {volume:?}");
+
+    packed.verify(&tiles, volume, frame, &expected)?;
+  }
+
+  Ok(())
+}
+
+fn set_test_volume(
+  state: &mut BarState,
+  volume: console_status_bar::retained::Volume,
+) -> Result<(), Box<dyn Error>> {
+  let sound = state
+    .readings
+    .iter_mut()
+    .find(|(item, _)| *item == StatusItem::Sound);
+  let (_, reading) = sound.ok_or("fixture needs a sound reading")?;
+  let Ok(current) = volume.reading();
+  *reading = current;
+
+  Ok(())
+}
+
+struct PackedTileCapture {
+  buffer: console_draw_surface::memory::Shared,
+  pixels: Vec<u8>,
+}
+
+impl PackedTileCapture {
+  fn new(tiles: &console_status_bar::retained::VolumeTiles) -> Result<Self, Box<dyn Error>> {
+    use console_draw_surface::memory::Shared;
+    use console_status_bar::retained::Volume;
+
+    let Ok(tile) = tiles.tile(Volume::High);
+    let (_, sample) = tile.ok_or("fixture needs a packed tile")?;
+    let Ok(size) = sample.tile_size();
+    let length = u64::from(size.width)
+      .saturating_mul(u64::from(size.height))
+      .saturating_mul(4);
+    let buffer = Shared::of(length)?;
+    let Ok(bytes) = index(length);
+
+    Ok(Self {
+      buffer,
+      pixels: vec![0; bytes.min(2_147_483_647)],
+    })
+  }
+
+  fn verify(
+    &mut self,
+    tiles: &console_status_bar::retained::VolumeTiles,
+    volume: console_status_bar::retained::Volume,
+    frame: Frame,
+    expected: &[u8],
+  ) -> Result<(), Box<dyn Error>> {
+    let Ok(tile) = tiles.tile(volume);
+    let (part, patch) = tile.ok_or("fixture needs a packed tile for every icon")?;
+    patch.write_tile(&self.buffer)?;
+    self.buffer.read_pixels_at(&mut self.pixels, 0)?;
+    let Ok(region) = console_draw_surface::on_the_device(part, frame.points, frame.device);
+    let wanted = tile_bytes_at(expected, frame.device.width, region)?;
+    assert_eq!(self.pixels, wanted, "packed pixels differ for {volume:?}");
+
+    Ok(())
+  }
+}
+
+fn tile_bytes_at(
+  frame: &[u8],
+  width: u32,
+  part: console_draw_surface::Damage,
+) -> Result<Vec<u8>, Box<dyn Error>> {
+  let Ok(row_bytes) = index(u64::from(width).saturating_mul(4));
+  let Ok(x) = fitted::<_, u64>(part.at.x);
+  let Ok(right) = fitted::<_, u64>(part.at.x.saturating_add(part.size.width));
+  let Ok(first) = index(x.saturating_mul(4));
+  let Ok(last) = index(right.saturating_mul(4));
+  let Ok(top) = fitted::<_, u32>(part.at.y);
+  let Ok(height) = fitted::<_, u32>(part.size.height);
+  let Ok(start) = index(top);
+  let Ok(rows) = index(height);
+  let mut pixels = Vec::new();
+
+  for row in frame.chunks_exact(row_bytes.max(1)).skip(start).take(rows) {
+    let crop = row.get(first..last).ok_or("tile must fit within the bar")?;
+    pixels.extend_from_slice(crop);
+  }
+
+  Ok(pixels)
 }

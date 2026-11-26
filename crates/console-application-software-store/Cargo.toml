@@ -18,9 +18,7 @@ console-core-iteration.workspace = true
 console-core-logging = { workspace = true, features = ["std"] }
 console-core-number-conversion.workspace = true
 console-core-places.workspace = true
-console-core-shapes.workspace = true
 console-core-state-machine.workspace = true
-console-draw-surface.workspace = true
 console-gio.workspace = true
 console-input-text.workspace = true
 console-package-manager = { workspace = true, features = ["catalogue"] }
@@ -29,7 +27,6 @@ console-program-lifetime.workspace = true
 
 [dev-dependencies]
 console-core-png-files.workspace = true
-console-draw-painting.workspace = true
 console-core-atomic-writes.workspace = true
 console-waiting.workspace = true
 

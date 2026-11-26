@@ -417,32 +417,28 @@ pub fn read_level() -> Result<Option<Reading>, Never> {
 }
 
 pub fn sound(said: &str) -> Result<Reading, Never> {
-  let Ok(told) = loudness(said);
+  use crate::retained::Volume;
 
+  let Ok(told) = loudness(said);
   let volume = match told {
     Some(volume) => volume,
-    None => return Reading::new(SILENT, Tone::Plain),
+    None => return Volume::Unavailable.reading(),
   };
 
-  match ::core::primitive::bool::then_some(said.contains("[MUTED]"), ()) {
-    ::core::option::Option::Some(()) => return Reading::new(SILENT, Tone::Secondary),
-    ::core::option::Option::None => {}
+  match said.contains("[MUTED]").then_some(()) {
+    Some(()) => return Volume::Silent.reading(),
+    None => {}
   }
 
   let Ok(percent) = whole_u32(volume * 100.0);
-
-  match ::core::primitive::bool::then_some(percent == 0, ()) {
-    ::core::option::Option::Some(()) => return Reading::new(SILENT, Tone::Secondary),
-    ::core::option::Option::None => {}
-  }
-
   let icon = match percent {
-    1..=33 => "\u{f057f}",
-    34..=66 => "\u{f0580}",
-    _ => "\u{f057e}",
+    0 => Volume::Silent,
+    1..=33 => Volume::Low,
+    34..=66 => Volume::Medium,
+    _ => Volume::High,
   };
 
-  Reading::new(icon, Tone::Plain)
+  icon.reading()
 }
 
 #[cfg(test)]

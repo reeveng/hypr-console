@@ -5,6 +5,7 @@
 //! are read from this crate at the moment it is compiled, which on this desktop
 //! is `console apply` on the machine itself.
 
+use console_core_bytes::hex::{self, Case};
 use console_core_checksums::sha256::Sha256;
 use console_core_never::Never;
 
@@ -69,7 +70,7 @@ pub fn hash(palette: &str) -> Result<String, Never> {
   let Ok(()) = asked.update(palette.as_bytes());
   let Ok(digest) = asked.finalize();
 
-  Ok(digest.iter().map(|byte| format!("{byte:02x}")).collect())
+  hex::encode(&digest, Case::Lower)
 }
 
 #[cfg(test)]

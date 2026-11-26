@@ -24,9 +24,8 @@
 //! already there.
 //!
 //! **A call waits for its own answer.** `call` says a message and reads until
-//! the reply carrying its serial comes back, and drops whatever arrived before
-//! it -- a signal, an answer to nobody -- because a caller that wanted those
-//! holds a `replies::Pending` and reads them itself. What comes back is the
+//! the reply carrying its serial comes back. Signals and inbound calls wait
+//! in a bounded inbox for the receive owner. What comes back is the
 //! answer whether it is a result or an error, since a service's error is a
 //! sentence in the service's own vocabulary and the crate that speaks it is the
 //! one that reads it. `Hello` and `RequestName` are the bus's own, and an error
@@ -37,18 +36,20 @@
 //! A listener can wait for the first byte of a message until the socket closes.
 //! Once a message starts, it has a deadline. Calls use one deadline from send
 //! through reply, including any unrelated messages received in between.
+//! A dispatcher owns one reader and matches a bounded set of pending calls.
 //!
 //! **A message is read in two goes.** The first sixteen bytes say how long the
 //! rest is -- the header fields and the body each carry their own length --
 //! so there is no scanning for a boundary and no buffer of leftovers: what is
 //! read is exactly one message, every time.
 
+use std::collections::VecDeque;
 use std::fmt;
 use std::io;
 use std::net::Shutdown;
 use std::os::fd::{AsFd, BorrowedFd};
-use std::os::linux::net::SocketAddrExt;
-use std::os::unix::net::{SocketAddr, UnixStream};
+use std::os::unix::net::UnixStream;
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use console_core_iteration::{Endless, Step, iterate};
@@ -61,6 +62,7 @@ use rustix::net::{RecvFlags, SendFlags, recv, send};
 use rustix::process::getuid;
 
 use crate::messages::{self, Error, Header, Message, Value, Whom};
+use crate::replies::{Pending, Received};
 
 pub const BUS: &str = "org.freedesktop.DBus";
 
@@ -77,6 +79,9 @@ const TAKING: u32 = 6;
 const OPERATION_TIMEOUT: Duration = Duration::from_secs(25);
 
 const AUTH_LINE_LIMIT: u32 = 4096;
+const INBOX_MESSAGES: u64 = 64;
+const INBOX_BYTES: u64 = 4 << 20;
+const PENDING_CALLS: u64 = 32;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ConnectionError {
@@ -88,6 +93,8 @@ pub enum ConnectionError {
   AuthenticationLineTooLong,
   MessageAllocation,
   SerialExhausted,
+  InboxFull,
+  CallsFull,
   Error(Error),
 }
 
@@ -108,6 +115,8 @@ impl fmt::Display for ConnectionError {
       ConnectionError::SerialExhausted => {
         write!(to, "the bus used every available message serial")
       }
+      ConnectionError::InboxFull => write!(to, "the bus receive inbox filled"),
+      ConnectionError::CallsFull => write!(to, "too many bus calls are outstanding"),
       ConnectionError::Error(torn) => write!(to, "{torn}"),
     }
   }
@@ -167,12 +176,21 @@ impl NameRequestResult {
 pub struct Receiver {
   stream: UnixStream,
   clock: ReadClock,
+  inbox: VecDeque<(Message, u64)>,
+  inbox_bytes: u64,
+  interrupted: Option<ConnectionError>,
 }
 
 #[derive(Debug, PartialEq)]
 pub enum Incoming {
   Message(Message),
   Wake,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Deferred {
+  Ready,
+  Empty,
 }
 
 pub struct Sender {
@@ -189,6 +207,29 @@ pub struct Bus {
   hearing: Receiver,
   saying: Sender,
   named: String,
+}
+
+pub struct Dispatcher<Tag> {
+  bus: Bus,
+  pending: Pending<Waiting<Tag>>,
+  closed: Option<ConnectionError>,
+}
+
+struct Waiting<Tag> {
+  tag: Tag,
+  until: Instant,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Dispatched<Tag> {
+  Message(Received<Tag>),
+  TimedOut(Tag),
+}
+
+#[derive(Debug, PartialEq)]
+pub struct Disconnected<Tag> {
+  pub reason: ConnectionError,
+  pub pending: Vec<Tag>,
 }
 
 impl Bus {
@@ -233,8 +274,9 @@ impl Bus {
     };
 
     let Ok(saying) = Sender::new(writing, clock);
+    let Ok(hearing) = Receiver::new(stream, clock);
     let mut bus = Bus {
-      hearing: Receiver { stream, clock },
+      hearing,
       saying,
       named: String::new(),
     };
@@ -324,6 +366,16 @@ impl Bus {
     Ok((self.hearing, self.saying))
   }
 
+  pub fn dispatching<Tag>(self) -> Result<Dispatcher<Tag>, Never> {
+    let Ok(pending) = Pending::new();
+
+    Ok(Dispatcher {
+      bus: self,
+      pending,
+      closed: None,
+    })
+  }
+
   pub fn call(&mut self, message: &Message) -> Result<Message, ConnectionError> {
     let deadline = Deadline::after(OPERATION_TIMEOUT, self.saying.clock)?;
 
@@ -350,15 +402,26 @@ impl Bus {
     deadline: Deadline,
   ) -> Result<Message, ConnectionError> {
     let serial = self.saying.say_before(message, deadline)?;
+    let Ok(mut pending) = Pending::new();
+    let Ok(()) = pending.sent(serial, ());
 
-    let answered = iterate(self, |this| {
-      Ok(match this.hearing.receive_before(Some(deadline)) {
-        Ok(heard) => match ::core::primitive::bool::then_some(heard.reply_to == Some(serial), ())
-        {
-          ::core::option::Option::Some(()) => Step::Halt(Ok(heard)),
-          ::core::option::Option::None => Step::Again(this),
-        },
-        Err(fault) => Step::Halt(Err(fault)),
+    let answered = iterate((self, pending), |(this, mut pending_2)| {
+      let (heard, bytes) = match this.hearing.read_message(Some(deadline)) {
+        Ok(frame) => frame,
+        Err(fault) => return Ok(Step::Halt(Err(fault))),
+      };
+      let Ok(received) = pending_2.received(heard);
+
+      Ok(match received {
+        Received::Reply { reply, .. } => Step::Halt(Ok(reply)),
+        Received::Error { error, .. } => Step::Halt(Ok(error)),
+        Received::Call(message_2) | Received::Signal(message_2) => {
+          match this.hearing.defer(message_2, bytes) {
+            Ok(()) => Step::Again((this, pending_2)),
+            Err(fault) => Step::Halt(Err(fault)),
+          }
+        }
+        Received::Unmatched(_) => Step::Again((this, pending_2)),
       })
     });
 
@@ -398,9 +461,9 @@ impl Bus {
 
     let mut value = String::from("\0AUTH EXTERNAL ");
 
-    for byte in mine.to_string().bytes() {
-      value.push_str(&format!("{byte:02x}"));
-    }
+    let Ok(()) = console_core_bytes::hex::append(
+      &mut value, mine.to_string().as_bytes(), console_core_bytes::hex::Case::Lower,
+    );
 
     value.push_str("\r\n");
 
@@ -439,18 +502,154 @@ impl Bus {
   }
 }
 
+impl<Tag> Dispatcher<Tag> {
+  pub fn call(
+    &mut self,
+    tag: Tag,
+    message: &Message,
+    timeout: Duration,
+  ) -> Result<u32, ConnectionError> {
+    let Ok(count) = self.pending.len();
+
+    match (self.closed.as_ref(), count >= PENDING_CALLS) {
+      (Some(reason), _) => return Err(reason.clone()),
+      (None, true) => return Err(ConnectionError::CallsFull),
+      (None, false) => {}
+    }
+
+    let clock = self.bus.saying.clock;
+    let waiting = Deadline::after(timeout, clock)?;
+    let sending = Deadline::after(OPERATION_TIMEOUT.min(timeout), clock)?;
+    let serial = self.bus.saying.say_before(message, sending)?;
+    let Ok(()) = self.pending.sent(
+      serial,
+      Waiting {
+        tag,
+        until: waiting.end,
+      },
+    );
+
+    Ok(serial)
+  }
+
+  pub fn say(&self, message: &Message) -> Result<u32, ConnectionError> {
+    match &self.closed {
+      Some(why) => Err(why.clone()),
+      None => self.bus.saying.say(message),
+    }
+  }
+
+  pub fn receive(&mut self) -> Result<Dispatched<Tag>, Disconnected<Tag>> {
+    match &self.closed {
+      Some(reason) => {
+        return Err(Disconnected {
+          reason: reason.clone(),
+          pending: Vec::new(),
+        });
+      }
+      None => {}
+    }
+
+    let Ok(earliest) = self.pending.earliest(|waiting| waiting.until);
+    let clock = self.bus.hearing.clock;
+    let deadline = earliest.map(|(_, end)| Deadline { end, clock });
+
+    match self.bus.hearing.receive_until(deadline) {
+      Ok(message) => {
+        let Ok(dispatched) = self.pending.received(message);
+        let received = match dispatched {
+          Received::Reply { to, reply } => Received::Reply { to: to.tag, reply },
+          Received::Error { to, error } => Received::Error { to: to.tag, error },
+          Received::Call(message_2) => Received::Call(message_2),
+          Received::Signal(message_3) => Received::Signal(message_3),
+          Received::Unmatched(message_4) => Received::Unmatched(message_4),
+        };
+
+        Ok(Dispatched::Message(received))
+      }
+      Err(reason) => match (reason, self.bus.hearing.interrupted.as_ref(), earliest) {
+        (ConnectionError::TimedOut, None, Some((serial, _))) => {
+          let Ok(expired) = self.pending.remove(serial);
+
+          match expired {
+            Some(waiting) => Ok(Dispatched::TimedOut(waiting.tag)),
+            None => self.disconnect(ConnectionError::TimedOut),
+          }
+        }
+        (reason_2, _, _) => self.disconnect(reason_2),
+      },
+    }
+  }
+
+  fn disconnect(
+    &mut self,
+    reason: ConnectionError,
+  ) -> Result<Dispatched<Tag>, Disconnected<Tag>> {
+    let _closed = self.bus.hearing.stream.shutdown(Shutdown::Both);
+    let Ok(pending) = self.pending.take();
+    self.closed = Some(reason.clone());
+
+    Err(Disconnected {
+      reason,
+      pending: pending.map(|waiting| waiting.tag).collect(),
+    })
+  }
+}
+
 impl Receiver {
+  fn new(stream: UnixStream, clock: ReadClock) -> Result<Self, Never> {
+    Ok(Self {
+      stream,
+      clock,
+      inbox: VecDeque::new(),
+      inbox_bytes: 0,
+      interrupted: None,
+    })
+  }
+
+  fn defer(&mut self, message: Message, bytes: u64) -> Result<(), ConnectionError> {
+    let total = self.inbox_bytes.saturating_add(bytes);
+    let Ok(count) = fixed_index(self.inbox.len());
+
+    match (count < INBOX_MESSAGES && total <= INBOX_BYTES).then_some(()) {
+      Some(()) => {
+        self.inbox_bytes = total;
+        self.inbox.push_back((message, bytes));
+
+        Ok(())
+      }
+      None => {
+        let _closed = self.stream.shutdown(Shutdown::Both);
+        self.interrupted = Some(ConnectionError::InboxFull);
+
+        Err(ConnectionError::InboxFull)
+      }
+    }
+  }
+
   pub fn receive(&mut self) -> Result<Message, ConnectionError> {
-    self.receive_before(None)
+    self.receive_until(None)
+  }
+
+  pub fn deferred(&self) -> Result<Deferred, Never> {
+    Ok(match self.inbox.front() {
+      Some(_message) => Deferred::Ready,
+      None => Deferred::Empty,
+    })
   }
 
   pub fn receive_with(&mut self, wakeup: BorrowedFd<'_>) -> Result<Incoming, ConnectionError> {
+    let Ok(deferred) = self.deferred();
+    let timeout = match deferred {
+      Deferred::Ready => Some(Timespec::default()),
+      Deferred::Empty => None,
+    };
     let watched = [
       PollFd::new(&self.stream, PollFlags::IN),
       PollFd::from_borrowed_fd(wakeup, PollFlags::IN),
     ];
     let events = iterate(watched, |mut waiting| {
-      Ok(match poll(&mut waiting, None) {
+      Ok(match poll(&mut waiting, timeout.as_ref()) {
         Ok(_) => Step::Halt(Ok(waiting)),
         Err(Errno::INTR) => Step::Again(waiting),
         Err(fault) => {
@@ -463,25 +662,52 @@ impl Receiver {
     .map_err(|Endless| ConnectionError::Ended)?;
     let [bus, waker] = events?;
 
-    match (bus.revents().is_empty(), waker.revents().is_empty()) {
-      (_, false) => Ok(Incoming::Wake),
-      (false, true) => self.receive().map(Incoming::Message),
-      (true, true) => Err(ConnectionError::Ended),
+    match (
+      deferred,
+      bus.revents().is_empty(),
+      waker.revents().is_empty(),
+    ) {
+      (_, _, false) => Ok(Incoming::Wake),
+      (Deferred::Ready, _, true) | (Deferred::Empty, false, true) => {
+        self.receive().map(Incoming::Message)
+      }
+      (Deferred::Empty, true, true) => Err(ConnectionError::Ended),
     }
   }
 
-  fn receive_before(&mut self, deadline: Option<Deadline>) -> Result<Message, ConnectionError> {
+  fn receive_until(&mut self, deadline: Option<Deadline>) -> Result<Message, ConnectionError> {
+    match self.inbox.pop_front() {
+      Some((message, bytes)) => {
+        self.inbox_bytes = self.inbox_bytes.saturating_sub(bytes);
+
+        Ok(message)
+      }
+      None => self.read_message(deadline).map(|(message, _)| message),
+    }
+  }
+
+  fn read_message(
+    &mut self,
+    deadline: Option<Deadline>,
+  ) -> Result<(Message, u64), ConnectionError> {
     let mut header = Header::default();
     let [first, ..] = &mut header;
     read_part(&self.stream, std::slice::from_mut(first), deadline)?;
 
-    let frame = self
-      .frame_after_first_byte(header, deadline)
-      .inspect_err(|_| {
+    let frame = match self.frame_after_first_byte(header, deadline) {
+      Ok(frame) => frame,
+      Err(reason) => {
         let _closed_at_unknown_message_boundary = self.stream.shutdown(Shutdown::Both);
-      })?;
+        self.interrupted = Some(reason.clone());
 
-    messages::read(&frame).map_err(ConnectionError::from)
+        return Err(reason);
+      }
+    };
+
+    let message = messages::read(&frame)?;
+    let Ok(bytes) = fixed_index(frame.len());
+
+    Ok((message, bytes))
   }
 
   fn frame_after_first_byte(
@@ -813,29 +1039,52 @@ fn opened(value: &str) -> Result<UnixStream, ConnectionError> {
     }
   }
 
-  match (path, hidden) {
-    (Some(path_2), _) => match UnixStream::connect(path_2) {
-      Ok(stream) => Ok(stream),
-      Err(fault) => Err(ConnectionError::Machine(fault.to_string())),
-    },
+  let opened = match (path, hidden) {
+    (Some(path_2), _) => console_operating_system_linux::unix_stream::connect(Path::new(path_2)),
     (None, Some(hidden_2)) => {
-      let address = match SocketAddr::from_abstract_name(hidden_2.as_bytes()) {
-        Ok(address) => address,
-        Err(fault) => return Err(ConnectionError::Machine(fault.to_string())),
-      };
-
-      match UnixStream::connect_addr(&address) {
-        Ok(stream) => Ok(stream),
-        Err(fault) => Err(ConnectionError::Machine(fault.to_string())),
-      }
+      console_operating_system_linux::unix_stream::connect_abstract(hidden_2.as_bytes())
     }
-    (None, None) => Err(ConnectionError::Nowhere),
-  }
+    (None, None) => return Err(ConnectionError::Nowhere),
+  };
+
+  opened.map_err(|fault| ConnectionError::Machine(fault.to_string()))
 }
 
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn deferred_messages_keep_wire_order_and_charge_their_actual_bytes()
+  -> Result<(), ConnectionError> {
+    let (stream, _peer) = UnixStream::pair().map_err(ConnectionError::from)?;
+    let Ok(mut reader) = Receiver::new(stream, Instant::now);
+
+    let first = Message {
+      serial: 1,
+      kind: messages::Kind::Signal,
+      ..Message::default()
+    };
+    let second = Message {
+      serial: 2,
+      ..Message::default()
+    };
+    reader.defer(first.clone(), INBOX_BYTES.saturating_sub(1))?;
+    reader.defer(second.clone(), 1)?;
+    assert_eq!(reader.receive(), Ok(first));
+    assert_eq!(reader.receive(), Ok(second));
+    assert_eq!(reader.inbox_bytes, 0);
+
+    let too_large = INBOX_BYTES.saturating_add(1);
+    assert_eq!(
+      reader.defer(Message::default(), too_large),
+      Err(ConnectionError::InboxFull)
+    );
+    assert!(reader.inbox.is_empty());
+
+    Ok(())
+  }
+
   use std::io::Write;
   use std::os::fd::AsFd;
 
@@ -861,12 +1110,9 @@ mod tests {
     attempted_write?;
 
     assert_eq!(sender.say(&Message::default()), Ok(1));
-    let mut receiver = Receiver {
-      stream: peer,
-      clock: Instant::now,
-    };
+    let Ok(mut receiver) = Receiver::new(peer, Instant::now);
     let deadline = Deadline::after(SHORT, Instant::now)?;
-    let received = receiver.receive_before(Some(deadline))?;
+    let received = receiver.receive_until(Some(deadline))?;
     assert_eq!(received.serial, 1);
 
     Ok(())
@@ -876,10 +1122,7 @@ mod tests {
   fn a_ready_wakeup_leaves_the_next_bus_message_intact() -> Result<(), ConnectionError> {
     let (stream, mut peer) = UnixStream::pair().map_err(ConnectionError::from)?;
     let (woken, mut wake) = UnixStream::pair().map_err(ConnectionError::from)?;
-    let mut receiver = Receiver {
-      stream,
-      clock: Instant::now,
-    };
+    let Ok(mut receiver) = Receiver::new(stream, Instant::now);
     let bytes = Message::default().bytes(1)?;
 
     peer.write_all(&bytes).map_err(ConnectionError::from)?;
@@ -905,10 +1148,7 @@ mod tests {
   #[test]
   fn an_oversized_frame_is_rejected_before_waiting_for_its_body() -> Result<(), ConnectionError> {
     let (stream, mut peer) = UnixStream::pair().map_err(ConnectionError::from)?;
-    let mut receiver = Receiver {
-      stream,
-      clock: Instant::now,
-    };
+    let Ok(mut receiver) = Receiver::new(stream, Instant::now);
     let body = messages::MAX_MESSAGE_BYTES.to_le_bytes();
     let head = [b'l', 1, 0, 1];
     let header = [head, body, 1_u32.to_le_bytes(), 0_u32.to_le_bytes()].concat();
@@ -916,7 +1156,7 @@ mod tests {
     let deadline = Deadline::after(SHORT, Instant::now)?;
 
     assert_eq!(
-      receiver.receive_before(Some(deadline)),
+      receiver.receive_until(Some(deadline)),
       Err(ConnectionError::Error(Error::MessageTooLarge))
     );
 
@@ -926,14 +1166,11 @@ mod tests {
   #[test]
   fn a_timeout_before_a_frame_starts_keeps_the_stream_aligned() -> Result<(), ConnectionError> {
     let (stream, mut peer) = UnixStream::pair().map_err(ConnectionError::from)?;
-    let mut receiver = Receiver {
-      stream,
-      clock: Instant::now,
-    };
+    let Ok(mut receiver) = Receiver::new(stream, Instant::now);
     let deadline = Deadline::after(SHORT, Instant::now)?;
 
     assert_eq!(
-      receiver.receive_before(Some(deadline)),
+      receiver.receive_until(Some(deadline)),
       Err(ConnectionError::TimedOut)
     );
 
@@ -950,15 +1187,12 @@ mod tests {
   #[test]
   fn a_timeout_after_a_frame_starts_closes_the_stream() -> Result<(), ConnectionError> {
     let (stream, mut peer) = UnixStream::pair().map_err(ConnectionError::from)?;
-    let mut receiver = Receiver {
-      stream,
-      clock: Instant::now,
-    };
+    let Ok(mut receiver) = Receiver::new(stream, Instant::now);
     peer.write_all(b"l").map_err(ConnectionError::from)?;
     let deadline = Deadline::after(SHORT, Instant::now)?;
 
     assert_eq!(
-      receiver.receive_before(Some(deadline)),
+      receiver.receive_until(Some(deadline)),
       Err(ConnectionError::TimedOut)
     );
     assert_eq!(receiver.receive(), Err(ConnectionError::Ended));

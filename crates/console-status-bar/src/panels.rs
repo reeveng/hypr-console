@@ -18,7 +18,9 @@
 //! indicator when the attempt ended and the old picker is still visible.
 //! The keyboard is the one whose program does not: it asks the keyboard that is
 //! always running and leaves, so its ending says nothing and only the
-//! compositor does. A slot is lit while its panel is `Opening` or `Open`.
+//! compositor does. Most slots give immediate feedback from their phase.
+//! The clock indicates when the calendar is visible, so it follows the
+//! latest compositor observation through both opening and dismissal.
 //!
 //! Every other panel is a picker, and there is one picker at a time: the one
 //! on the screen goes and the new one takes its place. So a press that opens
@@ -96,6 +98,7 @@ enum Presentation {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Panels {
   phases: BTreeMap<Panel, Phase>,
+  visible: BTreeSet<Panel>,
 }
 
 impl Panel {
@@ -150,11 +153,26 @@ impl Panels {
   }
 
   pub fn lit(&self, panel: Panel) -> Result<Lit, Never> {
-    let Ok(phase) = self.phase(panel);
+    let lit = match panel {
+      Panel::Calendar => self.visible.contains(&panel).then_some(()),
+      Panel::Launcher
+      | Panel::Keyboard
+      | Panel::Clipboard
+      | Panel::Music
+      | Panel::Notifications
+      | Panel::Settings(_) => {
+        let Ok(phase) = self.phase(panel);
 
-    Ok(match phase {
-      Phase::Opening(_) | Phase::Open => Lit::Yes,
-      Phase::Closed | Phase::Closing(_) => Lit::No,
+        match phase {
+          Phase::Opening(_) | Phase::Open => Some(()),
+          Phase::Closed | Phase::Closing(_) => None,
+        }
+      }
+    };
+
+    Ok(match lit {
+      Some(()) => Lit::Yes,
+      None => Lit::No,
     })
   }
 
@@ -187,6 +205,7 @@ impl Panels {
             (panel, next)
           })
           .collect(),
+        visible: self.visible,
       }),
     }
   }
@@ -216,7 +235,10 @@ impl Panels {
       })
       .collect();
 
-    Ok(Panels { phases })
+    Ok(Panels {
+      phases,
+      visible: up_2,
+    })
   }
 
   fn seen(
@@ -286,9 +308,7 @@ impl Machine for Panels {
     _previous: Option<Panels>,
     _effects: &mut Queue<PanelEffect>,
   ) -> Result<Panels, Never> {
-    Ok(Panels {
-      phases: BTreeMap::new(),
-    })
+    Ok(Panels::default())
   }
 
   fn handle(
@@ -413,8 +433,32 @@ mod tests {
     assert_eq!(
       trace.state.lit(Panel::Calendar),
       Ok(Lit::No),
-      "a second press puts it away"
+      "the compositor has never shown the calendar"
     );
+  }
+
+  #[test]
+  fn the_clock_follows_the_calendar_through_open_and_close_requests() {
+    let calendar = Panel::Calendar;
+    let Ok(opening) = after(&[PanelEvent::Pressed(calendar), PanelEvent::Shown(vec![])]);
+    assert_eq!(
+      opening.phase(calendar),
+      Ok(Phase::Opening(Requested::Running))
+    );
+    assert_eq!(opening.lit(calendar), Ok(Lit::No));
+
+    let mut panels = opening;
+
+    for (event, lit) in [
+      (PanelEvent::Shown(vec![calendar]), Lit::Yes),
+      (PanelEvent::Pressed(calendar), Lit::Yes),
+      (PanelEvent::Ended(calendar), Lit::Yes),
+      (PanelEvent::Shown(vec![]), Lit::No),
+    ] {
+      let Ok(next) = Panels::transition(panels, event);
+      panels = next.state;
+      assert_eq!(panels.lit(calendar), Ok(lit));
+    }
   }
 
   #[test]

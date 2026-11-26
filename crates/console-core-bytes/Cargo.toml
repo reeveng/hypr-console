@@ -1,0 +1,16 @@
+[package]
+name = "console-core-bytes"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+alloc = []
+
+[dependencies]
+console-core-never.workspace = true
+console-core-number-conversion = { path = "../console-core-number-conversion", default-features = false }
+
+[lints]
+workspace = true

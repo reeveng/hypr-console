@@ -10,6 +10,7 @@ name = "console_program_contract"
 path = "src/lib.rs"
 
 [dependencies]
+console-core-bytes = { workspace = true, features = ["alloc"] }
 console-core-external-programs.workspace = true
 console-core-internal-programs.workspace = true
 console-core-never.workspace = true

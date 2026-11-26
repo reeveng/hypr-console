@@ -11,6 +11,7 @@ name = "console_core_video_decoding_mpeg_4_container"
 path = "src/lib.rs"
 
 [dependencies]
+console-core-bytes.workspace = true
 console-core-byte-sources.workspace = true
 console-core-iso-media-boxes.workspace = true
 console-core-never.workspace = true

@@ -40,7 +40,7 @@
 //! daemon's answer again.
 
 use console_compositor::events::CompositorEvent;
-use console_compositor::{ActiveWorkspace, Layers, Question};
+use console_compositor::{ActiveWorkspace, Layers};
 use console_core_never::Never;
 use console_onscreen::{Over, over_the_desktop};
 
@@ -79,9 +79,9 @@ pub fn something_over_it(layers: &[console_compositor::Layer]) -> Result<Covered
   })
 }
 
-fn query_once<Q: Question>(question: Q, told: &mut Notified) -> Result<Option<Q::Reply>, Never> {
-  Ok(match console_compositor::ask(question) {
-    Ok(said) => Some(said),
+pub fn now(told: &mut Notified) -> Result<Covered, Never> {
+  let (front, layers) = match console_compositor::ask_together(ActiveWorkspace, Layers) {
+    Ok(observed) => observed,
     Err(why) => {
       match *told {
         Notified::NotYet => {
@@ -92,35 +92,17 @@ fn query_once<Q: Question>(question: Q, told: &mut Notified) -> Result<Option<Q:
         Notified::Already => {}
       }
 
-      None
+      return Ok(Covered::Yes);
     }
+  };
+  *told = Notified::NotYet;
+  let Ok(window) = holds_a_window(front.as_ref());
+  let Ok(over) = something_over_it(&layers);
+
+  Ok(match (window, over) {
+    (Covered::No, Covered::No) => Covered::No,
+    (Covered::Yes, _) | (_, Covered::Yes) => Covered::Yes,
   })
-}
-
-pub fn now(told: &mut Notified) -> Result<Covered, Never> {
-  let Ok(front) = query_once(ActiveWorkspace, told);
-  let Ok(screens) = query_once(Layers, told);
-
-  match (front, screens) {
-    (Some(workspace), Some(layers)) => {
-      *told = Notified::NotYet;
-
-      let window = holds_a_window(workspace.as_ref())?;
-
-      let over = something_over_it(&layers)?;
-
-      Ok(
-        match ::core::primitive::bool::then_some(
-          window == Covered::Yes || over == Covered::Yes,
-          (),
-        ) {
-          ::core::option::Option::Some(()) => Covered::Yes,
-          ::core::option::Option::None => Covered::No,
-        },
-      )
-    }
-    (_nothing_to_read, _or_the_other_half) => Ok(Covered::Yes),
-  }
 }
 
 pub fn worth_waking_for(line: &str) -> Result<Worth, Never> {

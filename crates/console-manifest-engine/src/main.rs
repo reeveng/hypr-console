@@ -65,7 +65,7 @@ use manifest::{Manifest, Section};
 use unapplied::Unapplied;
 use up_to_date::UpToDate;
 
-const ROOT: &str = console_repository::DEVICE_ROOT;
+const RELEASE_ROOT: &str = console_repository::RELEASE_ROOT;
 
 const DECLINED: &str = "exec-condition";
 
@@ -209,7 +209,7 @@ fn asked(words: &[String]) -> Result<Arguments, ValidationError> {
   };
   let switch_from_2 = match (switch_from, programs, root) {
     (None, _, _) => None,
-    (Some(at), build::Programs::Prebuilt, None) => Some(PathBuf::from(at)),
+    (Some(at), build::Programs::Prebuilt, None | Some(RELEASE_ROOT)) => Some(PathBuf::from(at)),
     (Some(at), _, _) => {
       let Ok(refusal) = line.refusal(Reason::InvalidValue {
         of: SWITCH_FROM.spelling,
@@ -243,12 +243,17 @@ fn asked(words: &[String]) -> Result<Arguments, ValidationError> {
     }
   }
 
+  let selected_root = match root {
+    Some(explicit) => PathBuf::from(explicit),
+    None => {
+      let Ok(installed) = console_repository::installed_root();
+      installed.to_path_buf()
+    }
+  };
+
   Ok(Arguments {
     action,
-    root: match root {
-      Some(root_2) => PathBuf::from(root_2),
-      None => PathBuf::from(ROOT),
-    },
+    root: selected_root,
     pending,
     programs,
     switch_from: switch_from_2,
@@ -1301,11 +1306,11 @@ fn apply(asked: Apply<'_>) -> Result<(), Unapplied> {
 
   let _alone = alone::taking()?;
 
-  enough_to_apply(root)?;
   let manifest_root = match switch_from {
     Some(candidate) => candidate,
     None => root,
   };
+  enough_to_apply(manifest_root)?;
 
   match programs {
     build::Programs::Compile => {}
@@ -1326,7 +1331,7 @@ fn apply(asked: Apply<'_>) -> Result<(), Unapplied> {
   let (was, running) = start_generation(manifest_root)?;
 
   match switch_from {
-    Some(candidate) => switch_checkout(root, candidate)?,
+    Some(candidate) => switch_checkout(root, candidate, Path::new(RELEASE_ROOT))?,
     None => {}
   }
 
@@ -1442,7 +1447,18 @@ fn install_generation(
   Ok(())
 }
 
-fn switch_checkout(root: &Path, candidate: &Path) -> Result<(), Unapplied> {
+fn switch_checkout(root: &Path, candidate: &Path, managed: &Path) -> Result<(), Unapplied> {
+  match std::fs::symlink_metadata(root) {
+    Ok(_) => {}
+    Err(fault) => match (root == managed, fault.kind()) {
+      (true, std::io::ErrorKind::NotFound) => {
+        return console_core_atomic_writes::rename_without_overwriting(candidate, root)
+          .map_err(Unapplied::CheckoutSwitch);
+      }
+      _ => return Err(Unapplied::CheckoutSwitch(fault)),
+    },
+  }
+
   let Ok(mut exchange) = Program::Mv.command();
   let exchanged = exchange
     .args(["--exchange", "--no-copy", "-T", "--"])
@@ -2485,7 +2501,10 @@ fn nix_is_root() -> Result<Root, Never> {
 
 #[cfg(test)]
 mod tests {
-  use super::{Reason, Unapplied, ValidationError, asked, build, on_the_ordinary_root};
+  use super::{
+    RELEASE_ROOT, Reason, Unapplied, ValidationError, asked, build, on_the_ordinary_root,
+    switch_checkout,
+  };
   use std::path::Path;
 
   #[test]
@@ -2503,6 +2522,19 @@ mod tests {
     assert_eq!(available.programs, build::Programs::Prebuilt);
     assert_eq!(
       available.switch_from.as_deref(),
+      Some(Path::new("/candidate"))
+    );
+    let managed = asked(&words(&[
+      "apply",
+      "--prebuilt",
+      "--switch-from",
+      "/candidate",
+      "--root",
+      RELEASE_ROOT,
+    ]))?;
+    assert_eq!(managed.root, Path::new(RELEASE_ROOT));
+    assert_eq!(
+      managed.switch_from.as_deref(),
       Some(Path::new("/candidate"))
     );
     assert!(matches!(
@@ -2543,6 +2575,31 @@ mod tests {
       })
     ));
 
+    Ok(())
+  }
+
+  #[test]
+  fn a_first_release_adds_its_checkout_alongside_existing_configuration()
+  -> Result<(), Box<dyn std::error::Error>> {
+    let area = console_core_temporary_directories::private("console-first-checkout")?;
+    let configuration = area.join("console");
+    let live = configuration.join(".release");
+    let candidate = area.join("candidate");
+    let settings = configuration.join("settings.conf");
+    std::fs::create_dir(&configuration)?;
+    console_core_atomic_writes::whole(&settings, b"existing settings")?;
+    std::fs::create_dir(&candidate)?;
+    console_core_atomic_writes::whole(&candidate.join("desktop.conf"), b"release manifest")?;
+
+    switch_checkout(&live, &candidate, &live)?;
+
+    let preserved = std::fs::read_to_string(&settings)?;
+    let installed = std::fs::read_to_string(live.join("desktop.conf"))?;
+    assert_eq!(preserved, "existing settings");
+    assert_eq!(installed, "release manifest");
+    let retired = std::fs::symlink_metadata(&candidate);
+    assert!(matches!(retired, Err(fault) if fault.kind() == std::io::ErrorKind::NotFound));
+    std::fs::remove_dir_all(area)?;
     Ok(())
   }
 

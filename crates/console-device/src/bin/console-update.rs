@@ -25,6 +25,7 @@ use console_device::update_menu::{
 };
 use console_operating_system_linux::program_lifetime::forked;
 use console_operating_system_linux::program_runtime::commands::finished;
+use console_operating_system_linux::program_runtime::{Cores, for_each};
 use console_program_contract::ExitStatus;
 
 #[path = "console-update/installation.rs"]
@@ -38,7 +39,7 @@ mod release_metadata;
 #[path = "console-update/release_switch.rs"]
 mod release_switch;
 
-use notices::Delivery as NoticeDelivery;
+use notices::Delivery;
 use release_switch::{
   Direction, Finalize, LiveRevision, ReleaseSwitch, Report, State, SwitchEffect,
 };
@@ -49,7 +50,7 @@ const TAG_PREFIX: &str = "console-v";
 const LEGACY_TAG_PREFIX: &str = "legion-go-v";
 const CONSOLE_BUNDLE: &str = "console-x86_64.tar.gz";
 const STAGED_BUNDLE: &str = "bundle.tar.gz";
-const LIVE: &str = console_repository::DEVICE_ROOT;
+const RELEASE_ROOT: &str = console_repository::RELEASE_ROOT;
 const RELEASES: &str = "/etc/.console-releases";
 const MARK: &str = console_repository::RELEASE_MARKER;
 const PENDING: &str = "pending";
@@ -85,7 +86,7 @@ struct Release {
 
 struct Switch {
   slot: String,
-  before: String,
+  before: Option<String>,
   after: String,
   direction: Direction,
 }
@@ -137,7 +138,7 @@ fn parse_request(arguments: &[OsString]) -> Result<Request, UpdateError> {
 fn run(caller: Option<&OsStr>) -> Result<(), UpdateError> {
   let arguments: Vec<_> = std::env::args_os().skip(1).collect();
   let mut request = parse_request(&arguments)?;
-  let live = Path::new(LIVE);
+  let Ok(live) = console_repository::release_root();
 
   match request {
     Request::Help => {
@@ -159,7 +160,7 @@ fn run(caller: Option<&OsStr>) -> Result<(), UpdateError> {
     | Request::VerifyPattern => {}
   }
 
-  check_device()?;
+  require_root()?;
 
   let order = match request {
     Request::PatternEntry => return from_desktop(caller),
@@ -282,19 +283,10 @@ fn run(caller: Option<&OsStr>) -> Result<(), UpdateError> {
   request_release(live, releases, request, order)
 }
 
-fn check_device() -> Result<(), UpdateError> {
+fn require_root() -> Result<(), UpdateError> {
   match bool::then_some(rustix::process::geteuid().is_root(), ()) {
-    Some(()) => {}
-    None => return Err(UpdateError::from("run console-update as root")),
-  }
-
-  let support = update_menu::release_support()?;
-
-  match support {
-    update_menu::ReleaseSupport::Tagged => Ok(()),
-    update_menu::ReleaseSupport::External => Err(UpdateError::from(
-      "this release is for the first-generation Legion Go (83E1)",
-    )),
+    Some(()) => Ok(()),
+    None => Err(UpdateError::from("run console-update as root")),
   }
 }
 
@@ -344,8 +336,8 @@ fn authenticate_resume(
   change: &Switch,
   order: &pattern::Order,
 ) -> Result<(), UpdateError> {
-  let head = git(live, &["rev-parse", "HEAD"])?;
-  let target = match bool::then_some(head == change.after, ()) {
+  let head = checkout_revision(live)?;
+  let target = match bool::then_some(head.as_deref() == Some(change.after.as_str()), ()) {
     Some(()) => live.to_owned(),
     None => slot_path(releases, &change.slot)?,
   };
@@ -373,16 +365,7 @@ fn request_release(
   request: Request,
   order: Option<pattern::Order>,
 ) -> Result<(), UpdateError> {
-  let status = git(live, &["status", "--porcelain"])?;
-
-  match status.as_str() {
-    "" => {}
-    _ => {
-      return Err(UpdateError::from(
-        "the current checkout has uncommitted changes",
-      ));
-    }
-  }
+  check_checkout(live)?;
 
   let tag = match &request {
     Request::Rollback => {
@@ -405,13 +388,13 @@ fn request_release(
     | Request::VerifyPattern => None,
   };
   let release = release(tag, fetch_release)?;
+  let installed = marker(live)?;
+  check_release_layout(live, &release, installed.as_ref())?;
 
   match order {
     Some(requested) => validate_order(live, &release, &requested)?,
     None => {}
   }
-
-  let installed = marker(live)?;
 
   match installed {
     Some((installed_tag, installed_commit)) => {
@@ -443,6 +426,24 @@ fn request_release(
   let stamp = SystemTime::now().duration_since(UNIX_EPOCH)?;
   let slot = format!("release-{}-{}", std::process::id(), stamp.as_nanos());
   install_release(live, releases, &slot, &release)
+}
+
+fn check_checkout(live: &Path) -> Result<(), UpdateError> {
+  let current = checkout_revision(live)?;
+
+  match current {
+    None => Ok(()),
+    Some(_) => {
+      let status = git(live, &["status", "--porcelain"])?;
+
+      match status.as_str() {
+        "" => Ok(()),
+        _ => Err(UpdateError::from(
+          "the current checkout has uncommitted changes",
+        )),
+      }
+    }
+  }
 }
 
 fn validate_order(
@@ -479,6 +480,39 @@ struct Version {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct InvalidVersion;
+
+const FIRST_SHARED_RELEASE: Version = Version {
+  major: 0,
+  minor: 1,
+  patch: 13,
+};
+
+fn check_release_layout(
+  live: &Path,
+  release: &Release,
+  installed: Option<&(String, String)>,
+) -> Result<(), UpdateError> {
+  match cfg!(target_arch = "x86_64").then_some(()) {
+    Some(()) => {}
+    None => {
+      return Err(UpdateError::from(
+        "the published Console bundle requires x86-64 Linux",
+      ));
+    }
+  }
+
+  let offered = version(&release.tag).map_err(|_| "invalid offered release tag")?;
+  let compatible = offered >= FIRST_SHARED_RELEASE
+    || (live == Path::new(console_repository::DEVICE_ROOT) && installed.is_some());
+
+  match compatible.then_some(()) {
+    Some(()) => Ok(()),
+    None => Err(UpdateError::from(format!(
+      "{} predates shared Console updates. This installation requires console-v0.1.13 or later.",
+      release.tag
+    ))),
+  }
+}
 
 fn version(tag: &str) -> Result<Version, InvalidVersion> {
   let numbers = tag.strip_prefix(TAG_PREFIX).ok_or(InvalidVersion)?;
@@ -536,7 +570,7 @@ fn check(live: &Path, releases: &Path, pending: Option<&str>) -> Result<(), Upda
 fn offer_update(
   releases: &Path,
   tag: &str,
-  notify: impl Fn(&str) -> Result<NoticeDelivery, UpdateError>,
+  notify: impl Fn(&str) -> Result<Delivery, UpdateError>,
 ) -> Result<(), UpdateError> {
   use notices::{Effect, Notice, Report, State};
 
@@ -587,7 +621,7 @@ fn notice_eligibility(releases: &Path, tag: &str) -> Result<notices::Eligibility
   )
 }
 
-fn notify_update(tag: &str) -> Result<NoticeDelivery, UpdateError> {
+fn notify_update(tag: &str) -> Result<Delivery, UpdateError> {
   let Ok(systemctl) = Program::Systemctl.name();
   let mut desktop = desktop_command()?;
   let daemon = desktop
@@ -602,7 +636,7 @@ fn notify_update(tag: &str) -> Result<NoticeDelivery, UpdateError> {
 
   match ::core::primitive::bool::then_some(daemon.status.success(), ()) {
     ::core::option::Option::Some(()) => {}
-    ::core::option::Option::None => return Ok(NoticeDelivery::Deferred),
+    ::core::option::Option::None => return Ok(Delivery::Deferred),
   }
 
   let body = format!("{tag} is available. Open Console Updates to choose when to install it.");
@@ -614,7 +648,7 @@ fn notify_update(tag: &str) -> Result<NoticeDelivery, UpdateError> {
   let Ok(arguments) = options.invocation("Console update available", Some(&body));
   let mut notify = desktop_command()?;
   checked(notify.args(arguments))?;
-  Ok(NoticeDelivery::Posted)
+  Ok(Delivery::Posted)
 }
 
 enum ReleaseAge {
@@ -642,6 +676,8 @@ fn newer(live: &Path, tag: &str) -> Result<ReleaseAge, UpdateError> {
 
 fn latest_update(live: &Path) -> Result<Option<Release>, UpdateError> {
   let latest = release(None, fetch_release)?;
+  let installed = marker(live)?;
+  check_release_layout(live, &latest, installed.as_ref())?;
   let age = newer(live, &latest.tag)?;
 
   Ok(match age {
@@ -712,7 +748,7 @@ fn parse_release(
 ) -> Result<Release, UpdateError> {
   use release_metadata::Publication;
 
-  let unsuitable = "GitHub did not report an immutable release with a Legion Go bundle";
+  let unsuitable = "GitHub did not report an immutable release with a Console bundle";
 
   match published.publication {
     Publication::ImmutableRelease => {}
@@ -720,7 +756,7 @@ fn parse_release(
   }
 
   let _tag_version = version(&published.tag_name)
-    .map_err(|_| "GitHub returned invalid Legion Go release metadata")?;
+    .map_err(|_| "GitHub returned invalid Console release metadata")?;
   let mut uploaded = published
     .assets
     .into_iter()
@@ -754,7 +790,7 @@ fn parse_release(
   } {
     ::core::option::Option::Some(()) => {
       return Err(UpdateError::from(
-        "GitHub returned invalid Legion Go release metadata",
+        "GitHub returned invalid Console release metadata",
       ));
     }
     ::core::option::Option::None => {}
@@ -817,23 +853,33 @@ fn install_release(
     });
 
     let result = match effect {
-      Effect::Download => download(&stage, release),
+      Effect::Download => download_release(&stage, release),
       Effect::Verify => verify_bundle(&stage, release),
       Effect::Install => begin(live, releases, slot),
     };
 
-    match (effect, result) {
-      (Effect::Download | Effect::Verify, Err(fault)) => {
+    match result {
+      Err(fault) => {
+        let failure_title = match effect {
+          Effect::Download | Effect::Verify => "Could not prepare Console update",
+          Effect::Install => "Could not install Console update",
+        };
         let Ok(()) = notice.show(Progress {
-          title: "Could not prepare Console update",
+          title: failure_title,
           release: &release.tag,
           expire_ms: None,
         });
-        fs::remove_dir_all(&stage)
-          .map_err(UpdateError::from)
-          .and(Err(fault))
+
+        match discard_failed_stage(releases, &stage, slot) {
+          Ok(()) => {}
+          Err(cleanup) => {
+            eprintln!("console-update: could not clean up the failed release: {cleanup}")
+          }
+        }
+
+        Err(fault)
       }
-      (_, result_2) => result_2,
+      Ok(()) => Ok(()),
     }
   });
 
@@ -842,6 +888,28 @@ fn install_release(
     Ok(State::Downloading | State::Verifying | State::Installing) | Err(_) => {
       Err(UpdateError::from("the release installation did not finish"))
     }
+  }
+}
+
+fn discard_failed_stage(releases: &Path, stage: &Path, slot: &str) -> Result<(), UpdateError> {
+  let pending = optional(&releases.join(PENDING))?;
+  let previous = optional(&releases.join(PREVIOUS))?;
+  let in_use = pending.as_deref().and_then(|record| record.lines().next()) == Some(slot)
+    || previous.as_deref().map(str::trim) == Some(slot);
+
+  match in_use.then_some(()) {
+    Some(()) => Ok(()),
+    None => remove_release_slot(stage),
+  }
+}
+
+fn remove_release_slot(stage: &Path) -> Result<(), UpdateError> {
+  match fs::remove_dir_all(stage) {
+    Ok(()) => Ok(()),
+    Err(fault) => match (fault.kind() == ErrorKind::NotFound).then_some(()) {
+      Some(()) => Ok(()),
+      None => Err(UpdateError::from(fault)),
+    },
   }
 }
 
@@ -903,6 +971,53 @@ fn download(stage: &Path, release: &Release) -> Result<(), UpdateError> {
   )
 }
 
+enum ReleaseDownload {
+  Bundle,
+  Checkout,
+}
+
+fn download_release(stage: &Path, release: &Release) -> Result<(), UpdateError> {
+  let Ok(cores) = Cores::counted();
+  let transfers = [ReleaseDownload::Bundle, ReleaseDownload::Checkout];
+  let completed = for_each(cores, &transfers, |transfer| {
+    let result = match transfer {
+      ReleaseDownload::Bundle => download(stage, release),
+      ReleaseDownload::Checkout => fetch_checkout(&stage.join("tree"), &release.tag),
+    };
+    result.map_err(|fault| fault.to_string())
+  })?;
+
+  for result in completed {
+    result?;
+  }
+
+  Ok(())
+}
+
+fn fetch_checkout(checkout: &Path, tag: &str) -> Result<(), UpdateError> {
+  fs::create_dir(checkout)?;
+  let Ok(mut initialize) = Program::Git.command();
+  checked(initialize.arg("-C").arg(checkout).args(["init", "--quiet"]))?;
+  let tag_ref = format!("refs/tags/{tag}");
+  git(
+    checkout,
+    &[
+      "-c",
+      "http.lowSpeedLimit=100",
+      "-c",
+      "http.lowSpeedTime=30",
+      "fetch",
+      "--quiet",
+      "--no-tags",
+      REPOSITORY,
+      &tag_ref,
+    ],
+  )?;
+  git(checkout, &["checkout", "--quiet", "--detach", "FETCH_HEAD"])?;
+
+  Ok(())
+}
+
 fn verify_bundle(stage: &Path, release: &Release) -> Result<(), UpdateError> {
   let archive = stage.join(STAGED_BUNDLE);
   let Ok(mut checksum) = Program::Sha256sum.command();
@@ -922,33 +1037,6 @@ fn verify_bundle(stage: &Path, release: &Release) -> Result<(), UpdateError> {
 
   let unpacked = unpack_bundle(stage)?;
   let checkout = stage.join("tree");
-  fs::create_dir(&checkout)?;
-  let Ok(mut initialize) = Program::Git.command();
-  checked(
-    initialize
-      .arg("-C")
-      .arg(&checkout)
-      .args(["init", "--quiet"]),
-  )?;
-  let tag = format!("refs/tags/{}", release.tag);
-  git(
-    &checkout,
-    &[
-      "-c",
-      "http.lowSpeedLimit=100",
-      "-c",
-      "http.lowSpeedTime=30",
-      "fetch",
-      "--quiet",
-      "--no-tags",
-      REPOSITORY,
-      &tag,
-    ],
-  )?;
-  git(
-    &checkout,
-    &["checkout", "--quiet", "--detach", "FETCH_HEAD"],
-  )?;
   let commit = git(&checkout, &["rev-parse", "HEAD"])?;
 
   match {
@@ -1070,6 +1158,26 @@ fn slot_path(releases: &Path, slot: &str) -> Result<PathBuf, UpdateError> {
   Ok(releases.join(storage).join("tree"))
 }
 
+fn checkout_revision(root: &Path) -> Result<Option<String>, UpdateError> {
+  match fs::symlink_metadata(root) {
+    Ok(metadata) => match metadata.is_dir().then_some(()) {
+      Some(()) => {
+        let _repository = fs::metadata(root.join(".git"))
+          .map_err(|fault| format!("{} is not a Console checkout: {fault}", root.display()))?;
+        git(root, &["rev-parse", "--verify", "HEAD"]).map(Some)
+      }
+      None => Err(UpdateError::from(format!(
+        "{} is not a Console checkout",
+        root.display()
+      ))),
+    },
+    Err(fault) => match (fault.kind() == ErrorKind::NotFound).then_some(()) {
+      Some(()) => Ok(None),
+      None => Err(UpdateError::from(fault)),
+    },
+  }
+}
+
 fn previous_release(
   live: &Path,
   releases: &Path,
@@ -1143,17 +1251,23 @@ fn restore_release(live: &Path, releases: &Path, slot: &str) -> Result<(), Updat
 
 impl Switch {
   fn read(text: &str) -> Result<Self, UpdateError> {
-    let [slot, before, after, action]: [&str; 4] = text
+    let [slot, saved_before, after, action]: [&str; 4] = text
       .lines()
       .collect::<Vec<_>>()
       .try_into()
       .map_err(|_| "invalid pending release record")?;
 
+    let before = match saved_before {
+      "-" => None,
+      commit => match hex::<40>(commit) {
+        Ok(Hex::Valid) => Some(commit),
+        Ok(Hex::Invalid) => return Err(UpdateError::from("invalid pending release record")),
+      },
+    };
+
     match {
       ::core::primitive::bool::then_some(
-        !matches!(hex::<40>(before), Ok(Hex::Valid))
-          || !matches!(hex::<40>(after), Ok(Hex::Valid))
-          || before == after,
+        !matches!(hex::<40>(after), Ok(Hex::Valid)) || before == Some(after),
         (),
       )
     } {
@@ -1163,15 +1277,15 @@ impl Switch {
       ::core::option::Option::None => {}
     }
 
-    let direction = match action {
-      "apply" => Direction::Apply,
-      "restore" => Direction::Restore,
+    let direction = match (action, before) {
+      ("apply", _) => Direction::Apply,
+      ("restore", Some(_)) => Direction::Restore,
       _ => return Err(UpdateError::from("invalid pending release record")),
     };
 
     Ok(Self {
       slot: slot.to_owned(),
-      before: before.to_owned(),
+      before: before.map(str::to_owned),
       after: after.to_owned(),
       direction,
     })
@@ -1182,24 +1296,32 @@ impl Switch {
       Direction::Apply => "apply",
       Direction::Restore => "restore",
     };
-    write(
-      &releases.join(PENDING),
-      &format!("{}\n{}\n{}\n{action}\n", self.slot, self.before, self.after),
-    )
+    let before = match self.before.as_deref() {
+      Some(revision) => revision,
+      None => "-",
+    };
+    let record = format!("{}\n{before}\n{}\n{action}\n", self.slot, self.after);
+    write(&releases.join(PENDING), &record)
   }
 }
 
 fn begin(live: &Path, releases: &Path, slot: &str) -> Result<(), UpdateError> {
   let other = slot_path(releases, slot)?;
-  let before = git(live, &["rev-parse", "HEAD"])?;
+  let before = checkout_revision(live)?;
   let after = git(&other, &["rev-parse", "HEAD"])?;
 
-  match { ::core::primitive::bool::then_some(before == after, ()) } {
+  match { ::core::primitive::bool::then_some(before.as_deref() == Some(after.as_str()), ()) } {
     ::core::option::Option::Some(()) => {
       println!("The checkout already has this release's revision.");
       return Ok(());
     }
     ::core::option::Option::None => {}
+  }
+
+  match (&before, live == Path::new(RELEASE_ROOT)) {
+    (None, true) => prepare_configuration_directory(Path::new(console_repository::DEVICE_ROOT))?,
+    (None, false) => return Err(UpdateError::from("the current Console checkout is missing")),
+    (Some(_), _) => {}
   }
 
   let change = Switch {
@@ -1210,6 +1332,26 @@ fn begin(live: &Path, releases: &Path, slot: &str) -> Result<(), UpdateError> {
   };
   change.record(releases)?;
   settle(live, releases, change)
+}
+
+fn prepare_configuration_directory(path: &Path) -> Result<(), UpdateError> {
+  match fs::create_dir(path) {
+    Ok(()) => {}
+    Err(fault) => match (fault.kind() == ErrorKind::AlreadyExists).then_some(()) {
+      Some(()) => {}
+      None => return Err(UpdateError::from(fault)),
+    },
+  }
+
+  let metadata = fs::symlink_metadata(path)?;
+  let writable_by_root = metadata.is_dir() && metadata.uid() == 0 && metadata.mode() & 0o022 == 0;
+
+  match writable_by_root.then_some(()) {
+    Some(()) => Ok(()),
+    None => Err(UpdateError::from(
+      "the Console configuration directory must be controlled by root",
+    )),
+  }
 }
 
 fn settle(live: &Path, releases: &Path, mut change: Switch) -> Result<(), UpdateError> {
@@ -1253,7 +1395,7 @@ fn switch_effect(
       other,
       Revisions {
         wanted: &change.after,
-        previous: &change.before,
+        previous: change.before.as_deref(),
       },
     ))),
     SwitchEffect::Verify => {
@@ -1263,10 +1405,14 @@ fn switch_effect(
       )))
     }
     SwitchEffect::ReadLiveRevision => {
-      let current = git(live, &["rev-parse", "HEAD"])?;
-      let observed = match ::core::primitive::bool::then_some(current == change.after, ()) {
-        Some(()) => LiveRevision::Requested,
-        None => LiveRevision::Other,
+      let current = checkout_revision(live)?;
+      let observed = match (
+        current.as_deref() == Some(change.after.as_str()),
+        &change.before,
+      ) {
+        (true, Some(_)) => LiveRevision::Requested,
+        (true, None) => LiveRevision::FirstRelease,
+        (false, _) => LiveRevision::Other,
       };
 
       Ok(Report::Observed(observed))
@@ -1280,12 +1426,16 @@ fn switch_effect(
       Ok(Report::RestoreRecorded)
     }
     SwitchEffect::Restore => {
+      let before = change
+        .before
+        .as_deref()
+        .ok_or("the first release has no previous checkout")?;
       activate(
         live,
         other,
         Revisions {
-          wanted: &change.before,
-          previous: &change.after,
+          wanted: before,
+          previous: Some(&change.after),
         },
       )?;
 
@@ -1307,11 +1457,21 @@ fn finalize_switch(
 ) -> Result<(), UpdateError> {
   match outcome {
     Finalize::Activated => {
-      let previous = optional(&releases.join(PREVIOUS))?;
-      write(&releases.join(PREVIOUS), &change.slot)?;
+      let retire = match &change.before {
+        Some(_) => {
+          let previous = optional(&releases.join(PREVIOUS))?;
+          write(&releases.join(PREVIOUS), &change.slot)?;
+          previous
+        }
+        None => {
+          let stage = other.parent().ok_or("invalid release path")?;
+          remove_release_slot(stage)?;
+          None
+        }
+      };
       fs::remove_file(releases.join(PENDING))?;
 
-      match previous.filter(|saved| saved.trim() != change.slot) {
+      match retire.filter(|saved| saved.trim() != change.slot) {
         Some(saved) => {
           retire_release(releases, saved.trim())?;
         }
@@ -1374,32 +1534,44 @@ fn remember_held(live: &Path, releases: &Path) -> Result<(), UpdateError> {
 
 struct Revisions<'a> {
   wanted: &'a str,
-  previous: &'a str,
+  previous: Option<&'a str>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum Activation {
+  Switch,
+  Resume,
+}
+
+impl Revisions<'_> {
+  fn activation(
+    &self,
+    live: Option<&str>,
+    staged: Option<&str>,
+  ) -> Result<Activation, UpdateError> {
+    let wanted = Some(self.wanted);
+
+    match (
+      (live, staged) == (self.previous, wanted),
+      (live, staged) == (wanted, self.previous),
+    ) {
+      (true, _) => Ok(Activation::Switch),
+      (false, true) => Ok(Activation::Resume),
+      _ => Err(UpdateError::from(
+        "the checkout revisions changed while a release was pending",
+      )),
+    }
+  }
 }
 
 fn activate(live: &Path, other: &Path, revisions: Revisions<'_>) -> Result<(), UpdateError> {
-  let Revisions { wanted, previous } = revisions;
-  let current = git(live, &["rev-parse", "HEAD"])?;
-  let saved = git(other, &["rev-parse", "HEAD"])?;
-  let switching = current == previous && saved == wanted;
+  let current = checkout_revision(live)?;
+  let saved = checkout_revision(other)?;
+  let activation = revisions.activation(current.as_deref(), saved.as_deref())?;
 
-  match {
-    ::core::primitive::bool::then_some(
-      !switching && !(current == wanted && saved == previous),
-      (),
-    )
-  } {
-    ::core::option::Option::Some(()) => {
-      return Err(UpdateError::from(
-        "the checkout revisions changed while a release was pending",
-      ));
-    }
-    ::core::option::Option::None => {}
-  }
-
-  let (target, old) = match ::core::primitive::bool::then_some(switching, ()) {
-    ::core::option::Option::Some(()) => (other, live),
-    ::core::option::Option::None => (live, other),
+  let (target, old) = match activation {
+    Activation::Switch => (other, live),
+    Activation::Resume => (live, other),
   };
   let record = marker(target)?;
   let checkout = match record {
@@ -1414,17 +1586,24 @@ fn activate(live: &Path, other: &Path, revisions: Revisions<'_>) -> Result<(), U
   let mut apply = Command::new(engine);
   apply.args(["apply", "--prebuilt"]);
 
-  match ::core::primitive::bool::then_some(switching, ()) {
-    ::core::option::Option::Some(()) => {
+  match (live == Path::new(RELEASE_ROOT)).then_some(()) {
+    Some(()) => {
+      apply.arg("--root").arg(live);
+    }
+    None => {}
+  }
+
+  match activation {
+    Activation::Switch => {
       apply.arg("--switch-from").arg(other);
     }
-    ::core::option::Option::None => {}
+    Activation::Resume => {}
   }
 
   checked(&mut apply)?;
   let activated = git(live, &["rev-parse", "HEAD"])?;
 
-  match ::core::primitive::bool::then_some(activated != wanted, ()) {
+  match ::core::primitive::bool::then_some(activated != revisions.wanted, ()) {
     ::core::option::Option::Some(()) => {
       return Err(UpdateError::from(
         "the manifest engine did not activate the requested checkout",
@@ -1539,6 +1718,57 @@ mod tests {
   }
 
   #[test]
+  fn a_first_install_can_resume_after_its_checkout_was_published() -> Result<(), UpdateError> {
+    let revision = "a".repeat(40);
+    let record = format!("release-1-2\n-\n{revision}\napply\n");
+    let pending = Switch::read(&record)?;
+    let revisions = Revisions {
+      wanted: &pending.after,
+      previous: pending.before.as_deref(),
+    };
+
+    let first = revisions.activation(None, Some(&revision))?;
+    let continued = revisions.activation(Some(&revision), None)?;
+    assert_eq!(first, Activation::Switch);
+    assert_eq!(continued, Activation::Resume);
+    assert!(matches!(
+      revisions.activation(Some(&revision), Some(&revision)),
+      Err(fault) if fault.to_string() == "the checkout revisions changed while a release was pending"
+    ));
+    assert!(matches!(
+      Switch::read(&format!("release-1-2\n-\n{revision}\nrestore\n")),
+      Err(fault) if fault.to_string() == "invalid pending release record"
+    ));
+    Ok(())
+  }
+
+  #[test]
+  fn a_new_install_requires_a_release_that_can_run_the_shared_updater() -> Result<(), UpdateError>
+  {
+    let root = Path::new(RELEASE_ROOT);
+    let archived = "console-v0.1.12";
+    let Ok(old) = release_metadata(archived);
+    let bytes = serde_json::to_vec(&old)?;
+    let old_release = parse_response(&bytes, Some(archived))?;
+    assert!(matches!(
+      check_release_layout(root, &old_release, None),
+      Err(fault) if fault.to_string().contains("requires console-v0.1.13 or later")
+    ));
+    let installed = (archived.to_owned(), "a".repeat(40));
+    check_release_layout(
+      Path::new(console_repository::DEVICE_ROOT),
+      &old_release,
+      Some(&installed),
+    )?;
+
+    let supported = "console-v0.1.13";
+    let Ok(metadata) = release_metadata(supported);
+    let shared = serde_json::to_vec(&metadata)?;
+    let release = parse_response(&shared, Some(supported))?;
+    check_release_layout(root, &release, None)
+  }
+
+  #[test]
   fn the_release_parser_reads_the_one_uploaded_bundle() -> Result<(), UpdateError> {
     let Ok(fixture) = release_metadata(TAG);
     let metadata = serde_json::to_vec(&fixture)?;
@@ -1547,7 +1777,7 @@ mod tests {
     assert_eq!(release.digest, DIGEST);
     assert_eq!(release.bytes, 42);
     assert!(
-      matches!(parse_response(&metadata, Some("console-v0.2.1")), Err(fault) if fault.to_string() == "GitHub returned invalid Legion Go release metadata")
+      matches!(parse_response(&metadata, Some("console-v0.2.1")), Err(fault) if fault.to_string() == "GitHub returned invalid Console release metadata")
     );
     let oversized = vec![b' '; 1_048_577];
     let rejected = parse_response(&oversized, None);
@@ -1579,7 +1809,7 @@ mod tests {
     assert_eq!(latest.tag, canonical);
     assert_eq!(latest.digest, DIGEST);
     assert!(
-      matches!(release(Some(bridge), fetch), Err(fault) if fault.to_string() == "GitHub returned invalid Legion Go release metadata")
+      matches!(release(Some(bridge), fetch), Err(fault) if fault.to_string() == "GitHub returned invalid Console release metadata")
     );
     Ok(())
   }
@@ -1588,8 +1818,8 @@ mod tests {
   fn the_release_parser_rejects_unsafe_or_ambiguous_metadata() -> Result<(), UpdateError> {
     use serde_json::json;
 
-    let unsuitable = "GitHub did not report an immutable release with a Legion Go bundle";
-    let invalid = "GitHub returned invalid Legion Go release metadata";
+    let unsuitable = "GitHub did not report an immutable release with a Console bundle";
+    let invalid = "GitHub returned invalid Console release metadata";
 
     for (field, value, reason) in [
       ("immutable", json!(false), unsuitable),
@@ -1724,7 +1954,7 @@ mod tests {
     let tag = "console-v1.2.3";
     let noticed = releases.join(NOTICED);
 
-    offer_update(&releases, tag, |_| Ok(NoticeDelivery::Deferred))?;
+    offer_update(&releases, tag, |_| Ok(Delivery::Deferred))?;
     let deferred = optional(&noticed)?;
     assert_eq!(deferred, None);
 
@@ -1737,7 +1967,7 @@ mod tests {
 
     offer_update(&releases, tag, |available| {
       assert_eq!(available, tag);
-      Ok(NoticeDelivery::Posted)
+      Ok(Delivery::Posted)
     })?;
     let delivered = optional(&noticed)?;
     assert_eq!(delivered.as_deref(), Some(tag));

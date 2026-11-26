@@ -2,7 +2,7 @@
 //! A display edit holds the same lock that excludes other edits and session snapshots.
 
 use console_core_never::Never;
-use rustix::fs::{Mode as FileMode, OFlags, open};
+use rustix::fs::{OFlags, open};
 use serde_json::Value;
 use std::fmt;
 use std::fs::{File, TryLockError};
@@ -209,7 +209,7 @@ pub fn try_edit() -> Result<Option<File>, std::io::Error> {
   let descriptor = open(
     at,
     OFlags::CREATE | OFlags::WRONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
-    FileMode::RUSR | FileMode::WUSR,
+    rustix::fs::Mode::RUSR | rustix::fs::Mode::WUSR,
   )?;
   let lock = File::from(descriptor);
 

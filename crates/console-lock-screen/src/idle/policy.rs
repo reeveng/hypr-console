@@ -4,15 +4,13 @@ use std::collections::BTreeSet;
 
 use console_core_state_machine::{EffectDependencies, Machine, Never, Queue, Service};
 
-use super::Profile;
+use super::{Action, Profile};
 use crate::LockScreen;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Timer {
-  Dim,
-  Blank,
-  Lock(Profile),
-  Suspend,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Timer {
+  pub action: Action,
+  pub profile: Profile,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -87,6 +85,11 @@ impl EffectDependencies for Effect {
   }
 }
 
+enum SuspendRequest {
+  Ready,
+  Sent,
+}
+
 pub struct State {
   power: Profile,
   lock_before_sleep: LockScreen,
@@ -95,7 +98,8 @@ pub struct State {
   sleep: Sleep,
   logind_idle: Inhibition,
   screen_saver: Inhibition,
-  lock_due: BTreeSet<Profile>,
+  due: BTreeSet<Timer>,
+  suspend_request: SuspendRequest,
 }
 
 impl State {
@@ -127,37 +131,84 @@ impl State {
     }
   }
 
-  fn lock_due(&self, effects: &mut Queue<Effect>) -> Result<(), Never> {
-    let Ok(inhibition) = self.inhibited();
+  fn timing(&self, action: Action) -> Result<Timer, Never> {
+    Ok(Timer {
+      action,
+      profile: self.power,
+    })
+  }
 
-    match (inhibition, self.sleep, self.lock_due.contains(&self.power)) {
-      (Inhibition::Clear, Sleep::Awake, true) => self.lock(effects),
-      (Inhibition::Clear, Sleep::Awake, false)
-      | (Inhibition::Held, _, _)
-      | (_, Sleep::AwaitingLock | Sleep::Preparing, _) => Ok(()),
+  fn display_due(&mut self, effects: &mut Queue<Effect>) -> Result<(), Never> {
+    let Ok(dim) = self.timing(Action::Dim);
+    let Ok(blank) = self.timing(Action::Blank);
+    let wanted = match (self.due.contains(&dim), self.due.contains(&blank)) {
+      (_, true) => Display::Off,
+      (true, false) => Display::Dimmed,
+      (false, false) => Display::On,
+    };
+    self.display(wanted, effects)
+  }
+
+  fn lock_due(&self, effects: &mut Queue<Effect>) -> Result<(), Never> {
+    let Ok(timer) = self.timing(Action::Lock);
+
+    match self.due.contains(&timer).then_some(()) {
+      Some(()) => self.lock(effects),
+      None => Ok(()),
+    }
+  }
+
+  fn suspend_due(&mut self, effects: &mut Queue<Effect>) -> Result<(), Never> {
+    let Ok(timer) = self.timing(Action::Suspend);
+
+    match (&self.suspend_request, self.due.contains(&timer)) {
+      (SuspendRequest::Ready, true) => {
+        self.suspend_request = SuspendRequest::Sent;
+        effects.offer(Effect::Suspend)
+      }
+      (SuspendRequest::Ready, false) | (SuspendRequest::Sent, _) => Ok(()),
     }
   }
 
   fn timeout(&mut self, timer: Timer, effects: &mut Queue<Effect>) -> Result<(), Never> {
     let Ok(inhibition) = self.inhibited();
 
-    match (inhibition, self.sleep, timer) {
-      (Inhibition::Held, _, _) | (_, Sleep::AwaitingLock | Sleep::Preparing, _) => Ok(()),
-      (Inhibition::Clear, Sleep::Awake, Timer::Dim) => match self.display {
-        Display::On => self.display(Display::Dimmed, effects),
-        Display::Dimmed | Display::Off => Ok(()),
-      },
-      (Inhibition::Clear, Sleep::Awake, Timer::Blank) => self.display(Display::Off, effects),
-      (Inhibition::Clear, Sleep::Awake, Timer::Lock(profile)) => {
-        let _already_due = self.lock_due.insert(profile);
+    match (inhibition, self.sleep) {
+      (Inhibition::Held, _) | (_, Sleep::AwaitingLock | Sleep::Preparing) => Ok(()),
+      (Inhibition::Clear, Sleep::Awake) => {
+        let _inserted = self.due.insert(timer);
 
-        match (profile == self.power).then_some(()) {
-          Some(()) => self.lock_due(effects),
+        match (timer.profile == self.power).then_some(timer.action) {
+          Some(Action::Dim | Action::Blank) => self.display_due(effects),
+          Some(Action::Lock) => self.lock_due(effects),
+          Some(Action::Suspend) => self.suspend_due(effects),
           None => Ok(()),
         }
       }
-      (Inhibition::Clear, Sleep::Awake, Timer::Suspend) => effects.offer(Effect::Suspend),
     }
+  }
+
+  fn power(&mut self, profile: Profile, effects: &mut Queue<Effect>) -> Result<(), Never> {
+    let changed = self.power != profile;
+    self.power = profile;
+    let Ok(inhibition) = self.inhibited();
+
+    match (changed, inhibition, self.sleep) {
+      (true, Inhibition::Clear, Sleep::Awake) => {
+        let Ok(()) = self.display_due(effects);
+        let Ok(()) = self.lock_due(effects);
+        self.suspend_due(effects)
+      }
+      (false, _, _)
+      | (_, Inhibition::Held, _)
+      | (_, _, Sleep::AwaitingLock | Sleep::Preparing) => Ok(()),
+    }
+  }
+
+  fn reset(&mut self) -> Result<(), Never> {
+    self.due.clear();
+    self.suspend_request = SuspendRequest::Ready;
+    Ok(())
   }
 
   fn inhibit(
@@ -177,7 +228,7 @@ impl State {
 
     match (before, after) {
       (Inhibition::Clear, Inhibition::Held) => {
-        self.lock_due.clear();
+        let Ok(()) = self.reset();
         self.display(Display::On, effects)
       }
       (Inhibition::Held, Inhibition::Clear) => effects.offer(Effect::ResetTimers),
@@ -229,7 +280,7 @@ impl State {
 
   fn resumed(&mut self, effects: &mut Queue<Effect>) -> Result<(), Never> {
     self.sleep = Sleep::Awake;
-    self.lock_due.clear();
+    let Ok(()) = self.reset();
     let Ok(()) = effects.offer(Effect::ReportSleep(Sleep::Awake));
     let Ok(()) = effects.offer(Effect::ResetTimers);
     let Ok(()) = self.display(Display::On, effects);
@@ -269,7 +320,8 @@ impl Machine for Idle {
       sleep: Sleep::Awake,
       logind_idle: input.logind_idle,
       screen_saver: Inhibition::Clear,
-      lock_due: BTreeSet::new(),
+      due: BTreeSet::new(),
+      suspend_request: SuspendRequest::Ready,
     })
   }
 
@@ -281,16 +333,10 @@ impl Machine for Idle {
     let Ok(()) = match request {
       Request::Idled(timer) => state.timeout(timer, effects),
       Request::Activity => {
-        state.lock_due.clear();
+        let Ok(()) = state.reset();
         state.display(Display::On, effects)
       }
-      Request::Power(profile) => match (state.power != profile).then_some(()) {
-        Some(()) => {
-          state.power = profile;
-          state.lock_due(effects)
-        }
-        None => Ok(()),
-      },
+      Request::Power(profile) => state.power(profile, effects),
       Request::Inhibit(source, now) => state.inhibit(source, now, effects),
       Request::LockRequested => state.lock(effects),
       Request::Session(now) => state.session_changed(now, effects),
@@ -334,8 +380,14 @@ mod tests {
       effects(
         LockScreen::Off,
         [
-          Request::Idled(Timer::Blank),
-          Request::Idled(Timer::Dim),
+          Request::Idled(Timer {
+            action: Action::Blank,
+            profile: Profile::PluggedIn
+          }),
+          Request::Idled(Timer {
+            action: Action::Dim,
+            profile: Profile::PluggedIn
+          }),
           Request::Activity,
           Request::Activity,
         ],
@@ -390,7 +442,10 @@ mod tests {
       effects(
         LockScreen::Off,
         [
-          Request::Idled(Timer::Lock(Profile::OnBattery)),
+          Request::Idled(Timer {
+            action: Action::Lock,
+            profile: Profile::OnBattery
+          }),
           Request::Power(Profile::OnBattery),
           Request::Activity,
           Request::Power(Profile::PluggedIn),
@@ -409,20 +464,75 @@ mod tests {
   }
 
   #[test]
+  fn switching_power_applies_elapsed_display_and_suspend_timers_once() {
+    let battery = |action| Timer {
+      action,
+      profile: Profile::OnBattery,
+    };
+    let plugged = |action| Timer {
+      action,
+      profile: Profile::PluggedIn,
+    };
+
+    assert_eq!(
+      effects(
+        LockScreen::Off,
+        [
+          Request::Idled(battery(Action::Blank)),
+          Request::Idled(plugged(Action::Dim)),
+          Request::Power(Profile::OnBattery),
+          Request::Power(Profile::PluggedIn),
+          Request::Idled(battery(Action::Suspend)),
+          Request::Power(Profile::OnBattery),
+          Request::Idled(plugged(Action::Suspend)),
+          Request::Power(Profile::PluggedIn),
+          Request::Activity,
+          Request::Idled(plugged(Action::Suspend)),
+        ],
+      ),
+      Ok(vec![
+        vec![],
+        vec![],
+        vec![Effect::Display(Display::Dimmed)],
+        vec![Effect::Display(Display::Off)],
+        vec![Effect::Display(Display::Dimmed)],
+        vec![],
+        vec![Effect::Display(Display::Off), Effect::Suspend],
+        vec![],
+        vec![Effect::Display(Display::Dimmed)],
+        vec![Effect::Display(Display::On)],
+        vec![Effect::Suspend],
+      ]),
+    );
+  }
+
+  #[test]
   fn idle_actions_stay_paused_until_both_inhibitors_are_released() {
     assert_eq!(
       effects(
         LockScreen::Off,
         [
-          Request::Idled(Timer::Dim),
+          Request::Idled(Timer {
+            action: Action::Dim,
+            profile: Profile::PluggedIn
+          }),
           Request::Inhibit(Inhibitor::Logind, Inhibition::Held),
           Request::Inhibit(Inhibitor::ScreenSaver, Inhibition::Held),
-          Request::Idled(Timer::Blank),
+          Request::Idled(Timer {
+            action: Action::Blank,
+            profile: Profile::PluggedIn
+          }),
           Request::Inhibit(Inhibitor::Logind, Inhibition::Clear),
-          Request::Idled(Timer::Suspend),
+          Request::Idled(Timer {
+            action: Action::Suspend,
+            profile: Profile::PluggedIn
+          }),
           Request::LockRequested,
           Request::Inhibit(Inhibitor::ScreenSaver, Inhibition::Clear),
-          Request::Idled(Timer::Suspend),
+          Request::Idled(Timer {
+            action: Action::Suspend,
+            profile: Profile::PluggedIn
+          }),
         ],
       ),
       Ok(vec![

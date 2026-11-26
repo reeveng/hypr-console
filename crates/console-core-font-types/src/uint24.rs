@@ -47,9 +47,9 @@ impl Uint24 {
   }
 
   pub const fn from_be_bytes(bytes: [u8; 3]) -> Result<Self, Never> {
-    let [first, second, third] = bytes;
+    let Ok(value) = console_core_bytes::endian::u24_be(bytes);
 
-    Ok(Self(u32::from_be_bytes([0, first, second, third])))
+    Ok(Self(value))
   }
 }
 

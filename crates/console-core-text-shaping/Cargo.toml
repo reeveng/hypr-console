@@ -50,6 +50,10 @@ bench = false
 [dependencies.console-core-macintosh-roman]
 workspace = true
 
+[dependencies.console-core-bytes]
+workspace = true
+features = ["alloc"]
+
 [dependencies.console-core-never]
 workspace = true
 

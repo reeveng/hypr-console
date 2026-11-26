@@ -20,7 +20,6 @@
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 
-use console_core_atomic_writes as writes;
 use console_core_external_programs::Program;
 use console_core_geometry::Size;
 use console_core_never::Never;
@@ -43,7 +42,7 @@ pub enum Unshared {
   TooLong(String),
   Bitmap(console_core_qr_codes::BitmapTooLarge),
   Making(PathBuf, std::io::Error),
-  Unwritten(writes::Unwritten),
+  Unwritten(console_core_atomic_writes::Unwritten),
 }
 
 impl std::fmt::Display for Unshared {
@@ -189,7 +188,7 @@ fn write_qr_code(network: &wifi::Network) -> Result<PathBuf, Unshared> {
   let Ok(name) = file_name_for(&said);
   let at = folder_3.join(name);
 
-  writes::whole(&at, &bytes).map_err(Unshared::Unwritten)?;
+  console_core_atomic_writes::whole(&at, &bytes).map_err(Unshared::Unwritten)?;
 
   Ok(at)
 }

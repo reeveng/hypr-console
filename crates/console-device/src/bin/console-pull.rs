@@ -9,11 +9,10 @@
 use std::process::ExitCode;
 
 use console_device::pulling::{Named, Pull};
-use console_device_name as naming;
 use console_operating_system_linux::program_runtime::Pure;
 
 fn main() -> ExitCode {
-  let host = match naming::device() {
+  let host = match console_device_name::device() {
     Ok(host) => host,
     Err(fault) => {
       eprintln!("{fault}");

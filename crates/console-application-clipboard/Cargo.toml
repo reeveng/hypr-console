@@ -10,6 +10,7 @@ name = "console-application-clipboard"
 path = "src/main.rs"
 
 [dependencies]
+console-core-bytes = { workspace = true, features = ["alloc"] }
 console-notifications.workspace = true
 console-wayland = { path = "../console-wayland" }
 console-compositor.workspace = true
@@ -22,6 +23,7 @@ console-core-never.workspace = true
 console-core-number-conversion.workspace = true
 console-core-places.workspace = true
 console-core-state-machine.workspace = true
+console-operating-system-linux.workspace = true
 console-panel.workspace = true
 console-waiting.workspace = true
 rustix.workspace = true

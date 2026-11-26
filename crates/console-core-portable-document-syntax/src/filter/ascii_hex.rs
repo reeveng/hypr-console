@@ -28,11 +28,9 @@ pub(crate) fn decode_into<B: Default + Extend<u8>>(
 pub(crate) fn decode_hex_digit(
   c: u8,
 ) -> core::result::Result<Option<u8>, console_core_never::Never> {
-  Ok(match c {
-    b'0'..=b'9' => Some(u8::wrapping_sub(c, b'0')),
-    b'A'..=b'F' => Some(u8::wrapping_add(u8::wrapping_sub(c, b'A'), 10)),
-    b'a'..=b'f' => Some(u8::wrapping_add(u8::wrapping_sub(c, b'a'), 10)),
-    _ => None,
+  Ok(match console_core_bytes::hex::decode_digit(c) {
+    Ok(digit) => Some(digit),
+    Err(console_core_bytes::hex::InvalidDigit(_)) => None,
   })
 }
 

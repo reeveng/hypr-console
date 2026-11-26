@@ -71,7 +71,7 @@ use console_core_number_conversion::{fitted, index};
 use console_core_places::Base;
 use console_operating_system_linux::program_runtime::commands::{Linux, Timing};
 use console_program_contract::{Command, Executable};
-use console_program_runtime::commands::{self as execution_commands, Launch, Streams};
+use console_program_runtime::commands::{Launch, Streams};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
@@ -518,7 +518,12 @@ pub fn make_at(wanted: &[String], side: Side) -> Result<(), Never> {
   };
   let Ok(mut platform) = Linux::new(Timing::Background);
 
-  match execution_commands::spawn(&mut platform, &command, Streams::QUIET, Launch::Background) {
+  match console_program_runtime::commands::spawn(
+    &mut platform,
+    &command,
+    Streams::QUIET,
+    Launch::Background,
+  ) {
     Ok(()) => {}
     Err(fault) => console_core_logging::warn!("no pictures made: {fault}"),
   }

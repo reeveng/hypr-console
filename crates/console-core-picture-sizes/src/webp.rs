@@ -43,8 +43,8 @@ pub(crate) fn size(head: &[u8]) -> Result<Size<u32>, SizeError> {
 fn extended(head: &[u8]) -> Result<Size<u32>, SizeError> {
   let [width_low, width_middle, width_high] = three(head.get(24..))?;
   let [height_low, height_middle, height_high] = three(head.get(27..))?;
-  let width = u32::from_le_bytes([width_low, width_middle, width_high, 0]);
-  let height = u32::from_le_bytes([height_low, height_middle, height_high, 0]);
+  let Ok(width) = console_core_bytes::endian::u24_le([width_low, width_middle, width_high]);
+  let Ok(height) = console_core_bytes::endian::u24_le([height_low, height_middle, height_high]);
 
   Ok(Size {
     width: width.saturating_add(1),

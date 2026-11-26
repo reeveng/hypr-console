@@ -6,29 +6,29 @@
 
 use std::{cmp::Ordering, io};
 
+use console_core_bytes::{Cursor, Truncated};
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index};
 
 use super::{FiniteStream, ReadBytes, ahead, copied};
 
-fn underrun<T>() -> io::Result<T> {
-  Err(io::Error::new(
-    io::ErrorKind::UnexpectedEof,
-    "buffer underrun",
-  ))
+fn stream_read<T>(outcome: Result<T, Truncated>) -> io::Result<T> {
+  match outcome {
+    Ok(value) => Ok(value),
+    Err(Truncated) => Err(io::Error::new(io::ErrorKind::UnexpectedEof, "buffer underrun")),
+  }
 }
 
 pub struct BufReader<'a> {
   whole: &'a [u8],
-  rest: &'a [u8],
+  cursor: Cursor<'a>,
 }
 
 impl<'a> BufReader<'a> {
   pub fn new(buf: &'a [u8]) -> Result<Self, Never> {
-    Ok(BufReader {
-      whole: buf,
-      rest: buf,
-    })
+    let Ok(cursor) = Cursor::new(buf);
+
+    Ok(BufReader { whole: buf, cursor })
   }
 
   pub fn scan_bytes_aligned_ref(
@@ -37,11 +37,12 @@ impl<'a> BufReader<'a> {
     align: u8,
     scan_len: u64,
   ) -> io::Result<&'a [u8]> {
-    let Ok((region, _beyond)) = ahead(self.rest, scan_len);
+    let Ok(rest) = self.cursor.rest();
+    let Ok((region, _beyond)) = ahead(rest, scan_len);
     let Ok(step) = index(align);
 
     let scanned = match region.len().cmp(&pattern.len()) {
-      Ordering::Less => self.rest.split_at_checked(region.len()),
+      Ordering::Less => rest.split_at_checked(region.len()),
       Ordering::Equal | Ordering::Greater => (pattern.len()
         ..=region.len().saturating_add(step.max(1)))
         .step_by(step.max(1))
@@ -49,45 +50,26 @@ impl<'a> BufReader<'a> {
           *end >= region.len()
             || region.get(end.saturating_sub(pattern.len())..*end) == Some(pattern)
         })
-        .and_then(|end| self.rest.split_at_checked(end.min(self.rest.len()))),
+        .and_then(|end| rest.split_at_checked(end.min(rest.len()))),
     };
 
-    match scanned {
-      Some((taken, rest)) => {
-        self.rest = rest;
+    let (taken, remaining) = stream_read(scanned.ok_or(Truncated))?;
+    let Ok(cursor) = Cursor::new(remaining);
+    self.cursor = cursor;
 
-        Ok(taken)
-      }
-      None => underrun(),
-    }
+    Ok(taken)
   }
 
   pub fn read_buf_bytes_ref(&mut self, len: u64) -> io::Result<&'a [u8]> {
-    let Ok(at) = index(len);
-
-    match self.rest.split_at_checked(at) {
-      Some((taken, rest)) => {
-        self.rest = rest;
-
-        Ok(taken)
-      }
-      None => underrun(),
-    }
+    stream_read(self.cursor.take(len))
   }
 
   pub fn read_buf_bytes_available_ref(&mut self) -> Result<&'a [u8], Never> {
-    Ok(std::mem::take(&mut self.rest))
+    self.cursor.take_rest()
   }
 
   fn taken<const WIDTH: usize>(&mut self) -> io::Result<[u8; WIDTH]> {
-    match self.rest.split_first_chunk::<WIDTH>() {
-      Some((bytes, rest)) => {
-        self.rest = rest;
-
-        Ok(*bytes)
-      }
-      None => underrun(),
-    }
+    stream_read(self.cursor.array())
   }
 }
 
@@ -114,43 +96,33 @@ impl ReadBytes for BufReader<'_> {
 
   fn read_buf(&mut self, buf: &mut [u8]) -> io::Result<u64> {
     let Ok(room) = fitted::<_, u64>(buf.len());
-    let Ok((taken, rest)) = ahead(self.rest, room);
+    let Ok(rest) = self.cursor.rest();
+    let Ok((taken, remaining)) = ahead(rest, room);
     let Ok(count) = copied(taken, buf);
-
-    self.rest = rest;
+    let Ok(cursor) = Cursor::new(remaining);
+    self.cursor = cursor;
 
     Ok(count)
   }
 
   fn read_buf_exact(&mut self, buf: &mut [u8]) -> io::Result<()> {
-    match self.rest.split_at_checked(buf.len()) {
-      Some((taken, rest)) => {
-        let Ok(_count) = copied(taken, buf);
+    let Ok(count) = fitted::<_, u64>(buf.len());
+    let taken = self.read_buf_bytes_ref(count)?;
+    let Ok(_copied) = copied(taken, buf);
 
-        self.rest = rest;
-
-        Ok(())
-      }
-      None => underrun(),
-    }
+    Ok(())
   }
 
   fn ignore_bytes(&mut self, count: u64) -> io::Result<()> {
-    let Ok(at) = index(count);
+    let _ignored = self.read_buf_bytes_ref(count)?;
 
-    match self.rest.get(at..) {
-      Some(rest) => {
-        self.rest = rest;
-
-        Ok(())
-      }
-      None => underrun(),
-    }
+    Ok(())
   }
 
   #[inline(always)]
   fn pos(&self) -> u64 {
-    let Ok(position) = fitted::<_, u64>(self.whole.len().saturating_sub(self.rest.len()));
+    let Ok(rest) = self.cursor.rest();
+    let Ok(position) = fitted::<_, u64>(self.whole.len().saturating_sub(rest.len()));
 
     position
   }
@@ -166,7 +138,8 @@ impl FiniteStream for BufReader<'_> {
 
   #[inline(always)]
   fn bytes_available(&self) -> u64 {
-    let Ok(length) = fitted::<_, u64>(self.rest.len());
+    let Ok(rest) = self.cursor.rest();
+    let Ok(length) = fitted::<_, u64>(rest.len());
 
     length
   }

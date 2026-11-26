@@ -1,38 +1,80 @@
-//! The pool, as a program.
-//!
-//! Everything that decides anything is in `console_events::pool`, where
-//! who hears what can be asked without opening a socket, and everything that
-//! holds a socket is in `serving`, where a test can start it on one of its own.
-//! What is here is the two real ones: the machine's runtime directory, and the
-//! machine's compositor.
-//!
-//! It is deliberately not written to `console_program_contract` yet. The
-//! contract's loop carries out effects on one thread and this is a program whose
-//! whole job is holding sockets open, so it wants the thread-per-source shape
-//! the document describes and the contract's loop does not have yet. Writing it
-//! against a runtime that would have to grow for it is how a shared thing gets
-//! bent to one caller.
-
 use std::process::ExitCode;
+use std::time::Duration;
 
+use console_core_arguments::{Command, Flag, Operands, Presence, Takes, read, run_main};
+use console_core_logging::{Severity, Sink, install};
+use console_events::ipc::{Client, Reply, Request, Trace};
 use console_events::{place, serving, sources};
 
+const TRACE: Flag = Flag {
+  spelling: "--trace",
+  takes: Takes::None,
+  about: "log protocol versions, request names, serials, and frame sizes",
+};
+
+const PROBE: Flag = Flag {
+  spelling: "--probe",
+  takes: Takes::None,
+  about: "send a versioned ping to the running relay",
+};
+
+const COMMAND: Command = Command {
+  name: "console-events",
+  about: "serve desktop events and shared workspace state",
+  flags: &[TRACE, PROBE],
+  operands: Operands::None,
+};
+
+const TRACE_LOG: Sink = Sink {
+  minimum: Severity::Info,
+  write: |record| eprintln!("{record}"),
+};
+
 fn main() -> ExitCode {
-  let socket = match place::socket() {
-    Ok(socket) => socket,
-    Err(fault) => {
-      eprintln!("console-events: {fault}, so there is nowhere to put the socket");
+  let words: Vec<String> = std::env::args().skip(1).collect();
+  let Ok(code) = run_main(
+    &COMMAND,
+    &words,
+    |words_2| read(&COMMAND, words_2),
+    |line| -> Result<(), Box<dyn std::error::Error>> {
+      let Ok(tracing) = line.presence(TRACE);
+      let trace = match tracing {
+        Presence::Present => {
+          install(&TRACE_LOG)?;
 
-      return ExitCode::FAILURE;
+          Trace::Enabled
+        }
+        Presence::Absent => Trace::Quiet,
+      };
+      let Ok(probing) = line.presence(PROBE);
+
+      match probing {
+        Presence::Present => probe(trace),
+        Presence::Absent => {
+          let socket = place::socket()?;
+          serving::serve_traced(&socket, sources::hold, trace)?;
+
+          Ok(())
+        }
+      }
+    },
+  );
+
+  code
+}
+
+fn probe(trace: Trace) -> Result<(), Box<dyn std::error::Error>> {
+  let mut client = Client::session(trace)?;
+  let reply = client.call(Request::Ping, Duration::from_secs(1))?;
+
+  match reply {
+    Reply::Pong => {
+      println!("pong");
+
+      Ok(())
     }
-  };
-
-  match serving::serve(&socket, sources::hold) {
-    Ok(()) => ExitCode::SUCCESS,
-    Err(fault) => {
-      eprintln!("console-events: {fault}");
-
-      ExitCode::FAILURE
+    Reply::Workspace(_) | Reply::Fault(_) => {
+      Err(Box::from("the relay returned an unexpected reply"))
     }
   }
 }

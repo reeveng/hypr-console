@@ -112,33 +112,32 @@ fn report(action: &str, result: io::Result<()>) -> Result<(), Never> {
 }
 
 fn show(next: Display) -> io::Result<()> {
-  match next {
-    Display::On | Display::Dimmed => {
-      let Ok(mut command) = InternalProgram::Brightness.command();
-      command.arg(match next {
-        Display::On => "undim",
-        Display::Dimmed => "dim",
-        Display::Off => return Ok(()),
-      });
-      run(command)?;
-
-      match next {
-        Display::On => console_core_logging::info!("Idle display wake requested"),
-        Display::Dimmed => console_core_logging::info!("Idle display dimmed"),
-        Display::Off => {}
-      }
+  let treatment = match next {
+    Display::On => "undim",
+    Display::Dimmed => {
+      display_power(DisplayPower::On)?;
+      "dim"
     }
     Display::Off => {
-      let Ok(outcome) = DisplayPower::Off.set();
-
-      match outcome {
-        DispatchResult::Success => console_core_logging::info!("Idle display powered off"),
-        DispatchResult::Failure(fault) => return Err(io::Error::other(fault)),
-      }
+      display_power(DisplayPower::Off)?;
+      console_core_logging::info!("Idle display powered off");
+      return Ok(());
     }
-  }
-
+  };
+  let Ok(mut command) = InternalProgram::Brightness.command();
+  command.arg(treatment);
+  run(command)?;
+  console_core_logging::info!("Idle display brightness action completed: {treatment}");
   Ok(())
+}
+
+fn display_power(power: DisplayPower) -> io::Result<()> {
+  let Ok(outcome) = power.set();
+
+  match outcome {
+    DispatchResult::Success => Ok(()),
+    DispatchResult::Failure(fault) => Err(io::Error::other(fault)),
+  }
 }
 
 fn run(mut command: Command) -> io::Result<()> {

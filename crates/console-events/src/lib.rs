@@ -39,11 +39,13 @@
 pub mod again;
 pub mod bluetooth;
 pub mod bus;
+pub mod ipc;
 pub mod pool;
 pub mod serving;
 pub mod sources;
 pub mod watching;
 mod wifi;
+mod workspace;
 
 pub use console_operating_system_linux::events::{subscription, wire};
 pub mod place;

@@ -19,6 +19,7 @@ use console_core_internal_programs::InternalProgram;
 use std::path::{Path, PathBuf};
 
 use console_core_arguments::{Flag, Presence, Takes};
+use console_core_bytes::Bytes;
 use console_core_never::Never;
 use console_core_state_machine::{EffectDependencies, Machine, Queue, Service, Transition};
 use console_input_bindings::moved::Tasks;
@@ -204,7 +205,7 @@ fn emptied(at: &Path) -> Result<FileWrite, Never> {
 
   Ok(FileWrite {
     path: at.to_path_buf(),
-    contents,
+    contents: Bytes::from(contents),
   })
 }
 
@@ -297,7 +298,7 @@ mod tests {
       said,
       vec![Effect::Write(FileWrite {
         path: PathBuf::from("/home/someone/.config/console/buttons.toml"),
-        contents,
+        contents: Bytes::from(contents),
       })]
     );
   }
@@ -330,7 +331,7 @@ mod tests {
       answered.last(),
       Some(&Effect::Write(FileWrite {
         path: PathBuf::from("/somewhere"),
-        contents
+        contents: Bytes::from(contents)
       }))
     );
   }

@@ -4,7 +4,7 @@ use console_compositor::{DispatchResult, Query, Request, quote};
 use console_core_external_programs::Program;
 use console_core_never::Never;
 use serde::Deserialize;
-use serde::de::{self, Error as _, IgnoredAny, MapAccess, Visitor};
+use serde::de::{self, Error, IgnoredAny, MapAccess, Visitor};
 
 use super::called;
 

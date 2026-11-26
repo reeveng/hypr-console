@@ -3,7 +3,6 @@ use console_core_color::Rgba;
 use console_core_color::palette::{self, ColorRole, Overrides, Theme, ThemeSettings};
 use console_core_external_programs::Program;
 use console_core_never::Never;
-use console_notifications::saying::Content as Notification;
 use console_panel::page::{Aside, Handler, Initial, NOW, Row, Showing, Subject};
 use console_panel::tasks::Task;
 use console_program_contract::Command;
@@ -36,7 +35,7 @@ fn update(
         let Ok(()) = console_notifications::saying::report(
           console_notifications::Application("Settings"),
           "color-theme",
-          Notification {
+          console_notifications::saying::Content {
             summary: "Couldn't change the theme",
             body: &fault.to_string(),
           },

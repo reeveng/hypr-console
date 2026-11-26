@@ -257,6 +257,35 @@ fn the_wayland_backend_owns_direct_protocol_dependencies() -> Result<(), Failure
   Ok(())
 }
 
+#[test]
+fn first_party_applications_get_their_ui_through_console_panel() -> Result<(), Failure> {
+  let root = console_repository::root()?;
+  let mut metadata = MetadataCommand::new();
+  let workspace = metadata.current_dir(root).no_deps().exec()?;
+  let mut violations = BTreeSet::new();
+
+  for package in workspace
+    .workspace_packages()
+    .into_iter()
+    .filter(|package| package.name.as_str().starts_with("console-application-"))
+  {
+    for dependency in &package.dependencies {
+      match dependency.name.as_str() {
+        "console-core-shapes" | "console-draw-painting" | "console-draw-surface" => {
+          violations.insert(format!(
+            "{} depends on {}. Use console-panel.",
+            package.name, dependency.name
+          ));
+        }
+        _ => {}
+      }
+    }
+  }
+
+  assert!(violations.is_empty(), "{violations:#?}");
+  Ok(())
+}
+
 const BOOT_MENU_TIMEOUT: &[(&str, &str)] = &[
   (
     "files/etc/systemd/system/console-boot-complete.service",

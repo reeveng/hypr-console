@@ -5,7 +5,7 @@ use std::os::fd::{AsFd, OwnedFd};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use console_browser_renderer::{self as channel, Packet};
+use console_browser_renderer::Packet;
 use console_core_never::Never;
 use console_core_web_engine::{Request, encoded_request};
 use console_operating_system_linux::program_lifetime::{Forked, forked};
@@ -140,7 +140,7 @@ impl Pool {
       ::core::option::Option::Some(present) => present,
       ::core::option::Option::None => "",
     };
-    channel::send(
+    console_browser_renderer::send(
       self.control.as_fd(),
       &format!("tab {directory}"),
       Some(&peer),
@@ -261,14 +261,18 @@ impl Worker {
 
   pub fn request(&self, request: &Request) -> io::Result<()> {
     let Ok(line) = encoded_request(request);
-    channel::send(self.channel.as_fd(), &line, None)
+    console_browser_renderer::send(self.channel.as_fd(), &line, None)
   }
 
   pub fn receive(&self) -> io::Result<Packet> {
-    channel::receive(self.channel.as_fd())
+    console_browser_renderer::receive(self.channel.as_fd())
   }
 
   pub fn release_frame(&self) -> io::Result<()> {
-    channel::send(self.channel.as_fd(), channel::RELEASED, None)
+    console_browser_renderer::send(
+      self.channel.as_fd(),
+      console_browser_renderer::RELEASED,
+      None,
+    )
   }
 }

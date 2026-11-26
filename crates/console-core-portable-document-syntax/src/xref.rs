@@ -1584,7 +1584,11 @@ fn xref_stream_num(data: &[u8]) -> Result<Option<u32>, Never> {
     [] => return Ok(None),
     [a] => u32::from(*a),
     [a, b] => u32::from(u16::from_be_bytes([*a, *b])),
-    [a, b, c] => u32::from_be_bytes([0, *a, *b, *c]),
+    [a, b, c] => {
+      let Ok(value) = console_core_bytes::endian::u24_be([*a, *b, *c]);
+
+      value
+    }
     [a, b, c, d] | [0, 0, 0, 0, a, b, c, d] => u32::from_be_bytes([*a, *b, *c, *d]),
     [_, _, _, _, _, _, _, _] => {
       warn!("xref stream number is too large");

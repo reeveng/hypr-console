@@ -13,7 +13,7 @@
 //! anything or not. A finger put down on the bar is the bar's, and it is asked
 //! of the bar that is on the screen, which is the one drawn last.
 
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, Write};
 use std::os::fd::{AsFd, BorrowedFd};
 use std::process::ExitCode;
 
@@ -34,7 +34,9 @@ use console_login_greeter::greeting::{
 use console_login_greeter::picture::{RenderedFrame, Worn, in_the_room, on_the_bar, painted};
 use console_login_greeter::turn::{changed, drawn_at, laid_into, on_the_picture};
 use console_login_pattern::Touch;
-use console_login_window::protocol::{ToGreeter, line_from_greeter, to_greeter};
+use console_login_window::protocol::{
+  Buffered, REPLY_BYTES, Reader, ToGreeter, line_from_greeter, to_greeter,
+};
 use console_login_window::way_in::FELL;
 use console_program_contract::{Effect, Event, Exit};
 use console_status_bar::clock::{self, Standing};
@@ -47,7 +49,7 @@ struct Running<'a> {
   frames: Frames,
   state: GreeterState,
   standing: Standing,
-  from_window: BufReader<io::StdinLock<'a>>,
+  from_window: Reader<io::StdinLock<'a>>,
 }
 
 struct Frames {
@@ -154,7 +156,10 @@ fn run(opening: &Status) -> Result<Result<(), GreeterError>, Never> {
   let Ok(standing) = clock::current();
   let Ok(read_out) = bar::read_all();
   let stdin = io::stdin();
-  let from_window = BufReader::new(stdin.lock());
+  let from_window = match Reader::new(stdin.lock(), REPLY_BYTES) {
+    Ok(reader) => reader,
+    Err(fault) => return Ok(Err(GreeterError::Receiving(fault))),
+  };
 
   let state_3 = match handled(state, read_out.into_iter().map(Event::Custom).collect()) {
     Ok(Handled::Going(state_2)) => state_2,
@@ -215,7 +220,12 @@ fn advance<'a>(
     mut from_window,
   } = running;
   let Ok(patience) = clock::until_the_minute_turns();
-  let woke = match devices.wait(Some(stdin), Some(patience)) {
+  let Ok(buffered) = from_window.buffered();
+  let wait = match buffered {
+    Buffered::Ready => std::time::Duration::ZERO,
+    Buffered::Empty => patience,
+  };
+  let woke = match devices.wait(Some(stdin), Some(wait)) {
     Ok(woke) => woke,
     Err(why) => return Ok(Step::Halt(Err(GreeterError::Waiting(why)))),
   };
@@ -232,8 +242,8 @@ fn advance<'a>(
     Event::Custom(heard)
   }));
 
-  match woke.also {
-    Ready::Yes => match lines(&mut from_window) {
+  match (woke.also, buffered) {
+    (Ready::Yes, _) | (_, Buffered::Ready) => match lines(&mut from_window) {
       Ok(lines) => queue.extend(
         lines
           .into_iter()
@@ -241,7 +251,7 @@ fn advance<'a>(
       ),
       Err(why) => return Ok(Step::Halt(Err(why))),
     },
-    Ready::No => {}
+    (Ready::No, Buffered::Empty) => {}
   }
 
   let Ok((next_standing, readings)) = bar::again(standing);
@@ -372,35 +382,35 @@ fn to_event(panel: Size<u32>, bar: &Rendered, touch: ScreenTouch) -> Result<Gree
   })
 }
 
-fn lines(from_window: &mut BufReader<io::StdinLock<'_>>) -> Result<Vec<ToGreeter>, GreeterError> {
-  let read = iterate(
-    (from_window, Vec::new()),
-    |(from_window_2, mut received)| {
-      let mut line = String::new();
+fn lines(from_window: &mut Reader<io::StdinLock<'_>>) -> Result<Vec<ToGreeter>, GreeterError> {
+  let mut received = Vec::new();
 
-      match from_window_2.read_line(&mut line) {
-        Ok(0) => return Ok(Step::Halt(Err(GreeterError::WindowGone))),
-        Ok(_) => {
-          let Ok(line_2) = to_greeter(&line);
-
-          received.extend(line_2);
-        }
-        Err(why) => return Ok(Step::Halt(Err(GreeterError::Receiving(why)))),
+  for _part in 0..32 {
+    match from_window.read() {
+      Ok(Some(line)) => {
+        let Ok(message) = to_greeter(&line);
+        received.extend(message);
       }
+      Ok(None) => {}
+      Err(fault) => {
+        return Err(
+          match (fault.kind() == io::ErrorKind::UnexpectedEof).then_some(()) {
+            Some(()) => GreeterError::WindowGone,
+            None => GreeterError::Receiving(fault),
+          },
+        );
+      }
+    }
 
-      Ok(
-        match ::core::primitive::bool::then_some(from_window_2.buffer().is_empty(), ()) {
-          ::core::option::Option::Some(()) => Step::Halt(Ok(received)),
-          ::core::option::Option::None => Step::Again((from_window_2, received)),
-        },
-      )
-    },
-  );
+    let Ok(buffered) = from_window.buffered();
 
-  match read {
-    Ok(read_2) => read_2,
-    Err(Endless) => Err(GreeterError::WindowGone),
+    match buffered {
+      Buffered::Empty => break,
+      Buffered::Ready => {}
+    }
   }
+
+  Ok(received)
 }
 
 fn draw(

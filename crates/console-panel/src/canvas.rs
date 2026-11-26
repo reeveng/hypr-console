@@ -7,12 +7,15 @@
 use std::cmp::Ordering;
 
 use console_core_color::Oklch;
-use console_core_fonts::{LETTERS, MONOSPACED, SERIF};
+use console_core_color::palette::Wearing;
+use console_core_fonts::{EM, LETTERS, MONOSPACED, SERIF};
 use console_core_geometry::{Bounds, Containment, CropMinimum, Point, Rectangle, Size};
 use console_core_never::Never;
-use console_core_shapes::{Clip, Cropped, Edge, Font, Panel, Pixels, Round, Shape, Text, Weight};
+use console_core_shapes::{
+  Clip, Cropped, Edge, Font, Panel, Pixels, Round, Shape, Text, Weight, hover_indicator,
+};
 use console_draw_painting::{Lines, Run, at_most, measure_text};
-use console_draw_surface::{Surface, SurfaceError};
+use console_draw_surface::{PointerCursor, Surface, SurfaceError};
 
 pub type Area = Rectangle<i32>;
 
@@ -117,14 +120,29 @@ impl<A: Copy + PartialEq> Targets<A> {
   }
 
   pub fn action(&self, point: Point<f64>) -> Result<Option<A>, Never> {
+    let Ok(hit) = self.hit(point);
+
+    Ok(hit.map(|(_, action)| action))
+  }
+
+  pub fn hit(&self, point: Point<f64>) -> Result<Option<(Area, A)>, Never> {
     Ok(self.entries.iter().rev().find_map(|(area, action)| {
       let Ok(containment) = area.contains_point(point);
 
       match containment {
-        Containment::Inside => Some(*action),
+        Containment::Inside => Some((*area, *action)),
         Containment::Outside => None,
       }
     }))
+  }
+
+  pub fn under_pointer(&self, surface: &Surface) -> Result<Option<(Area, A)>, Never> {
+    let Ok(position) = surface.pointer_position();
+
+    match position {
+      Some(point) => self.hit(point),
+      None => Ok(None),
+    }
   }
 
   pub fn tab(&self, focused: Option<A>, direction: FocusDirection) -> Result<Option<A>, Never> {
@@ -154,6 +172,7 @@ pub struct Frame<A> {
   pub shapes: Vec<Shape>,
   pub max_scroll: i32,
   pub targets: Targets<A>,
+  hover_colors: Option<(Oklch, Oklch)>,
 }
 
 impl<A> Default for Frame<A> {
@@ -162,26 +181,62 @@ impl<A> Default for Frame<A> {
       shapes: Vec::new(),
       max_scroll: 0,
       targets: Targets::default(),
+      hover_colors: None,
     }
   }
 }
 
-impl<A> Frame<A> {
+impl<A: Copy + PartialEq> Frame<A> {
   pub fn paint(&self, surface: &mut Surface, room: Size<u32>) -> Result<(), SurfaceError> {
+    let Ok(target) = self.targets.under_pointer(surface);
+    let cursor = match target {
+      Some(_) => PointerCursor::Hand,
+      None => PointerCursor::Default,
+    };
+    let Ok(()) = surface.set_pointer_cursor(cursor);
+    let hover = match (target, self.hover_colors) {
+      (Some((area, _)), Some(colors)) => {
+        let Ok(size) = area.pixel_size();
+        let Ok(indicator) = hover_indicator(area.origin, size, colors);
+
+        Some(indicator)
+      }
+      (None, _) | (_, None) => None,
+    };
+
     surface.draw(|pixels, device, _| {
       let size = console_draw_painting::Frame {
         device,
         points: room,
       };
 
-      match console_draw_painting::onto(pixels, size, &self.shapes) {
-        Ok(()) => {}
-        Err(fault) => console_core_logging::warn!("Console canvas: {fault}"),
-      }
-
-      Ok(())
+      paint_frame(pixels, size, &self.shapes, hover.as_ref())
     })
   }
+}
+
+fn paint_frame(
+  pixels: &mut [u8],
+  size: console_draw_painting::Frame,
+  shapes: &[Shape],
+  hover: Option<&[Shape; 2]>,
+) -> Result<(), Never> {
+  let painted = console_draw_painting::onto(pixels, size, shapes);
+
+  let after_hover = match painted {
+    Ok(()) => match hover {
+      Some(indicator) => console_draw_painting::over(pixels, size, indicator),
+      None => Ok(()),
+    },
+    Err(fault) => Err(fault),
+  };
+
+  match after_hover {
+    Ok(()) => {}
+    Err(fault) => console_core_logging::warn!("Console canvas: {fault}"),
+  }
+
+  Ok(())
 }
 
 #[derive(Clone, Copy)]
@@ -233,12 +288,64 @@ impl From<bool> for Button {
 
 #[derive(Clone, Copy)]
 pub struct Style {
-  pub rule: Oklch,
-  pub lifted: Oklch,
-  pub accent: Oklch,
+  rule: Oklch,
+  lifted: Oklch,
+  accent: Oklch,
+  ink: Oklch,
+  quiet: Oklch,
+  disabled: Oklch,
+  on_accent: Oklch,
+}
+
+impl From<&Wearing> for Style {
+  fn from(colors: &Wearing) -> Self {
+    Self {
+      rule: colors.edge,
+      lifted: colors.panel,
+      accent: colors.pink,
+      ink: colors.text,
+      quiet: colors.soft,
+      disabled: colors.edge,
+      on_accent: colors.night,
+    }
+  }
+}
+
+pub const ROW_RADIUS: u32 = (EM * 2 / 3).unsigned_abs();
+
+#[derive(Clone, Copy)]
+pub enum RowTone {
+  Normal,
+  Focused,
+  Destructive,
+}
+
+pub struct RowColors {
+  pub fill: Oklch,
   pub ink: Oklch,
   pub quiet: Oklch,
-  pub disabled: Oklch,
+}
+
+impl RowTone {
+  pub fn colors(self, colors: &Wearing) -> Result<RowColors, Never> {
+    Ok(match self {
+      Self::Normal => RowColors {
+        fill: colors.ground,
+        ink: colors.text,
+        quiet: colors.soft,
+      },
+      Self::Focused => RowColors {
+        fill: colors.pink,
+        ink: colors.night,
+        quiet: colors.night,
+      },
+      Self::Destructive => RowColors {
+        fill: colors.coral,
+        ink: colors.night,
+        quiet: colors.night,
+      },
+    })
+  }
 }
 
 pub struct Interaction<A> {
@@ -270,7 +377,10 @@ pub struct Canvas<A> {
 impl<A> Canvas<A> {
   pub fn new(clip: Area, style: Style, interaction: Interaction<A>) -> Result<Self, Never> {
     Ok(Self {
-      frame: Frame::default(),
+      frame: Frame {
+        hover_colors: Some((style.accent, style.on_accent)),
+        ..Frame::default()
+      },
       clip,
       style,
       interaction,

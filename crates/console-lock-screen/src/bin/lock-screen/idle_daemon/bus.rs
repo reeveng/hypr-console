@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::io;
 
-use console_bus::connection::{Bus, NameRequestResult, Receiver, Sender};
+use console_bus::connection::{Bus, Deferred, NameRequestResult, Receiver, Sender};
 use console_bus::messages::{
   ErrorName, Kind, Message, Signal, Truth, ValidationError, Value, Whom,
 };
@@ -175,6 +175,13 @@ fn truth(session: Session) -> core::result::Result<Truth, Never> {
 }
 
 fn ready(receiver: &mut Receiver) -> Result<Option<Message>> {
+  let Ok(deferred) = receiver.deferred();
+
+  match deferred {
+    Deferred::Ready => return receiver.receive().map(Some).map_err(Failure::from),
+    Deferred::Empty => {}
+  }
+
   let mut watched = [PollFd::new(receiver, PollFlags::IN)];
 
   match poll(&mut watched, Some(&Timespec::default())) {

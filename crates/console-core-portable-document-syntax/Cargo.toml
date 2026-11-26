@@ -58,6 +58,9 @@ unsafe = [
 name = "console_core_portable_document_syntax"
 path = "src/lib.rs"
 
+[dependencies.console-core-bytes]
+workspace = true
+
 [dependencies.console-core-api-compatibility]
 workspace = true
 

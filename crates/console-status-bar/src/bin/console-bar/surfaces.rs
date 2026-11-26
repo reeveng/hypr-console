@@ -1,17 +1,19 @@
 //! Workspace switches and panel visibility use independent compositor workers.
-//! A newer workspace tap supersedes an older reply, and bursts share a follow-up read.
+//! A newer workspace tap or panel refresh supersedes an older reply.
+//! Each worker handles one request at a time and coalesces bursts into one follow-up.
 
 use std::fs::File;
 use std::io;
 use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
-use std::sync::mpsc::{Receiver, SyncSender, TryRecvError, sync_channel};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::mpsc::{Receiver, SyncSender, TryRecvError, TrySendError, sync_channel};
 
 use console_compositor::{Action, Carrying, DispatchResult, Layer, Workspace, WorkspaceTarget};
 use console_concurrency::Latest;
 use console_core_state_machine::{
-  EffectDependencies, Machine, Never, Queue, Service, Transition,
+  EffectDependencies, Machine, Never, Queue, Service, SingleEffectMachine, SingleTransition,
+  Transition,
 };
+use console_events::ipc::{Trace, Watch};
 use console_status_bar::state::FocusUpdate;
 use console_waiting::latch;
 
@@ -28,140 +30,214 @@ pub(super) struct Observations {
   pub(super) workspaces: Option<Vec<Workspace>>,
 }
 
-#[derive(Default)]
-struct LayerReading {
-  turn: u64,
-  layers: Option<Vec<Layer>>,
+pub(super) struct PanelSnapshot {
+  pub(super) layers: Vec<Layer>,
+  pub(super) tab: Result<Option<String>, console_onscreen::Error>,
 }
 
-impl LayerReading {
-  fn invalidate(&mut self) -> Result<(), Never> {
-    self.turn = self.turn.wrapping_add(1);
-    self.layers = None;
+#[derive(Clone, Copy)]
+enum ObservationState {
+  Idle,
+  Reading,
+  RefreshPending,
+  Stopped,
+}
 
-    Ok(())
+enum ObservationRequest<T> {
+  Refresh,
+  Answered(Option<T>),
+  Stopped,
+}
+
+enum ObservationEffect<T> {
+  Read(&'static [Service]),
+  Publish(T),
+}
+
+impl<T> EffectDependencies for ObservationEffect<T> {
+  fn services(&self) -> Result<&'static [Service], Never> {
+    Ok(match self {
+      Self::Read(services) => services,
+      Self::Publish(_) => &[],
+    })
   }
-
-  fn answered(&mut self, turn: u64, layers: Vec<Layer>) -> Result<(), Never> {
-    match (self.turn == turn).then_some(()) {
-      Some(()) => self.layers = Some(layers),
-      None => {}
-    }
-
-    Ok(())
-  }
 }
 
-#[cfg_attr(
-  dylint_lib = "explicit081_no_shared_ownership",
-  expect(
-    explicit081_no_shared_ownership,
-    reason = "the drawing loop and the latest worker exchange one generation and one replaceable snapshot in this mailbox"
-  )
-)]
-pub(super) struct LayerWorker {
-  reading: Arc<Mutex<LayerReading>>,
-  worker: Latest,
-  wake: OwnedFd,
-}
+struct Observe<T>(std::marker::PhantomData<T>);
 
-impl LayerWorker {
-  #[cfg_attr(
-    dylint_lib = "explicit081_no_shared_ownership",
-    expect(
-      explicit081_no_shared_ownership,
-      reason = "the drawing loop and the latest worker exchange one generation and one replaceable snapshot in this mailbox"
+impl<T> SingleEffectMachine for Observe<T> {
+  type Input = &'static [Service];
+  type State = ObservationState;
+  type Request = (&'static [Service], ObservationRequest<T>);
+  type Effect = ObservationEffect<T>;
+
+  fn initialize(
+    services: &&'static [Service],
+    _previous: Option<ObservationState>,
+  ) -> Result<SingleTransition<ObservationState, ObservationEffect<T>>, Never> {
+    Self::handle(
+      ObservationState::Idle,
+      (*services, ObservationRequest::Refresh),
     )
-  )]
-  pub(super) fn start() -> io::Result<Self> {
-    let pipe = latch::pipe()?;
-    let reading = Arc::new(Mutex::new(LayerReading::default()));
-    let latest = Arc::clone(&reading);
-    let worker = Latest::start("bar panel visibility".to_owned(), move || {
-      observe_layers(&latest, &pipe.saying)
-    })?;
-    let watcher = Self {
-      reading,
-      worker,
-      wake: pipe.waiting,
+  }
+
+  fn handle(
+    state: ObservationState,
+    (services, request): (&'static [Service], ObservationRequest<T>),
+  ) -> Result<SingleTransition<ObservationState, ObservationEffect<T>>, Never> {
+    let (next, effect) = match (state, request) {
+      (ObservationState::Idle, ObservationRequest::Refresh)
+      | (ObservationState::RefreshPending, ObservationRequest::Answered(_)) => (
+        ObservationState::Reading,
+        Some(ObservationEffect::Read(services)),
+      ),
+      (
+        ObservationState::Reading | ObservationState::RefreshPending,
+        ObservationRequest::Refresh,
+      ) => (ObservationState::RefreshPending, None),
+      (ObservationState::Reading, ObservationRequest::Answered(Some(snapshot))) => (
+        ObservationState::Idle,
+        Some(ObservationEffect::Publish(snapshot)),
+      ),
+      (ObservationState::Reading, ObservationRequest::Answered(None))
+      | (ObservationState::Idle, ObservationRequest::Answered(_)) => {
+        (ObservationState::Idle, None)
+      }
+      (ObservationState::Stopped, _) | (_, ObservationRequest::Stopped) => {
+        (ObservationState::Stopped, None)
+      }
     };
-    let Ok(()) = watcher.refresh();
+
+    Ok(SingleTransition {
+      state: next,
+      effect,
+    })
+  }
+}
+
+pub(super) struct Observer<T> {
+  state: ObservationState,
+  worker: Latest,
+  answers: Receiver<Option<T>>,
+  services: &'static [Service],
+  wake: Option<OwnedFd>,
+}
+
+pub(super) fn panels() -> io::Result<Observer<PanelSnapshot>> {
+  Observer::start(
+    "bar panel visibility",
+    &[Service::Compositor, Service::FileSystem],
+    panel_snapshot,
+  )
+}
+
+impl<T: Send + 'static> Observer<T> {
+  pub(super) fn start(
+    name: &'static str,
+    services: &'static [Service],
+    mut observe: impl FnMut() -> Result<Option<T>, Never> + Send + 'static,
+  ) -> io::Result<Self> {
+    let pipe = latch::pipe()?;
+    let (replies, answers) = sync_channel(1);
+    let worker = Latest::start(name.to_owned(), move || {
+      let Ok(answer) = observe();
+
+      match deliver(answer, &replies, &pipe.saying) {
+        Ok(()) => {}
+        Err(fault) => {
+          console_core_logging::debug!("console-bar: {name} observation delivery: {fault}")
+        }
+      }
+
+      Ok(())
+    })?;
+    let mut watcher = Self {
+      state: ObservationState::Idle,
+      worker,
+      answers,
+      services,
+      wake: Some(pipe.waiting),
+    };
+    let Ok(initial) = Observe::initialize(&services, None);
+    let Ok(_no_snapshot_yet) = watcher.perform(initial);
 
     Ok(watcher)
   }
 
-  pub(super) fn refresh(&self) -> Result<(), Never> {
-    match self.worker.schedule() {
-      Ok(()) => {}
-      Err(_stopped) => {
-        console_core_logging::warn!("console-bar: panel visibility worker stopped")
-      }
-    }
+  pub(super) fn refresh(&mut self) -> Result<(), Never> {
+    let Ok(transition) =
+      Observe::handle(self.state, (self.services, ObservationRequest::Refresh));
+    let Ok(_no_snapshot_yet) = self.perform(transition);
 
     Ok(())
   }
 
-  pub(super) fn invalidate(&self) -> Result<(), Never> {
-    let Ok(mut reading) = locked(&self.reading);
-
-    reading.invalidate()
+  pub(super) fn wake(&self) -> Result<Option<BorrowedFd<'_>>, Never> {
+    Ok(self.wake.as_ref().map(AsFd::as_fd))
   }
 
-  pub(super) fn wake(&self) -> Result<BorrowedFd<'_>, Never> {
-    Ok(self.wake.as_fd())
+  pub(super) fn observed(&mut self) -> Result<Option<T>, Never> {
+    let wake = match &self.wake {
+      Some(wake) => wake,
+      None => return Ok(None),
+    };
+    let Ok(()) = latch::drain(wake);
+    let request = match self.answers.try_recv() {
+      Ok(snapshot) => ObservationRequest::Answered(snapshot),
+      Err(TryRecvError::Empty) => return Ok(None),
+      Err(TryRecvError::Disconnected) => ObservationRequest::Stopped,
+    };
+    let Ok(transition) = Observe::handle(self.state, (self.services, request));
+
+    self.perform(transition)
   }
 
-  pub(super) fn observed(&self) -> Result<Option<Vec<Layer>>, Never> {
-    let Ok(()) = latch::drain(&self.wake);
-    let Ok(mut reading) = locked(&self.reading);
+  fn perform(
+    &mut self,
+    transition: SingleTransition<ObservationState, ObservationEffect<T>>,
+  ) -> Result<Option<T>, Never> {
+    let previously = self.state;
+    self.state = transition.state;
 
-    Ok(reading.layers.take())
-  }
-}
-
-#[cfg_attr(
-  dylint_lib = "explicit057_no_unbounded_wait",
-  expect(
-    explicit057_no_unbounded_wait,
-    reason = "the mailbox lock covers only ownership of the snapshot and its generation; no holder performs I/O or takes another lock"
-  )
-)]
-fn locked(reading: &Mutex<LayerReading>) -> Result<MutexGuard<'_, LayerReading>, Never> {
-  Ok(match reading.lock() {
-    Ok(ready) => ready,
-    Err(poisoned) => poisoned.into_inner(),
-  })
-}
-
-fn observe_layers(latest: &Mutex<LayerReading>, waking: &File) -> Result<(), Never> {
-  let turn = {
-    let Ok(reading) = locked(latest);
-
-    reading.turn
-  };
-  let Ok(layers) = reading(console_compositor::Layers);
-
-  match layers {
-    Some(observed) => {
-      {
-        let Ok(mut reading) = locked(latest);
-        let Ok(()) = reading.answered(turn, observed);
-      }
-
-      match waking::pulse(waking) {
+    match transition.effect {
+      Some(ObservationEffect::Read(_)) => match self.worker.schedule() {
         Ok(()) => {}
-        Err(rustix::io::Errno::PIPE) => {
-          console_core_logging::trace!("console-bar: panel visibility receiver closed")
+        Err(_stopped) => {
+          let Ok(stopped) =
+            Observe::<T>::handle(self.state, (self.services, ObservationRequest::Stopped));
+          self.state = stopped.state;
         }
-        Err(fault) => {
-          console_core_logging::warn!("console-bar: signalling panel visibility: {fault}")
-        }
-      }
+      },
+      Some(ObservationEffect::Publish(snapshot)) => return Ok(Some(snapshot)),
+      None => {}
     }
-    None => {}
-  }
 
-  Ok(())
+    match (previously, self.state) {
+      (
+        ObservationState::Idle | ObservationState::Reading | ObservationState::RefreshPending,
+        ObservationState::Stopped,
+      ) => {
+        self.wake = None;
+        console_core_logging::warn!("console-bar: observation worker stopped");
+      }
+      (ObservationState::Stopped, _)
+      | (
+        _,
+        ObservationState::Idle | ObservationState::Reading | ObservationState::RefreshPending,
+      ) => {}
+    }
+
+    Ok(None)
+  }
+}
+
+fn panel_snapshot() -> Result<Option<PanelSnapshot>, Never> {
+  let Ok(observed) = reading(console_compositor::Layers);
+
+  Ok(observed.map(|layers| PanelSnapshot {
+    layers,
+    tab: console_onscreen::tab(),
+  }))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -237,11 +313,20 @@ pub(super) struct Worker {
   asking: SyncSender<Work>,
   answers: Receiver<Reply>,
   waking: Option<OwnedFd>,
+  workspace: Option<Watch>,
+  source: WorkspaceSource,
+}
+
+#[derive(Clone, Copy)]
+enum WorkspaceSource {
+  Direct,
+  Snapshot,
 }
 
 impl Worker {
   pub(super) fn start() -> io::Result<Self> {
     let pipe = latch::pipe()?;
+    let Ok(workspace) = watching(&pipe.saying);
     let (asking, asked) = sync_channel(1);
     let (replies, answers) = sync_channel(2);
     let thread = std::thread::Builder::new().spawn(move || {
@@ -253,6 +338,8 @@ impl Worker {
       asking,
       answers,
       waking: Some(pipe.waiting),
+      workspace,
+      source: WorkspaceSource::Direct,
     };
     let Ok(initial) = State::initial_transition(&(), None);
     let Ok(()) = worker.perform(initial);
@@ -261,7 +348,10 @@ impl Worker {
   }
 
   pub(super) fn refresh(&mut self) -> Result<(), Never> {
-    self.request(Request::Refresh)
+    match self.source {
+      WorkspaceSource::Direct => self.request(Request::Refresh),
+      WorkspaceSource::Snapshot => Ok(()),
+    }
   }
 
   pub(super) fn switch(&mut self, id: i64) -> Result<(), Never> {
@@ -285,13 +375,21 @@ impl Worker {
         Ok(answer) => answer,
         Err(TryRecvError::Empty) => break,
         Err(TryRecvError::Disconnected) => {
-          self.waking = None;
+          match &self.workspace {
+            None => self.waking = None,
+            Some(_watch) => {}
+          }
+
           let Ok(()) = self.request(Request::Unavailable);
 
           break;
         }
       };
-      let fresh = (self.state == State::Reading).then_some(());
+      let fresh = matches!(
+        (self.state, self.source),
+        (State::Reading, WorkspaceSource::Direct)
+      )
+      .then_some(());
 
       match answer {
         Reply::Focus(front) => match (fresh, front) {
@@ -304,6 +402,31 @@ impl Worker {
           let Ok(()) = self.request(Request::Answered);
         }
       }
+    }
+
+    let update = self.workspace.as_ref().and_then(|workspace| {
+      let Ok(update) = workspace.take();
+
+      update
+    });
+
+    match update {
+      Some(console_events::ipc::Workspace::Fresh { snapshot, .. }) => {
+        self.source = WorkspaceSource::Snapshot;
+        observed.front = match snapshot.front {
+          Some(workspace) => FocusUpdate::Workspace(workspace),
+          None => FocusUpdate::NoWorkspace,
+        };
+        observed.workspaces = Some(snapshot.workspaces);
+      }
+      Some(console_events::ipc::Workspace::Stale) => match self.source {
+        WorkspaceSource::Snapshot => {
+          self.source = WorkspaceSource::Direct;
+          let Ok(()) = self.refresh();
+        }
+        WorkspaceSource::Direct => {}
+      },
+      None => {}
     }
 
     Ok(observed)
@@ -334,6 +457,22 @@ impl Worker {
 
     Ok(())
   }
+}
+
+fn watching(waking: &File) -> Result<Option<Watch>, Never> {
+  let watching = waking
+    .try_clone()
+    .map_err(console_events::ipc::Error::from)
+    .and_then(|wake| Watch::session(wake, Trace::Quiet));
+
+  Ok(match watching {
+    Ok(watch) => Some(watch),
+    Err(fault) => {
+      console_core_logging::debug!("console-bar: workspace feed unavailable: {fault}");
+
+      None
+    }
+  })
 }
 
 #[cfg_attr(
@@ -393,8 +532,11 @@ fn observe(work: Work, replies: &SyncSender<Reply>, waking: &File) -> io::Result
   deliver(Reply::Workspaces(workspaces), replies, waking)
 }
 
-fn deliver(observation: Reply, replies: &SyncSender<Reply>, waking: &File) -> io::Result<()> {
-  replies.try_send(observation).map_err(io::Error::other)?;
+fn deliver<T>(observation: T, replies: &SyncSender<T>, waking: &File) -> io::Result<()> {
+  replies.try_send(observation).map_err(|fault| match fault {
+    TrySendError::Full(_) => io::Error::from(io::ErrorKind::WouldBlock),
+    TrySendError::Disconnected(_) => io::Error::from(io::ErrorKind::BrokenPipe),
+  })?;
   waking::pulse(waking)?;
 
   Ok(())
@@ -414,18 +556,76 @@ fn reading<Q: console_compositor::Question>(question: Q) -> Result<Option<Q::Rep
 #[cfg(test)]
 mod tests {
   use super::*;
+  use console_status_bar::panels::{self, Panel, PanelEvent, Panels};
+  use console_status_bar::showing::Lit;
+  use rustix::event::{PollFd, PollFlags, Timespec, poll};
 
   #[test]
-  fn an_observation_started_before_a_press_cannot_replace_new_layer_state() {
-    let mut reading = LayerReading::default();
-    let previous = reading.turn;
-    let Ok(()) = reading.invalidate();
-    let Ok(()) = reading.answered(previous, Vec::new());
-    assert!(reading.layers.is_none());
+  fn a_newer_panel_event_discards_the_old_reply_and_coalesces_refreshes()
+  -> Result<(), Box<dyn std::error::Error>> {
+    let calendar_layer =
+      r#"{"eDP-1":{"levels":{"3":[{"namespace":"calendar-panel","w":640,"h":480}]}}}"#;
+    let layers = console_compositor::read(console_compositor::Layers, calendar_layer)?;
+    let reopened_layers = console_compositor::read(console_compositor::Layers, calendar_layer)?;
+    let mut replies = [
+      Some(PanelSnapshot {
+        layers,
+        tab: Ok(None),
+      }),
+      Some(PanelSnapshot {
+        layers: Vec::new(),
+        tab: Ok(None),
+      }),
+      Some(PanelSnapshot {
+        layers: reopened_layers,
+        tab: Ok(None),
+      }),
+    ]
+    .into_iter();
+    let mut worker = Observer::start(
+      "test bar panel observation",
+      &[Service::Compositor, Service::FileSystem],
+      move || Ok(replies.next().flatten()),
+    )?;
 
-    let current = reading.turn;
-    let Ok(()) = reading.answered(current, Vec::new());
-    assert!(reading.layers.is_some());
+    let Ok(()) = worker.refresh();
+    let Ok(()) = worker.refresh();
+    wait_for_layers(&worker)?;
+    let Ok(discarded) = worker.observed();
+    assert!(discarded.is_none());
+
+    wait_for_layers(&worker)?;
+    let Ok(fresh) = worker.observed();
+    let closed = fresh.ok_or("missing coalesced panel observation")?;
+    let Ok(up) = panels::on_screen(&closed.layers, None);
+    let Ok(clocked) = Panels::transition(Panels::default(), PanelEvent::Shown(up));
+    assert_eq!(clocked.state.lit(Panel::Calendar), Ok(Lit::No));
+
+    let Ok(()) = worker.refresh();
+    wait_for_layers(&worker)?;
+    let Ok(reopened) = worker.observed();
+    let opened = reopened.ok_or("missing reopened calendar")?;
+    let Ok(visible) = panels::on_screen(&opened.layers, None);
+    let Ok(lit) = Panels::transition(clocked.state, PanelEvent::Shown(visible));
+    assert_eq!(lit.state.lit(Panel::Calendar), Ok(Lit::Yes));
+
+    Ok(())
+  }
+
+  fn wait_for_layers(worker: &Observer<PanelSnapshot>) -> Result<(), Box<dyn std::error::Error>> {
+    let Ok(wake) = worker.wake();
+    let fd = wake.ok_or("the panel worker stopped")?;
+    let mut watched = [PollFd::from_borrowed_fd(fd, PollFlags::IN)];
+    let timeout = Timespec {
+      tv_sec: 2,
+      tv_nsec: 0,
+    };
+
+    match poll(&mut watched, Some(&timeout)) {
+      Ok(1) => Ok(()),
+      Ok(_) => Err(Box::from("panel observation did not wake the bar")),
+      Err(fault) => Err(Box::from(fault)),
+    }
   }
 
   #[test]
@@ -455,6 +655,8 @@ mod tests {
       asking,
       answers,
       waking: Some(pipe.waiting),
+      workspace: None,
+      source: WorkspaceSource::Direct,
     };
     let Ok(()) = worker.switch(2);
     let Ok(()) = worker.switch(9);

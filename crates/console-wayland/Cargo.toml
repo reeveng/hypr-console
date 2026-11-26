@@ -11,7 +11,9 @@ console-core-vector = { workspace = true, features = ["std"] }
 console-core-highlight = { workspace = true, optional = true }
 console-core-logging.workspace = true
 console-core-never.workspace = true
+console-core-state-machine = { workspace = true, optional = true }
 console-core-number-conversion.workspace = true
+console-core-pointer = { workspace = true, optional = true }
 console-input-key-symbols = { workspace = true, optional = true }
 console-input-keymaps = { workspace = true, optional = true }
 console-response-times = { workspace = true, optional = true }
@@ -24,6 +26,8 @@ wayland-protocols-wlr = { version = "0.3", features = ["client"] }
 [features]
 surface = [
     "dep:console-core-highlight",
+    "dep:console-core-pointer",
+    "dep:console-core-state-machine",
     "dep:console-input-key-symbols",
     "dep:console-input-keymaps",
     "dep:console-response-times",

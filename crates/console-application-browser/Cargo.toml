@@ -22,6 +22,7 @@ required-features = ["checks"]
 console-notifications.workspace = true
 console-browser-downloads = { path = "../console-browser-downloads" }
 console-browser-renderer = { path = "../console-browser-renderer" }
+console-concurrency.workspace = true
 console-core-arguments.workspace = true
 console-core-bounded-reads.workspace = true
 console-core-color.workspace = true
@@ -37,14 +38,11 @@ console-core-logging = { workspace = true, features = ["std"] }
 console-core-never.workspace = true
 console-core-number-conversion.workspace = true
 console-core-places.workspace = true
-console-core-shapes.workspace = true
 console-core-state-machine.workspace = true
 console-core-temporary-directories.workspace = true
 console-core-urls = { path = "../console-core-urls" }
 console-core-web-engine.workspace = true
 console-default-applications = { path = "../console-default-applications" }
-console-draw-painting.workspace = true
-console-draw-surface.workspace = true
 console-gio.workspace = true
 console-input-key-symbols.workspace = true
 console-input-text.workspace = true

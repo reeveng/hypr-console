@@ -11,7 +11,7 @@ use console_core_byte_streams::{BufReader, MediaSourceStream};
 
 type Failure = Box<dyn std::error::Error>;
 
-type Bytes = Result<Vec<u8>, Failure>;
+type EncodedTag = Result<Vec<u8>, Failure>;
 
 struct Header {
   major: u8,
@@ -82,7 +82,7 @@ fn synchsafe(size: u32) -> Result<[u8; 4], Failure> {
   Ok([first, second, third, fourth])
 }
 
-fn tag(header: Header, body: &[u8]) -> Bytes {
+fn tag(header: Header, body: &[u8]) -> EncodedTag {
   let mut bytes = b"ID3".to_vec();
   let length = length(body)?;
   let size = synchsafe(length)?;
@@ -95,13 +95,13 @@ fn tag(header: Header, body: &[u8]) -> Bytes {
   Ok(bytes)
 }
 
-fn tagged(header: Header, body: Bytes) -> Bytes {
+fn tagged(header: Header, body: EncodedTag) -> EncodedTag {
   let body_2 = body?;
 
   tag(header, &body_2)
 }
 
-fn legacy_frame(id: &[u8; 3], body: &[u8]) -> Bytes {
+fn legacy_frame(id: &[u8; 3], body: &[u8]) -> EncodedTag {
   let size = length(body)?;
   let mut bytes = id.to_vec();
 
@@ -111,7 +111,7 @@ fn legacy_frame(id: &[u8; 3], body: &[u8]) -> Bytes {
   Ok(bytes)
 }
 
-fn frame(id: &[u8; 4], flags: u16, body: &[u8]) -> Bytes {
+fn frame(id: &[u8; 4], flags: u16, body: &[u8]) -> EncodedTag {
   let size = length(body)?;
   let mut bytes = id.to_vec();
 
@@ -122,7 +122,7 @@ fn frame(id: &[u8; 4], flags: u16, body: &[u8]) -> Bytes {
   Ok(bytes)
 }
 
-fn synchsafe_frame(id: &[u8; 4], flags: u16, body: &[u8]) -> Bytes {
+fn synchsafe_frame(id: &[u8; 4], flags: u16, body: &[u8]) -> EncodedTag {
   let length = length(body)?;
   let size = synchsafe(length)?;
   let mut bytes = id.to_vec();
@@ -134,7 +134,7 @@ fn synchsafe_frame(id: &[u8; 4], flags: u16, body: &[u8]) -> Bytes {
   Ok(bytes)
 }
 
-fn joined(parts: Vec<Bytes>) -> Bytes {
+fn joined(parts: Vec<EncodedTag>) -> EncodedTag {
   let collected = parts.into_iter().collect::<Result<Vec<_>, _>>()?;
 
   Ok(collected.concat())
@@ -147,14 +147,14 @@ fn read(bytes: Vec<u8>) -> Result<MetadataRevision, Error> {
   reader.read_all(&mut stream)
 }
 
-fn read_and_said(bytes: Bytes) -> Result<String, Failure> {
+fn read_and_said(bytes: EncodedTag) -> Result<String, Failure> {
   let bytes_2 = bytes?;
   let revision = read(bytes_2)?;
 
   said(&revision)
 }
 
-fn refused(bytes: Bytes) -> Result<String, Failure> {
+fn refused(bytes: EncodedTag) -> Result<String, Failure> {
   let bytes_2 = bytes?;
 
   match read(bytes_2) {
@@ -167,7 +167,7 @@ fn refused(bytes: Bytes) -> Result<String, Failure> {
   }
 }
 
-fn picture(block: &Picture<'_>) -> Bytes {
+fn picture(block: &Picture<'_>) -> EncodedTag {
   let media_length = length(block.media)?;
   let description_length = length(block.description)?;
   let data_length = length(block.data)?;
@@ -187,7 +187,7 @@ fn picture(block: &Picture<'_>) -> Bytes {
   Ok(bytes)
 }
 
-fn comments(listed: &[&[u8]]) -> Bytes {
+fn comments(listed: &[&[u8]]) -> EncodedTag {
   let count = u32::try_from(listed.len())?;
   let mut block = 6u32.to_le_bytes().to_vec();
 
@@ -506,7 +506,7 @@ fn an_id3v2_3_tag_is_unsynchronised_as_a_whole() -> Result<(), Failure> {
 }
 
 fn assert_refusals(
-  cases: impl IntoIterator<Item = Bytes>,
+  cases: impl IntoIterator<Item = EncodedTag>,
   expected: &str,
 ) -> Result<(), Failure> {
   let answers = cases

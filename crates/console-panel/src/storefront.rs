@@ -28,16 +28,10 @@ pub struct Message<'a> {
   pub detail: Option<&'a str>,
 }
 
-pub enum NoticeTone {
-  Neutral,
-  Error,
-}
-
 pub struct Notice<'a, A> {
   pub message: Message<'a>,
-  pub tone: NoticeTone,
   pub details: Option<Link<'a, A>>,
-  pub reply: Option<Link<'a, A>>,
+  pub retry: Option<A>,
 }
 
 pub struct Frame<A> {
@@ -62,7 +56,6 @@ impl<A> Default for Frame<A> {
 enum Button {
   Primary,
   Normal,
-  Quiet,
   Selected,
 }
 
@@ -73,15 +66,7 @@ struct Components<A> {
 
 impl<A: Copy + PartialEq> Components<A> {
   fn new(root: Area, colors: Wearing, interaction: Interaction<A>) -> Result<Self, Never> {
-    let style = Style {
-      rule: colors.panel,
-      lifted: colors.panel,
-      accent: colors.pink,
-      ink: colors.text,
-      quiet: colors.soft,
-      disabled: colors.edge,
-    };
-    let Ok(canvas) = Canvas::new(root, style, interaction);
+    let Ok(canvas) = Canvas::new(root, Style::from(&colors), interaction);
     Ok(Self { canvas, colors })
   }
 
@@ -114,8 +99,7 @@ impl<A: Copy + PartialEq> Components<A> {
     let (fill, ink) = match (kind, active) {
       (Button::Primary, _) => (colors.pink, colors.night),
       (Button::Selected, _) => (colors.fill, colors.text),
-      (Button::Normal, _) | (Button::Quiet, true) => (colors.panel, colors.text),
-      (Button::Quiet, false) => (colors.ground, colors.soft),
+      (Button::Normal, _) => (colors.panel, colors.text),
     };
     let label_area = Area {
       origin: Point {

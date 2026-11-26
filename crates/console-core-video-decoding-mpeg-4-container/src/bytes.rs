@@ -9,9 +9,10 @@
 //! framing -- its size, its name and the longer forms of both -- is
 //! `console-core-iso-media-boxes`, which the audio reader reads it through too.
 
+use console_core_bytes::Cursor as ByteCursor;
 use console_core_iso_media_boxes::{BoxView, Children, FullBoxHeader};
 use console_core_never::Never;
-use console_core_number_conversion::{fitted, index};
+use console_core_number_conversion::fitted;
 
 use crate::error::Error;
 
@@ -30,33 +31,29 @@ pub(crate) fn display_text(bytes: &[u8]) -> Result<String, Never> {
 
 #[derive(Clone)]
 pub(crate) struct Cursor<'a> {
-  rest: &'a [u8],
+  bytes: ByteCursor<'a>,
   part: &'static str,
 }
 
 impl<'a> Cursor<'a> {
   pub(crate) fn new(data: &'a [u8], part: &'static str) -> Result<Self, Never> {
-    Ok(Cursor { rest: data, part })
+    let Ok(bytes) = ByteCursor::new(data);
+
+    Ok(Cursor { bytes, part })
   }
 
   pub(crate) fn remaining(&self) -> Result<u64, Never> {
-    fitted::<_, u64>(self.rest.len())
+    let Ok(rest) = self.bytes.rest();
+
+    fitted::<_, u64>(rest.len())
   }
 
   pub(crate) fn rest(&self) -> Result<&'a [u8], Never> {
-    Ok(self.rest)
+    self.bytes.rest()
   }
 
   pub(crate) fn bytes(&mut self, count: u64) -> Result<&'a [u8], Error> {
-    let Ok(width) = index(count);
-    let (taken, after) = self
-      .rest
-      .split_at_checked(width)
-      .ok_or(Error::Truncated(self.part))?;
-
-    self.rest = after;
-
-    Ok(taken)
+    self.bytes.take(count).map_err(|_| Error::Truncated(self.part))
   }
 
   pub(crate) fn skip(&mut self, count: u64) -> Result<(), Error> {
@@ -66,68 +63,43 @@ impl<'a> Cursor<'a> {
   }
 
   pub(crate) fn array<const N: usize>(&mut self) -> Result<[u8; N], Error> {
-    let (taken, after) = self
-      .rest
-      .split_first_chunk::<N>()
-      .ok_or(Error::Truncated(self.part))?;
-
-    self.rest = after;
-
-    Ok(*taken)
+    self.bytes.array().map_err(|_| Error::Truncated(self.part))
   }
 
   pub(crate) fn u8(&mut self) -> Result<u8, Error> {
-    let [byte] = self.array::<1>()?;
-
-    Ok(byte)
+    self.bytes.byte().map_err(|_| Error::Truncated(self.part))
   }
 
   pub(crate) fn u16(&mut self) -> Result<u16, Error> {
-    let bytes = self.array()?;
-
-    Ok(u16::from_be_bytes(bytes))
+    self.bytes.u16_be().map_err(|_| Error::Truncated(self.part))
   }
 
   pub(crate) fn i16(&mut self) -> Result<i16, Error> {
-    let bytes = self.array()?;
-
-    Ok(i16::from_be_bytes(bytes))
+    self.bytes.i16_be().map_err(|_| Error::Truncated(self.part))
   }
 
   pub(crate) fn u24(&mut self) -> Result<u32, Error> {
-    let [high, middle, low] = self.array::<3>()?;
-
-    Ok(u32::from_be_bytes([0, high, middle, low]))
+    self.bytes.u24_be().map_err(|_| Error::Truncated(self.part))
   }
 
   pub(crate) fn u32(&mut self) -> Result<u32, Error> {
-    let bytes = self.array()?;
-
-    Ok(u32::from_be_bytes(bytes))
+    self.bytes.u32_be().map_err(|_| Error::Truncated(self.part))
   }
 
   pub(crate) fn i32(&mut self) -> Result<i32, Error> {
-    let bytes = self.array()?;
-
-    Ok(i32::from_be_bytes(bytes))
+    self.bytes.i32_be().map_err(|_| Error::Truncated(self.part))
   }
 
   pub(crate) fn u64(&mut self) -> Result<u64, Error> {
-    let bytes = self.array()?;
-
-    Ok(u64::from_be_bytes(bytes))
+    self.bytes.u64_be().map_err(|_| Error::Truncated(self.part))
   }
 
   pub(crate) fn i64(&mut self) -> Result<i64, Error> {
-    let bytes = self.array()?;
-
-    Ok(i64::from_be_bytes(bytes))
+    self.bytes.i64_be().map_err(|_| Error::Truncated(self.part))
   }
 
   pub(crate) fn f64(&mut self) -> Result<f64, Error> {
-    let bytes = self.array()?;
-
-    Ok(f64::from_be_bytes(bytes))
+    self.bytes.f64_be().map_err(|_| Error::Truncated(self.part))
   }
 
   pub(crate) fn fourcc(&mut self) -> Result<FourCc, Error> {

@@ -24,7 +24,8 @@ pub const COMMAND: Command = Command {
 };
 
 pub fn door(arguments: &[String]) -> Result<Door, Never> {
-  Door::closing_at("settings", arguments.first().map(String::as_str))
+  let Ok(tab) = requested_tab(arguments);
+  Door::closing_at("settings", tab.as_deref())
 }
 
 pub fn card(arguments: &[String]) -> Result<Card, Never> {
@@ -37,7 +38,20 @@ fn card_with_outputs(
 ) -> Result<Card, Never> {
   let Ok(card) = Card::supervised::<Settings, _>((), move |looking| pages(looking, read));
 
-  card.opening_at(arguments.first().map(String::as_str))
+  let Ok(tab) = requested_tab(arguments);
+  card.opening_at(tab.as_deref())
+}
+
+fn requested_tab(arguments: &[String]) -> Result<Option<std::borrow::Cow<'_, str>>, Never> {
+  use std::borrow::Cow;
+  Ok(match arguments.first().map(String::as_str) {
+    Some("Battery") => {
+      let Ok(title) = console_status_bar::settings::SettingsTab::Battery.title();
+      Some(Cow::Owned(title))
+    }
+    Some(tab) => Some(Cow::Borrowed(tab)),
+    None => None,
+  })
 }
 
 use crate::choosing::{
@@ -64,17 +78,13 @@ use crate::warm::{self, NightShift};
 use crate::{bluetooth, screen, size, sound, turning, wifi};
 use crate::{hours, named};
 use console_actor::Actor;
-use console_battery as battery;
 use console_bluetooth::device::Device;
 use console_bluetooth_agent::command;
 use console_compositor::HyprctlError;
 use console_compositor::setup::{Output, Outputs};
-use console_core_atomic_writes as writes;
 use console_core_controls::Switch;
 use console_default_applications::editors::{self, Application};
 use console_home_screen::shape::{self, Shape};
-use console_input_alphabets as alphabets;
-use console_notifications::saying::Content as Notification;
 use console_panel::before;
 use console_panel::card::{Card, Door};
 use console_panel::page::{ActionOutcome, Aside, Handler, Level, Page, Rows, Showing};
@@ -86,7 +96,6 @@ use console_wallpaper::choose::{Selection, Set, Wanted};
 use console_wallpaper::{place, rules};
 use std::io;
 use std::path::Path;
-use std::process::Output as CommandOutput;
 use std::sync::OnceLock;
 
 const NONE_AT_ALL: u32 = 0;
@@ -279,7 +288,10 @@ fn set_app_leveling(key: &str, next: Switch) -> Result<(), Never> {
   report_leveling("app leveling", written)
 }
 
-fn report_leveling(setting: &str, response: io::Result<CommandOutput>) -> Result<(), Never> {
+fn report_leveling(
+  setting: &str,
+  response: io::Result<std::process::Output>,
+) -> Result<(), Never> {
   match response {
     Ok(output) => match output.status.success().then_some(()) {
       Some(()) => {}
@@ -469,9 +481,9 @@ fn dim() -> Result<Level, Never> {
   })
 }
 
-fn guard(step: battery::Step) -> Result<Level, Never> {
+fn guard(step: console_battery::Step) -> Result<Level, Never> {
   adjustment(move |way| {
-    let Ok(levels) = battery::Levels::here();
+    let Ok(levels) = console_battery::Levels::here();
     let Ok(at) = levels.at(step);
     let Ok(going) = apply_step(at, Step(way));
     let Ok(_) = levels.set(step, going);
@@ -520,10 +532,13 @@ fn battery_meanwhile() -> Result<Vec<console_panel::page::Row>, Never> {
 }
 
 fn battery_controls(profile: &str) -> Result<Vec<console_panel::page::Row>, Never> {
-  let Ok(levels) = battery::Levels::here();
+  let Ok(levels) = console_battery::Levels::here();
   let Ok(mut rows) = battery_rows(Some(profile), levels, guard);
   let Ok(limits) = crate::rows::charge_limit_rows();
   rows.extend(limits);
+  let Ok(source) = console_battery::power_source();
+  let Ok(inactivity) = crate::rows::inactivity_rows(source);
+  rows.extend(inactivity);
   Ok(rows)
 }
 
@@ -1125,7 +1140,7 @@ fn ask_for(showing: &dyn Showing, wanted: &Wanted, going_on: &str) -> Result<(),
       let Ok(()) = console_notifications::saying::report(
         console_notifications::Application("Settings"),
         "wallpaper-choice",
-        Notification {
+        console_notifications::saying::Content {
           summary: "Couldn't change the wallpaper",
           body: &why.to_string(),
         },
@@ -1359,7 +1374,7 @@ fn wallpaper_rule(
           let Ok(()) = console_notifications::saying::report(
             console_notifications::Application("Settings"),
             "wallpaper-rules",
-            Notification {
+            console_notifications::saying::Content {
               summary: "Couldn't save the wallpaper rules",
               body: &fault.to_string(),
             },
@@ -1773,12 +1788,12 @@ fn defaults_meanwhile(looking: &ActorAddress) -> Result<Vec<console_panel::page:
 struct Description<'a>(&'a str);
 
 fn run(at: &str, what: Description<'_>) -> Result<String, Never> {
-  let Ok(held) = writes::read(Path::new(at));
+  let Ok(held) = console_core_atomic_writes::read(Path::new(at));
 
   Ok(match held {
-    writes::Stored::Text(said) => said,
-    writes::Stored::Absent => String::new(),
-    writes::Stored::Failed(fault) => {
+    console_core_atomic_writes::Stored::Text(said) => said,
+    console_core_atomic_writes::Stored::Absent => String::new(),
+    console_core_atomic_writes::Stored::Failed(fault) => {
       console_core_logging::warn!(
         "settings-panel: {at} is {}, and it will not be read: {fault}. The list is \
                  drawn empty, which is a machine that says it can do nothing rather than one \
@@ -1966,7 +1981,7 @@ fn language_tab(looking: &ActorAddress) -> Result<Vec<console_panel::page::Row>,
     }
     Destination::Alphabets(menu) => {
       let Ok(back) = back_up(looking);
-      let Ok(chosen) = alphabets::current();
+      let Ok(chosen) = console_input_alphabets::current();
       let Ok(active) = console_input_language::active();
       let panel = looking.clone();
 

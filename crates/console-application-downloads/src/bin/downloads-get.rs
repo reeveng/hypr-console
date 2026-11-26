@@ -38,7 +38,7 @@ use console_application_downloads::looking;
 use console_application_downloads::store::{self, Kind};
 use console_core_arguments::{Operands, Reason, ValidationError, read};
 use console_core_never::Never;
-use console_notifications::saying::Content as Notification;
+use console_notifications::saying::Content;
 use console_repository::RelativePath;
 
 const KIND: &str = "download";
@@ -120,7 +120,7 @@ fn fetch(request: Request) -> Result<(), Never> {
   match std::fs::create_dir_all(into) {
     Ok(()) => {}
     Err(fault) => {
-      return failed(Notification {
+      return failed(Content {
         summary: &nothing,
         body: &format!("{} cannot be written to: {fault}", into.display()),
       });
@@ -161,14 +161,14 @@ fn fetch(request: Request) -> Result<(), Never> {
 
       notify_arrived(&arrived, into, IS_IN)
     }
-    Err(fault) => failed(Notification {
+    Err(fault) => failed(Content {
       summary: &nothing,
       body: &fault.to_string(),
     }),
   }
 }
 
-fn failed(notice: Notification<'_>) -> Result<(), Never> {
+fn failed(notice: Content<'_>) -> Result<(), Never> {
   console_notifications::saying::report(
     console_notifications::Application("Downloads"),
     KIND,

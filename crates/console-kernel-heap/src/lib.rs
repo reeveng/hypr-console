@@ -30,13 +30,10 @@ use core::marker::PhantomData;
 use core::mem::MaybeUninit;
 use core::ptr::NonNull;
 
+pub use console_core_bytes::ByteCount as Bytes;
 use console_core_never::Never;
 
 use blocks::{Free, Region, Request, UNIT};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(transparent)]
-pub struct Bytes(pub u64);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HeapError {

@@ -39,6 +39,7 @@
 //! has an ink and a ground in hand, and a reader should not have to know which
 //! of the two functions cares.
 
+use console_core_bytes::hex::{self, Case};
 use console_core_finite_numbers::FiniteF64;
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, toward_zero_u8};
@@ -528,7 +529,7 @@ pub fn hexcode(color: Oklch) -> Result<String, Never> {
     let rounded = (channel.clamp(0.0, 1.0) * 255.0).round_ties_even();
     let Ok(byte) = toward_zero_u8(rounded);
 
-    code.push_str(&format!("{byte:02x}"));
+    let Ok(()) = hex::append(&mut code, &[byte], Case::Lower);
   }
 
   Ok(code)
@@ -734,7 +735,7 @@ pub fn over(ink: Ansi<'_>, ground: Ground<'_>, alpha: f64) -> Result<String, Nev
     let rounded = mixed.round_ties_even();
     let Ok(byte) = toward_zero_u8(rounded);
 
-    code.push_str(&format!("{byte:02x}"));
+    let Ok(()) = hex::append(&mut code, &[byte], Case::Lower);
   }
 
   Ok(code)

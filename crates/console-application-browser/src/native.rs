@@ -16,32 +16,30 @@ use console_browser_renderer::{MAX_SIDE, invalid, validate};
 use console_core_arguments::{Command, Flag, Operands, Presence, Takes};
 use console_core_geometry::{Point, Size};
 use console_core_never::Never;
-use console_core_shapes::{Picture, Pixels};
 use console_core_state_machine::Machine;
 use console_core_web_engine::{DownloadState, Event, FrameLayout, Request, decoded_event};
 use console_default_applications::engines;
-use console_draw_painting::{self as painting, Frame};
-use console_draw_surface::{
+use console_input_key_symbols::Keysym;
+use console_panel::ui::painting::{self, Frame};
+use console_panel::ui::shapes::{Picture, Pixels};
+use console_panel::ui::surface::retained::{Area, Patch};
+use console_panel::ui::surface::{
   Closed, KeyPress, LayerSupport, Part, PointerEvent, Surface, Visible, Window,
 };
-use console_input_key_symbols::Keysym;
 
-use crate::download_catalog::{FileAction, Scanner, Update as DownloadUpdate, WatchChange};
-use crate::download_refresh::{
-  DownloadRefresh, Effect as RefreshEffect, Request as RefreshRequest, State as RefreshState,
-};
-use crate::download_view::{
-  Action as DownloadAction, Availability as DownloadAvailability, Drawing as DownloadDrawing,
-  FileProgress, View as DownloadView, Visibility as DownloadVisibility,
-};
+use crate::download_catalog::{self, FileAction, Scanner, WatchChange};
+use crate::download_refresh::{self, DownloadRefresh};
+use crate::download_view::{self, FileProgress};
 use crate::downloads::{self, open_in_desktop};
-use crate::file_picker::{Choice as FileChoice, Picker, VerticalOffset};
+use crate::engine_start::{self, EngineStart};
+use crate::file_picker::{self, Picker, VerticalOffset};
+use crate::presentation::{self, Backdrop, Presentation, Redraw};
 use crate::reader::{Article, Mode, Reader, ReaderText, ScrollPixels, TextSize};
 use crate::renderer::{PrivateChromium, Renderer, Worker};
-use crate::settings::Visibility as SettingsVisibility;
+use crate::settings;
 use crate::toolbar::{
-  Action, ButtonAvailability, Direction, DownloadsPanel, EntryMode, HEIGHT as TOOLBAR_HEIGHT,
-  MAX_TABS, PageLoad, Status, TabLabel, TextPrompt, Toolbar, ToolbarChange,
+  self, Action, ButtonAvailability, Direction, DownloadsPanel, EntryMode, MAX_TABS, PageLoad,
+  Status, TabLabel, TextPrompt, Toolbar, ToolbarChange,
 };
 
 const WINDOW: Size<u32> = Size {
@@ -125,10 +123,11 @@ struct Browser {
   prompt: Option<Prompt>,
   file_picker: Option<Picker>,
   download_notice: Option<DownloadNotice>,
-  download_view: DownloadView,
+  download_view: download_view::View,
   download_scanner: Option<Scanner>,
-  download_refresh: RefreshState,
+  download_refresh: download_refresh::State,
   bar: ToolbarFrame,
+  backdrop: Backdrop,
 }
 
 enum Prompt {
@@ -232,7 +231,7 @@ impl RendererPrograms {
   }
 
   fn preferred(&self) -> io::Result<Renderer> {
-    for renderer in [Renderer::Servo, Renderer::Chromium, Renderer::WebKit] {
+    for renderer in engine_start::PREFERENCE {
       match self.path(renderer) {
         Ok(Some(_path)) => return Ok(renderer),
         Ok(None) => {}
@@ -277,12 +276,6 @@ impl RendererPrograms {
   }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Redraw {
-  Requested,
-  Current,
-}
-
 struct PageFrame {
   picture: Option<Pixels>,
   receiving: Vec<u8>,
@@ -292,12 +285,14 @@ struct PageFrame {
 
 struct ToolbarFrame {
   visible: Option<PaintedToolbar>,
+  spare: Vec<u8>,
   redraw: Redraw,
 }
 
 struct PaintedToolbar {
   frame: Frame,
   pixels: Vec<u8>,
+  changed: Option<Patch>,
 }
 
 const MAX_RGBA_BYTES: u64 = 16_777_216;
@@ -924,6 +919,7 @@ impl Browser {
           let Ok(()) = self.close_downloads();
           let Ok(()) = self.toolbar.dismiss_settings();
           let Ok(()) = self.toolbar.blur(&self.active.address);
+          let Ok(()) = self.dirty_toolbar();
 
           match Picker::new(self.active.id, chooser) {
             Ok(picker) => self.file_picker = Some(picker),
@@ -1086,14 +1082,16 @@ impl Browser {
       ::core::primitive::bool::then_some(
         matches!(
           self.download_view.visibility(),
-          Ok(DownloadVisibility::Visible)
+          Ok(download_view::Visibility::Visible)
         ),
         (),
       )
     } {
       ::core::option::Option::Some(()) => match action {
-        Action::Back | Action::Downloads => return self.download_action(DownloadAction::Dismiss),
-        Action::Reload => return self.download_action(DownloadAction::Refresh),
+        Action::Back | Action::Downloads => {
+          return self.download_action(download_view::Action::Dismiss);
+        }
+        Action::Reload => return self.download_action(download_view::Action::Refresh),
         Action::CloseTab
         | Action::NewTab
         | Action::SelectTab(_)
@@ -1285,24 +1283,27 @@ impl Browser {
   }
 
   fn refresh_downloads(&mut self) -> Result<(), Never> {
-    self.advance_download_refresh(RefreshRequest::Refresh)
+    self.advance_download_refresh(download_refresh::Request::Refresh)
   }
 
-  fn advance_download_refresh(&mut self, request: RefreshRequest) -> Result<(), Never> {
+  fn advance_download_refresh(
+    &mut self,
+    request: download_refresh::Request,
+  ) -> Result<(), Never> {
     let Ok(turn) = DownloadRefresh::transition(self.download_refresh, request);
     self.download_refresh = turn.state;
 
     for effect in turn.effects {
       match effect {
-        RefreshEffect::Scan => {
+        download_refresh::Effect::Scan => {
           let Ok(()) = self.start_download_scan();
         }
-        RefreshEffect::Present(Ok(catalog)) => {
+        download_refresh::Effect::Present(Ok(catalog)) => {
           let Ok(replace) = self.download_view.replace(catalog);
 
           replace
         }
-        RefreshEffect::Present(Err(fault)) => {
+        download_refresh::Effect::Present(Err(fault)) => {
           console_core_logging::warn!("reading browser download catalog: {fault}");
           let Ok(()) = self.download_view.report("Couldn’t refresh downloads");
         }
@@ -1329,8 +1330,10 @@ impl Browser {
       Err(fault) => {
         console_core_logging::warn!("starting download catalog refresh: {fault}");
         self.download_scanner = None;
-        let Ok(recovered) =
-          DownloadRefresh::transition(self.download_refresh, RefreshRequest::QueueFailed);
+        let Ok(recovered) = DownloadRefresh::transition(
+          self.download_refresh,
+          download_refresh::Request::QueueFailed,
+        );
         self.download_refresh = recovered.state;
         self.download_view.report("Couldn’t refresh downloads")
       }
@@ -1347,7 +1350,7 @@ impl Browser {
       let Ok(update) = scanner.result();
       let trashed = matches!(
         update,
-        Some(DownloadUpdate::File {
+        Some(download_catalog::Update::File {
           action: FileAction::Trash,
           result: Ok(()),
           ..
@@ -1359,7 +1362,7 @@ impl Browser {
           || (changed == WatchChange::Pending
             && matches!(
               self.download_view.visibility(),
-              Ok(DownloadVisibility::Visible)
+              Ok(download_view::Visibility::Visible)
             )),
         (),
       ) {
@@ -1370,10 +1373,10 @@ impl Browser {
       }
 
       match update {
-        Some(DownloadUpdate::Catalog(result)) => {
-          let Ok(()) = self.advance_download_refresh(RefreshRequest::Scanned(result));
+        Some(download_catalog::Update::Catalog(result)) => {
+          let Ok(()) = self.advance_download_refresh(download_refresh::Request::Scanned(result));
         }
-        Some(DownloadUpdate::File { id, action, result }) => {
+        Some(download_catalog::Update::File { id, action, result }) => {
           let Ok(message) = file_action_message(&id, action, result);
           let Ok(()) = self.download_view.file_finished(message);
         }
@@ -1428,16 +1431,16 @@ impl Browser {
     Ok(())
   }
 
-  fn download_action(&mut self, action: DownloadAction) -> io::Result<Closed> {
+  fn download_action(&mut self, action: download_view::Action) -> io::Result<Closed> {
     match action {
-      DownloadAction::Handled => {}
-      DownloadAction::Dismiss => {
+      download_view::Action::Handled => {}
+      download_view::Action::Dismiss => {
         let Ok(()) = self.close_downloads();
       }
-      DownloadAction::Refresh => {
+      download_view::Action::Refresh => {
         let Ok(()) = self.refresh_downloads();
       }
-      DownloadAction::File {
+      download_view::Action::File {
         id,
         action: action_2,
       } => {
@@ -1445,7 +1448,7 @@ impl Browser {
 
         queue_file_action
       }
-      DownloadAction::Folder => {
+      download_view::Action::Folder => {
         match downloads::folder().and_then(open_in_desktop) {
           Err(fault) => {
             console_core_logging::warn!("could not open the downloads folder: {fault}");
@@ -1456,20 +1459,23 @@ impl Browser {
           ::core::result::Result::Ok(_) => {}
         };
       }
-      DownloadAction::Open(id) => match self.download_view.file(&id).and_then(open_in_desktop) {
-        Ok(()) => {}
-        Err(fault) => {
-          let Ok(id_text) = id.as_str();
-          console_core_logging::warn!("opening download {id_text}: {fault}");
-          let message =
-            match ::core::primitive::bool::then_some(fault.kind() == io::ErrorKind::NotFound, ())
-            {
+      download_view::Action::Open(id) => {
+        match self.download_view.file(&id).and_then(open_in_desktop) {
+          Ok(()) => {}
+          Err(fault) => {
+            let Ok(id_text) = id.as_str();
+            console_core_logging::warn!("opening download {id_text}: {fault}");
+            let message = match ::core::primitive::bool::then_some(
+              fault.kind() == io::ErrorKind::NotFound,
+              (),
+            ) {
               ::core::option::Option::Some(()) => "The file or its default app is unavailable",
               ::core::option::Option::None => "Couldn’t open this download",
             };
-          let Ok(()) = self.download_view.report(message);
+            let Ok(()) = self.download_view.report(message);
+          }
         }
-      },
+      }
     }
 
     Ok(Closed::No)
@@ -1558,14 +1564,14 @@ impl Browser {
     self.dirty_toolbar()
   }
 
-  fn choose(&mut self, choice: io::Result<FileChoice>) -> io::Result<Closed> {
+  fn choose(&mut self, choice: io::Result<file_picker::Choice>) -> io::Result<Closed> {
     self.active.page.redraw = Redraw::Requested;
 
     match choice {
       Err(fault) => {
         let Ok(()) = self.report_action(fault);
       }
-      Ok(FileChoice::Waiting) => {}
+      Ok(file_picker::Choice::Waiting) => {}
       Ok(choice_2) => {
         let picker = {
           let optional_picker = self.file_picker.take();
@@ -1584,17 +1590,17 @@ impl Browser {
         }
 
         match choice_2 {
-          FileChoice::PathEntry => {
+          file_picker::Choice::PathEntry => {
             let Ok(()) = self.upload_prompt(request.tab, request.chooser);
           }
-          FileChoice::Selected(path) => {
+          file_picker::Choice::Selected(path) => {
             let Ok(location) = console_core_file_urls::url(&path);
             self.request(Request::Upload {
               chooser: request.chooser,
               location,
             })?;
           }
-          FileChoice::Waiting | FileChoice::Cancelled => {}
+          file_picker::Choice::Waiting | file_picker::Choice::Cancelled => {}
         }
       }
     }
@@ -1655,7 +1661,7 @@ impl Browser {
             (),
           )
         } {
-          ::core::option::Option::Some(()) => Ok(FileChoice::PathEntry),
+          ::core::option::Option::Some(()) => Ok(file_picker::Choice::PathEntry),
           ::core::option::Option::None => picker.key(press.key, self.viewport.height),
         };
         return self.choose(choice);
@@ -1688,7 +1694,7 @@ impl Browser {
       ::core::primitive::bool::then_some(
         matches!(
           self.download_view.visibility(),
-          Ok(DownloadVisibility::Visible)
+          Ok(download_view::Visibility::Visible)
         ),
         (),
       )
@@ -1751,10 +1757,10 @@ impl Browser {
   fn page_shortcut(&mut self, key: Keysym, mods: u32) -> io::Result<Shortcut> {
     let blocked = matches!(
       self.download_view.visibility(),
-      Ok(DownloadVisibility::Visible)
+      Ok(download_view::Visibility::Visible)
     ) || matches!(
       self.toolbar.settings_visibility(),
-      Ok(SettingsVisibility::Visible)
+      Ok(settings::Visibility::Visible)
     ) || matches!(self.toolbar.entry_mode(), Ok(EntryMode::Prompt));
 
     match blocked.then_some(()) {
@@ -1853,7 +1859,7 @@ impl Browser {
   }
 
   fn pointer(&mut self, pointer: PointerEvent) -> io::Result<Closed> {
-    let toolbar_height = f64::from(TOOLBAR_HEIGHT);
+    let toolbar_height = f64::from(toolbar::HEIGHT);
 
     match &mut self.file_picker {
       Some(picker) => {
@@ -1867,7 +1873,7 @@ impl Browser {
     }
 
     match (self.download_view.visibility(), pointer) {
-      (Ok(DownloadVisibility::Visible), PointerEvent::Down { at: (x, y) }) => {
+      (Ok(download_view::Visibility::Visible), PointerEvent::Down { at: (x, y) }) => {
         match (y >= toolbar_height).then_some(()) {
           Some(()) => {
             let Ok(at) = toolbar_point(Point {
@@ -1880,13 +1886,13 @@ impl Browser {
           None => {}
         }
       }
-      (Ok(DownloadVisibility::Visible), PointerEvent::Scrolled { by }) => {
+      (Ok(download_view::Visibility::Visible), PointerEvent::Scrolled { by }) => {
         let Ok(()) = self.download_view.scroll(ScrollPixels(by));
         return Ok(Closed::No);
       }
-      (Ok(DownloadVisibility::Hidden), _)
+      (Ok(download_view::Visibility::Hidden), _)
       | (
-        Ok(DownloadVisibility::Visible),
+        Ok(download_view::Visibility::Visible),
         PointerEvent::Moved { .. }
         | PointerEvent::Pinched { .. }
         | PointerEvent::Up
@@ -1899,7 +1905,7 @@ impl Browser {
         match (y < toolbar_height
           || matches!(
             self.toolbar.settings_visibility(),
-            Ok(SettingsVisibility::Visible)
+            Ok(settings::Visibility::Visible)
           ))
         .then_some(())
         {
@@ -1910,7 +1916,7 @@ impl Browser {
       PointerEvent::Scrolled { by } => {
         match matches!(
           self.toolbar.settings_visibility(),
-          Ok(SettingsVisibility::Visible)
+          Ok(settings::Visibility::Visible)
         )
         .then_some(())
         {
@@ -1929,18 +1935,10 @@ impl Browser {
 
         Ok(Closed::No)
       }
-      PointerEvent::Moved { at: (x, y) } => {
-        let Ok(()) = self.hover_toolbar(Some({
-          let Ok(explicit_value) = toolbar_point(Point { x, y });
-          explicit_value
-        }));
-        Ok(Closed::No)
-      }
-      PointerEvent::Left => {
-        let Ok(()) = self.hover_toolbar(None);
-        Ok(Closed::No)
-      }
-      PointerEvent::Pinched { .. } | PointerEvent::Up => Ok(Closed::No),
+      PointerEvent::Moved { .. }
+      | PointerEvent::Left
+      | PointerEvent::Pinched { .. }
+      | PointerEvent::Up => Ok(Closed::No),
     }
   }
 
@@ -1956,7 +1954,7 @@ impl Browser {
     let Ok(content) = content_viewport(self.viewport);
     let Ok(visible) = fitted_page(self.viewport, content);
     let x = at.x - f64::from(visible.at.x);
-    let y = at.y - f64::from(TOOLBAR_HEIGHT) - f64::from(visible.at.y);
+    let y = at.y - f64::from(toolbar::HEIGHT) - f64::from(visible.at.y);
     let size = Size {
       width: f64::from(visible.size.width),
       height: f64::from(visible.size.height),
@@ -2024,13 +2022,36 @@ impl Browser {
     }
   }
 
+  fn toolbar_frame(&self, room: Size<u32>) -> Result<Option<(Frame, FrameLayout)>, Never> {
+    let Ok(scale) = self.surface.scale();
+    let points = Size {
+      width: room.width,
+      height: room.height.min(toolbar::HEIGHT),
+    };
+    let Ok(device) = scale.device(points);
+    let frame = Frame { points, device };
+    let layout = match FrameLayout::rgba(device) {
+      Ok(layout) => layout,
+      Err(fault) => {
+        console_core_logging::debug!(
+          "browser toolbar waiting for a drawable viewport: {fault:?}"
+        );
+
+        return Ok(None);
+      }
+    };
+    Ok(Some((frame, layout)))
+  }
+
   fn refresh(&mut self) -> Result<(), Box<dyn Error>> {
     let Ok(logical) = self.surface.logical();
     let logical_3 = match logical {
       Some(logical_2) => logical_2,
       None => return Ok(()),
     };
-    let bar_height = logical_3.height.min(TOOLBAR_HEIGHT);
+    let Ok(pointer) = self.surface.pointer_pixel();
+    let Ok(()) = self.hover_toolbar(pointer.filter(|_| self.file_picker.is_none()));
+    let bar_height = logical_3.height.min(toolbar::HEIGHT);
     let viewport = Size {
       width: logical_3.width.max(1),
       height: logical_3.height.saturating_sub(bar_height).max(1),
@@ -2067,120 +2088,134 @@ impl Browser {
     }
 
     let Ok(desktop_colors) = self.toolbar.reader_colors();
-    let Ok(scale) = self.surface.scale();
-    let points = Size {
-      width: logical_3.width,
-      height: bar_height,
-    };
-    let Ok(device) = scale.device(points);
-    let frame = Frame { points, device };
-    let layout = match FrameLayout::rgba(device) {
-      Ok(layout) => layout,
-      Err(fault) => {
-        console_core_logging::debug!(
-          "browser toolbar waiting for a drawable viewport: {fault:?}"
-        );
-
-        return Ok(());
-      }
+    let Ok(bar_frame) = self.toolbar_frame(logical_3);
+    let (frame, layout) = match bar_frame {
+      Some(ready) => ready,
+      None => return Ok(()),
     };
     let Ok(geometry) = self.bar.geometry(frame);
     let bar_changed = self.bar.redraw == Redraw::Requested || geometry == Redraw::Requested;
     let page_changed = match self.download_view.visibility() {
-      Ok(DownloadVisibility::Visible) => {
-        matches!(self.download_view.drawing(), Ok(DownloadDrawing::Pending))
+      Ok(download_view::Visibility::Visible) => {
+        matches!(
+          self.download_view.drawing(),
+          Ok(download_view::Drawing::Pending)
+        )
       }
-      Ok(DownloadVisibility::Hidden) => self.active.page.redraw == Redraw::Requested,
+      Ok(download_view::Visibility::Hidden) => self.active.page.redraw == Redraw::Requested,
     } || geometry == Redraw::Requested;
 
     match bar_changed.then_some(()) {
-      Some(()) => self.bar.paint(&mut self.toolbar, frame, layout)?,
+      Some(()) => {
+        self.bar.paint(&mut self.toolbar, frame, layout)?;
+        let Ok(()) = self.toolbar_text_input();
+      }
       None => {}
     }
 
     match (bar_changed || page_changed).then_some(()) {
       Some(()) => {}
-      None => return Ok(()),
+      None => {
+        let Ok(cursor) = self.toolbar.pointer_cursor();
+        let Ok(()) = self.surface.set_pointer_cursor(cursor);
+
+        return Ok(());
+      }
     }
 
-    let bar = match self.bar.visible.as_ref() {
-      Some(bar) => bar,
-      None => return Ok(()),
-    };
     let Ok(layers) = self.surface.layer_support();
 
     let overlay = (self.file_picker.is_some()
       || matches!(
         self.download_view.visibility(),
-        Ok(DownloadVisibility::Visible)
+        Ok(download_view::Visibility::Visible)
       )
       || matches!(
         self.toolbar.settings_visibility(),
-        Ok(SettingsVisibility::Visible)
+        Ok(settings::Visibility::Visible)
       ))
     .then_some(());
 
-    match (layers, overlay) {
-      (LayerSupport::Available, None) => {
-        match bar_changed.then_some(()) {
-          Some(()) => draw_background(&mut self.surface, bar)?,
-          None => {}
-        }
-
-        match page_changed.then_some(()) {
-          Some(()) => {}
-          None => return Ok(()),
-        }
-
-        let shown = draw_page_layer(
-          &mut self.surface,
-          &self.active.page,
-          PageLayout {
-            viewport,
-            entire: logical_3,
-            bar_height,
-          },
-          desktop_colors,
-        )?;
-
-        match shown {
-          Visible::Yes => {
-            self.active.page.redraw = Redraw::Current;
-
-            return Ok(());
-          }
-          Visible::NotYet => {}
-        }
-
-        let Ok(()) = self.surface.clear_layer();
-      }
-      (LayerSupport::Available, Some(())) => {
-        let Ok(()) = self.surface.clear_layer();
-      }
-      (LayerSupport::Unavailable, _) => {}
-    }
-
-    draw_combined(
-      &mut self.surface,
-      bar,
-      &self.active.page,
-      PageLayout {
-        viewport,
-        entire: logical_3,
-        bar_height,
+    let page_layout = PageLayout {
+      viewport,
+      entire: logical_3,
+      bar_height,
+    };
+    let repaint = presentation::Repaint {
+      before: self.backdrop,
+      geometry: presentation::Geometry {
+        window: logical_3,
+        toolbar: frame,
       },
-      desktop_colors,
-      &mut self.toolbar,
-      &mut self.download_view,
-      self.file_picker.as_ref(),
-    )?;
+      layers: match (layers, overlay) {
+        (LayerSupport::Available, None) => presentation::Layers::Available,
+        (LayerSupport::Available, Some(())) | (LayerSupport::Unavailable, _) => {
+          presentation::Layers::Combined
+        }
+      },
+      toolbar: match bar_changed.then_some(()) {
+        Some(()) => Redraw::Requested,
+        None => Redraw::Current,
+      },
+      page: match page_changed.then_some(()) {
+        Some(()) => Redraw::Requested,
+        None => Redraw::Current,
+      },
+    };
+    let backdrop = Presentation::paint(&repaint, self, |browser, effect| {
+      browser.present(effect, page_layout, desktop_colors)
+    })?;
+    self.backdrop = backdrop;
 
     match self.download_view.visibility() {
-      Ok(DownloadVisibility::Visible) => {}
-      Ok(DownloadVisibility::Hidden) => self.active.page.redraw = Redraw::Current,
+      Ok(download_view::Visibility::Visible) => {}
+      Ok(download_view::Visibility::Hidden) => self.active.page.redraw = Redraw::Current,
     }
 
+    let Ok(cursor) = self.toolbar.pointer_cursor();
+    let Ok(()) = self.surface.set_pointer_cursor(cursor);
+
     Ok(())
+  }
+
+  fn present(
+    &mut self,
+    effect: presentation::Effect,
+    layout: PageLayout,
+    colors: ReaderColors,
+  ) -> Result<Visible, Box<dyn Error>> {
+    let bar = self
+      .bar
+      .visible
+      .as_ref()
+      .ok_or_else(|| invalid("missing browser toolbar"))?;
+
+    match effect {
+      presentation::Effect::DrawPageLayer => {
+        draw_page_layer(&mut self.surface, &self.active.page, layout, colors)
+      }
+      presentation::Effect::PatchToolbar => match bar.changed.as_ref() {
+        Some(patch) => self.surface.draw_patch(patch).map_err(Into::into),
+        None => Ok(Visible::Yes),
+      },
+      presentation::Effect::DrawCombined => {
+        draw_combined(
+          &mut self.surface,
+          bar,
+          &self.active.page,
+          layout,
+          colors,
+          &mut self.toolbar,
+          &mut self.download_view,
+          self.file_picker.as_ref(),
+        )?;
+        Ok(Visible::Yes)
+      }
+      presentation::Effect::ClearPageLayer => {
+        let Ok(()) = self.surface.clear_layer();
+        Ok(Visible::Yes)
+      }
+    }
   }
 }
 
@@ -2217,7 +2252,7 @@ fn started_scanner() -> io::Result<Scanner> {
 
 enum PickerPointer {
   Ignored,
-  Interacted(FileChoice),
+  Interacted(file_picker::Choice),
 }
 
 fn picker_pointer(
@@ -2225,7 +2260,7 @@ fn picker_pointer(
   viewport_height: u32,
   pointer: PointerEvent,
 ) -> io::Result<PickerPointer> {
-  let origin = f64::from(TOOLBAR_HEIGHT);
+  let origin = f64::from(toolbar::HEIGHT);
 
   match pointer {
     PointerEvent::Down { at: (_, y) } => match (y >= origin).then_some(()) {
@@ -2344,13 +2379,33 @@ impl ToolbarFrame {
     frame: Frame,
     layout: FrameLayout,
   ) -> Result<(), Box<dyn Error>> {
-    let mut pixels = self
-      .visible
-      .take()
-      .map_or_else(Vec::new, |previous| previous.pixels);
+    let mut pixels = std::mem::take(&mut self.spare);
     resize_pixels(&mut pixels, layout)?;
     toolbar.paint(&mut pixels, frame)?;
-    self.visible = Some(PaintedToolbar { frame, pixels });
+    let changing = match self.visible.as_ref().filter(|prior| prior.frame == frame) {
+      Some(previous) => {
+        let Ok(area) = Area::between(frame.device, &previous.pixels, &pixels);
+        area
+      }
+      None => None,
+    };
+    let changed = match changing {
+      Some(area) => {
+        let patch = Patch::extract(frame.device, &pixels, area)?;
+        Some(patch)
+      }
+      None => None,
+    };
+
+    match self.visible.replace(PaintedToolbar {
+      frame,
+      pixels,
+      changed,
+    }) {
+      Some(previous) => self.spare = previous.pixels,
+      None => {}
+    }
+
     self.redraw = Redraw::Current;
 
     Ok(())
@@ -2393,21 +2448,7 @@ fn fill_toolbar<'a>(
   Ok(Some(page))
 }
 
-fn draw_background(surface: &mut Surface, bar: &PaintedToolbar) -> Result<(), Box<dyn Error>> {
-  surface.draw(|pixels, _, _| {
-    let Ok(page) = fill_toolbar(pixels, bar);
-
-    match page {
-      Some(page_2) => page_2.fill(255),
-      None => {}
-    }
-
-    Ok(())
-  })?;
-
-  Ok(())
-}
-
+#[derive(Clone, Copy)]
 struct PageLayout {
   viewport: Size<u32>,
   entire: Size<u32>,
@@ -2453,7 +2494,7 @@ fn draw_combined(
   layout: PageLayout,
   desktop_colors: ReaderColors,
   toolbar: &mut Toolbar,
-  downloads: &mut DownloadView,
+  downloads: &mut download_view::View,
   file_picker: Option<&Picker>,
 ) -> Result<(), Box<dyn Error>> {
   surface.draw_with(
@@ -2476,7 +2517,7 @@ fn draw_combined(
             file_picker,
             matches!(
               download_overlay.visibility(),
-              Ok(DownloadVisibility::Visible)
+              Ok(download_view::Visibility::Visible)
             ),
           ) {
             (Some(picker), _) => {
@@ -2627,17 +2668,17 @@ struct CheckedDownloads {
   paths: [PathBuf; 2],
 }
 
-fn open_download(view: &mut DownloadView) -> io::Result<downloads::Id> {
+fn open_download(view: &mut download_view::View) -> io::Result<downloads::Id> {
   let Ok(_focused) = view.key(Keysym::Down, 0);
   let Ok(action) = view.key(Keysym::Return, 0);
 
   match action {
-    DownloadAction::Open(id) => Ok(id),
-    DownloadAction::Handled
-    | DownloadAction::Dismiss
-    | DownloadAction::Refresh
-    | DownloadAction::Folder
-    | DownloadAction::File { .. } => {
+    download_view::Action::Open(id) => Ok(id),
+    download_view::Action::Handled
+    | download_view::Action::Dismiss
+    | download_view::Action::Refresh
+    | download_view::Action::Folder
+    | download_view::Action::File { .. } => {
       Err(invalid("download catalog did not open the focused file"))
     }
   }
@@ -2686,8 +2727,7 @@ fn checked_downloads(browser: &mut Browser) -> io::Result<CheckedDownloads> {
 
   let Ok(_menu) = view.key(Keysym::Right, 0);
   let Ok(reveal) = view.key(Keysym::Return, 0);
-  let correct =
-    matches!(reveal, DownloadAction::File { id, action: FileAction::Reveal } if id == second);
+  let correct = matches!(reveal, download_view::Action::File { id, action: FileAction::Reveal } if id == second);
 
   match correct.then_some(()) {
     Some(()) => {}
@@ -2726,7 +2766,7 @@ impl DownloadCheck {
         match {
           ::core::primitive::bool::then_some(
             matches!(view.file_busy(), Ok(FileProgress::Working))
-              || !matches!(view.availability(), Ok(DownloadAvailability::Ready)),
+              || !matches!(view.availability(), Ok(download_view::Availability::Ready)),
             (),
           )
         } {
@@ -2819,7 +2859,7 @@ impl DownloadCheck {
       ::core::primitive::bool::then_some(
         !matches!(
           browser.download_view.visibility(),
-          Ok(DownloadVisibility::Visible)
+          Ok(download_view::Visibility::Visible)
         ),
         (),
       )
@@ -2834,7 +2874,7 @@ impl DownloadCheck {
       ::core::primitive::bool::then_some(
         !matches!(
           browser.download_view.availability(),
-          Ok(DownloadAvailability::Ready)
+          Ok(download_view::Availability::Ready)
         ),
         (),
       )
@@ -2874,7 +2914,7 @@ impl DownloadCheck {
 
     match {
       ::core::primitive::bool::then_some(
-        !matches!(&trash, DownloadAction::File { id, action: FileAction::Trash } if id == &second),
+        !matches!(&trash, download_view::Action::File { id, action: FileAction::Trash } if id == &second),
         (),
       )
     } {
@@ -2913,7 +2953,7 @@ impl DownloadCheck {
       ::core::primitive::bool::then_some(
         matches!(
           browser.download_view.visibility(),
-          Ok(DownloadVisibility::Visible)
+          Ok(download_view::Visibility::Visible)
         ),
         (),
       )
@@ -2930,7 +2970,7 @@ impl DownloadCheck {
       ::core::primitive::bool::then_some(
         !matches!(
           browser.download_view.visibility(),
-          Ok(DownloadVisibility::Visible)
+          Ok(download_view::Visibility::Visible)
         ),
         (),
       )
@@ -2990,7 +3030,7 @@ fn page_press(
     at: (
       f64::from(visible.at.x)
         + f64::from(at.x) * f64::from(visible.size.width) / f64::from(content.width),
-      f64::from(TOOLBAR_HEIGHT)
+      f64::from(toolbar::HEIGHT)
         + f64::from(visible.at.y)
         + f64::from(at.y) * f64::from(visible.size.height) / f64::from(content.height),
     ),
@@ -3165,6 +3205,23 @@ impl Browser {
     )
   }
 
+  fn toolbar_text_input(&mut self) -> Result<(), Never> {
+    let obstructed = self.file_picker.is_some()
+      || matches!(
+        self.download_view.visibility(),
+        Ok(download_view::Visibility::Visible)
+      )
+      || matches!(
+        self.toolbar.settings_visibility(),
+        Ok(settings::Visibility::Visible)
+      );
+    let Ok(state) = match obstructed.then_some(()) {
+      Some(()) => Ok(None),
+      None => self.toolbar.text_input_state(),
+    };
+    self.surface.set_text_input(state)
+  }
+
   fn read_input(&mut self) -> io::Result<Closed> {
     let Ok(presses) = self.surface.key_presses();
     let Ok(pointers) = self.surface.pointer_events();
@@ -3176,6 +3233,13 @@ impl Browser {
         Closed::Yes => return Ok(Closed::Yes),
         Closed::No => {}
       }
+    }
+
+    let Ok(changes) = self.surface.text_input_changes();
+
+    for change in changes {
+      let Ok(()) = self.toolbar.text_input(change);
+      let Ok(()) = self.dirty_toolbar();
     }
 
     for pointer in pointers {
@@ -3376,18 +3440,31 @@ impl Iterator for WindowRun {
 fn show(
   mut browser: Browser,
   test: Option<Renderer>,
-  fallback: Option<Renderer>,
+  retry_with: &'static [Renderer],
 ) -> Result<(), Box<dyn Error>> {
-  match browser.switch(browser.active.renderer) {
-    Ok(()) => {}
-    Err(fault) => match fallback {
-      Some(renderer) => {
-        console_core_logging::warn!("could not start Servo, opening {renderer}: {fault}");
-        browser.switch(renderer)?;
-        browser.default_engine = renderer;
-      }
-      None => return Err(Box::<dyn std::error::Error>::from(fault)),
+  let initial = browser.active.renderer;
+  let launched = EngineStart::open(
+    &engine_start::Launch {
+      first: initial,
+      retry_with,
     },
+    &mut browser,
+    |window, effect| {
+      match effect.previous_failure {
+        Some((previous, fault)) => {
+          let renderer = effect.renderer;
+          console_core_logging::warn!("could not start {previous}, opening {renderer}: {fault}");
+        }
+        None => {}
+      }
+
+      window.switch(effect.renderer)
+    },
+  )?;
+
+  match (launched != initial).then_some(()) {
+    Some(()) => browser.default_engine = launched,
+    None => {}
   }
 
   let check = match test {
@@ -3431,30 +3508,43 @@ fn staged_servo_worker() -> Result<Option<PathBuf>, Never> {
 impl RendererPrograms {
   fn discover(overrides: RendererOverrides<'_>) -> io::Result<Self> {
     let executable = std::env::current_exe()?;
-    let locate = |requested: Option<&str>, name| match requested {
-      Some(path) => Some(PathBuf::from(path)),
-      None => {
-        let Ok(nearby) = nearby_worker(&executable, name);
-        nearby
-      }
-    };
-
-    let servo = match overrides.servo {
-      Some(path) => Some(PathBuf::from(path)),
-      None => {
-        let Ok(staged) = staged_servo_worker();
-        let checked = staged.and_then(|path| {
-          let Ok(available) = available_worker(path);
-          available
-        });
-        checked.or_else(|| locate(None, "console-browser-renderer-servo"))
-      }
-    };
+    let Ok(staged_servo) = staged_servo_worker();
+    let candidates = [
+      (
+        overrides.chromium,
+        "console-browser-renderer-chromium",
+        None,
+      ),
+      (
+        overrides.servo,
+        "console-browser-renderer-servo",
+        staged_servo.as_deref(),
+      ),
+      (overrides.webkit, "console-browser-renderer-webkit", None),
+    ];
+    let paths =
+      console_concurrency::map_with_threads(3, &candidates, |&(requested, name, staged)| {
+        match requested {
+          Some(path) => Some(PathBuf::from(path)),
+          None => staged
+            .and_then(|path| {
+              let Ok(found) = available_worker(path.to_owned());
+              found
+            })
+            .or_else(|| {
+              let Ok(nearby) = nearby_worker(&executable, name);
+              nearby
+            }),
+        }
+      })
+      .map_err(|_worker_panicked| io::Error::other("browser worker discovery failed"))?;
+    let [chromium, servo, webkit] = <[Option<PathBuf>; 3]>::try_from(paths)
+      .map_err(|_| io::Error::other("incomplete browser worker discovery"))?;
 
     Ok(Self {
-      chromium: locate(overrides.chromium, "console-browser-renderer-chromium"),
+      chromium,
       servo,
-      webkit: locate(overrides.webkit, "console-browser-renderer-webkit"),
+      webkit,
       private: PrivateChromium::default(),
     })
   }
@@ -3562,14 +3652,12 @@ fn start_browser(
     }
   };
   let browser = open_window(programs, default_engine, tabs)?;
-  let fallback = match (engine, test, default_engine) {
-    (None, None, Renderer::Servo) => [Renderer::Chromium, Renderer::WebKit]
-      .into_iter()
-      .find(|renderer| available.contains(renderer)),
-    _ => None,
+  let retry_with = match (engine, test) {
+    (None, None) => available,
+    _ => &[],
   };
 
-  show(browser, test, fallback)
+  show(browser, test, retry_with)
 }
 
 fn open_window(
@@ -3605,19 +3693,21 @@ fn open_window(
     desktop_font,
     viewport: Size {
       width: WINDOW.width,
-      height: WINDOW.height.saturating_sub(TOOLBAR_HEIGHT),
+      height: WINDOW.height.saturating_sub(toolbar::HEIGHT),
     },
     clipboard: String::new(),
     prompt: None,
     file_picker: None,
     download_notice: None,
-    download_view: DownloadView::default(),
+    download_view: download_view::View::default(),
     download_scanner: None,
     download_refresh: download_refresh.state,
     bar: ToolbarFrame {
       visible: None,
+      spare: Vec::new(),
       redraw: Redraw::Requested,
     },
+    backdrop: Backdrop::Combined,
   })
 }
 
@@ -3740,14 +3830,20 @@ mod tests {
   }
 
   #[test]
-  fn servo_is_preferred_only_when_configured() {
+  fn installed_alternatives_are_preferred_over_chromium() {
     let mut programs = RendererPrograms {
       chromium: Some(PathBuf::from("chromium-worker")),
       servo: None,
-      webkit: Some(PathBuf::from("webkit-worker")),
+      webkit: None,
       private: PrivateChromium::default(),
     };
     assert!(matches!(programs.preferred(), Ok(Renderer::Chromium)));
+    programs.webkit = Some(PathBuf::from("webkit-worker"));
+    assert!(matches!(programs.preferred(), Ok(Renderer::WebKit)));
+    assert!(matches!(
+      programs.initial_engine(Some("chromium")),
+      Ok(Renderer::Chromium)
+    ));
     programs.servo = Some(PathBuf::from("servo-worker"));
     assert!(matches!(programs.preferred(), Ok(Renderer::Servo)));
     programs.chromium = None;

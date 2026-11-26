@@ -21,6 +21,7 @@ console-core-matroska-blocks = { path = "crates/console-core-matroska-blocks" }
 console-core-font-hinting = { path = "crates/console-core-font-hinting", default-features = false }
 console-core-perfect-hash = { path = "crates/console-core-perfect-hash" }
 console-input-key-symbols = { path = "crates/console-input-key-symbols" }
+console-core-bytes = { path = "crates/console-core-bytes" }
 console-core-byte-streams = { path = "crates/console-core-byte-streams" }
 console-core-frequency-transforms = { path = "crates/console-core-frequency-transforms" }
 console-core-audio-samples = { path = "crates/console-core-audio-samples" }
@@ -139,6 +140,7 @@ console-core-geometry = { path = "crates/console-core-geometry" }
 console-core-circle = { path = "crates/console-core-circle" }
 console-core-line = { path = "crates/console-core-line" }
 console-core-point = { path = "crates/console-core-point" }
+console-core-pointer = { path = "crates/console-core-pointer" }
 console-core-rectangle = { path = "crates/console-core-rectangle" }
 console-core-size = { path = "crates/console-core-size" }
 console-core-transform = { path = "crates/console-core-transform" }

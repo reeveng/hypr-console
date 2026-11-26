@@ -29,7 +29,7 @@ pub(super) fn suggestions_page(held: &Panel) -> Result<Page, Never> {
     match standing.management.metadata {
       MetadataView::Recordings => ActionOutcome::Close,
       MetadataView::Recording(_) | MetadataView::MusicBrainz(_) => {
-        let Ok(()) = manage(&returning, Manage::MetadataBack, showing);
+        let Ok(()) = manage(&returning, Request::MetadataBack, showing);
 
         ActionOutcome::Stay
       }
@@ -44,7 +44,7 @@ pub(super) fn suggestions_page(held: &Panel) -> Result<Page, Never> {
       saved
     },
     move |view: PagePosition| {
-      let Ok(_no_work) = decided(&moving, MusicEvent::Manage(Manage::ViewedMetadata(view)));
+      let Ok(_no_work) = decided(&moving, MusicEvent::Manage(Request::ViewedMetadata(view)));
     },
   )
 }
@@ -73,7 +73,7 @@ fn recording_list(held: &Panel, files: &[Song]) -> Result<Vec<Row>, Never> {
     };
     let Ok(query) = suggestions::query(file);
     let key = query.file.path.clone();
-    let Ok(does) = action(held, Manage::OpenMetadata(query.file));
+    let Ok(does) = action(held, Request::OpenMetadata(query.file));
     let Ok(row) = Row::new(&file.name, Aside(missing), does);
     let Ok(pick) = row.opening();
     let Ok(identified) = pick.selectable(&key);
@@ -104,7 +104,7 @@ fn back_row(held: &Panel, title: &str) -> Result<Row, Never> {
   let returning = held.clone();
 
   Row::back(title, move |showing| {
-    let Ok(()) = manage(&returning, Manage::MetadataBack, showing);
+    let Ok(()) = manage(&returning, Request::MetadataBack, showing);
   })
 }
 
@@ -184,7 +184,7 @@ fn musicbrainz_door(held: &Panel, song: &Song, state: &Management) -> Result<Row
     (Lookup::Ready, Cached::Yes) => ("MusicBrainz Results", ""),
     (Lookup::Ready, Cached::No) => ("Search MusicBrainz", ""),
   };
-  let Ok(does) = action(held, Manage::OpenMusicBrainz { query, cached });
+  let Ok(does) = action(held, Request::OpenMusicBrainz { query, cached });
   let Ok(row) = Row::new(title, Aside(status), does);
   let Ok(opening) = row.opening();
 
@@ -277,7 +277,7 @@ fn search_row(
     (Lookup::Ready, Some([_, ..])) => ("Search Again", ""),
     (Lookup::Ready, None) => ("Search MusicBrainz", ""),
   };
-  let Ok(does) = action(held, Manage::SearchSong(query));
+  let Ok(does) = action(held, Request::SearchSong(query));
 
   Row::new(title, Aside(aside), does)
 }
@@ -311,7 +311,7 @@ fn proposal_row(held: &Panel, proposal: &Proposal) -> Result<Row, Never> {
       Subject(&subject),
       &["Use in Music Library"],
       Box::new(move |confirmation, _| {
-        let Ok(()) = manage(&result, Manage::ConfirmSong(confirmed), confirmation);
+        let Ok(()) = manage(&result, Request::ConfirmSong(confirmed), confirmation);
       }),
     );
   });

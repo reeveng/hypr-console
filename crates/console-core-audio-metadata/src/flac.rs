@@ -27,7 +27,7 @@ pub(crate) fn read<R: Read + Seek>(reader: &mut R) -> Result<Contents, ParseErro
 
   'blocks: for _block in 0..length.wrapping_div(4).saturating_add(1) {
     let [kind, a, b, c] = source.array::<4>()?;
-    let size = u32::from_be_bytes([0, a, b, c]);
+    let Ok(size) = console_core_bytes::endian::u24_be([a, b, c]);
     let content = source.exact(u64::from(size))?;
 
     match (kind & 0x7f, duration) {

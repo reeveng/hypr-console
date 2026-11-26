@@ -53,6 +53,7 @@ use std::path::PathBuf;
 
 use console_core_external_programs::Program;
 use console_core_internal_programs::InternalProgram;
+use console_core_bytes::Bytes;
 use console_core_never::Never;
 use console_core_state_machine::{EffectDependencies, Service};
 
@@ -245,7 +246,7 @@ impl Prompt {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileWrite {
   pub path: PathBuf,
-  pub contents: String,
+  pub contents: Bytes,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -306,7 +307,7 @@ mod tests {
         Effect::Subscribe(Subscription::EventGroup(EventGroup::Compositor)),
         Effect::Write(FileWrite {
           path: PathBuf::from("example"),
-          contents: String::new(),
+          contents: Bytes::default(),
         }),
         Effect::Custom(Redraw),
         Effect::Stop(Exit::Success),

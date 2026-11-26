@@ -57,15 +57,11 @@
 //! is not in it: a touch that ends is an up, which is a gesture finishing
 //! rather than a pointer that is now somewhere else.
 //!
-//! A pointer arriving is not a pointer moving. A surface that comes up under
-//! a pointer resting on the screen is told the pointer entered, at wherever it
-//! rests, and that used to be read as a motion: every panel opened with the
-//! row under the hidden pointer highlighted, which on the device -- whose
-//! pointer rests in the middle of the glass -- was a panel opening halfway
-//! down itself. So entering says where the pointer is and nothing more, and
-//! the highlight follows it once it moves, as a menu opened under a mouse does.
-//! Hyprland also sends a motion at the entered position when a layer opens.
-//! That is still a resting pointer: only a change in position is a move.
+//! [`Surface::pointer_position`] reports the actual pointer position in surface
+//! coordinates from enter until leave. Hover feedback reads it independently
+//! of the event queue, including when the layout changes under a resting pointer.
+//! The event queue also carries translated touch gestures. Pointer motion at
+//! the same coordinates as the last observation does not enqueue another move.
 //!
 //! ## A key arrives as a code and is read through the person's own keymap
 //!
@@ -169,20 +165,21 @@
 use console_core_geometry::{Insets, Point, Size};
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index, toward_zero_i32};
+pub use console_core_pointer::{PointerCursor, PointerEvent};
 use std::io;
 use std::ops::ControlFlow;
 use std::os::fd::BorrowedFd;
 use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
 use std::time::{Duration, Instant};
 
+use super::retained::{
+  BufferEvent, BufferRevision, Change, Geometry, Ownership, Patch, Retained,
+};
 pub use crate::buffer::PreparedFrame;
 use crate::buffer::ShmBuffer;
-use crate::key_repeat::{Cadence, KeyRepeat as HeldKey, RepeatInfo};
+use crate::key_repeat::{self, Cadence, RepeatInfo};
+use crate::registry;
 use crate::waiting::{self, Flushed, WaitError};
-use crate::{
-  client as wayland_client, protocols as wayland_protocols,
-  protocols_wlr as wayland_protocols_wlr, registry,
-};
 use wayland_client::globals::{BindError, GlobalList, GlobalListContents};
 use wayland_client::protocol::{
   wl_buffer, wl_callback, wl_compositor, wl_keyboard, wl_output, wl_pointer, wl_region,
@@ -192,6 +189,9 @@ use wayland_client::protocol::{
 use wayland_client::{Connection, Dispatch, EventQueue, Proxy, QueueHandle, delegate_noop};
 use wayland_protocols::ext::session_lock::v1::client::{
   ext_session_lock_manager_v1, ext_session_lock_surface_v1, ext_session_lock_v1,
+};
+use wayland_protocols::wp::cursor_shape::v1::client::{
+  wp_cursor_shape_device_v1, wp_cursor_shape_manager_v1,
 };
 use wayland_protocols::wp::fractional_scale::v1::client::{
   wp_fractional_scale_manager_v1, wp_fractional_scale_v1,
@@ -286,14 +286,38 @@ pub struct Window {
   pub title: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum PointerEvent {
-  Down { at: (f64, f64) },
-  Moved { at: (f64, f64) },
-  Scrolled { by: f64 },
-  Pinched { by: f64 },
-  Up,
-  Left,
+struct PointerFocus {
+  serial: u32,
+  cursor: PointerCursor,
+  at: (f64, f64),
+  pressed: Option<u32>,
+}
+
+struct SeatPointer {
+  proxy: Option<wl_pointer::WlPointer>,
+  manager: Option<wp_cursor_shape_manager_v1::WpCursorShapeManagerV1>,
+  shape: Option<wp_cursor_shape_device_v1::WpCursorShapeDeviceV1>,
+  focus: Option<PointerFocus>,
+}
+
+impl SeatPointer {
+  fn bind(globals: &GlobalList, hand: &QueueHandle<Bound>) -> Result<Self, Never> {
+    let manager = match globals.bind(hand, 1..=1, ()) {
+      Ok(manager) => Some(manager),
+      Err(BindError::NotPresent) => None,
+      Err(fault @ BindError::UnsupportedVersion) => {
+        console_core_logging::debug!("Wayland cursor shapes are unavailable: {fault}");
+        None
+      }
+    };
+
+    Ok(Self {
+      proxy: None,
+      manager,
+      shape: None,
+      focus: None,
+    })
+  }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -659,7 +683,7 @@ impl Drop for RegionLayer {
 struct Frame {
   storage: ShmBuffer,
   size: Size<u32>,
-  held: Buffer,
+  ownership: Ownership,
   reuse: Reuse,
 }
 
@@ -671,6 +695,7 @@ enum Reuse {
 
 enum RegionPixels<'a> {
   Paint,
+  Packed(&'a Patch),
   Prepare(&'a mut Option<PreparedFrame>),
 }
 
@@ -686,7 +711,7 @@ impl Frame {
     Ok(Frame {
       storage,
       size,
-      held: Buffer::Released,
+      ownership: Ownership::default(),
       reuse: Reuse::Writable,
     })
   }
@@ -699,7 +724,8 @@ fn free(
   device: Size<u32>,
 ) -> Result<Frame, SurfaceError> {
   let Ok((taken, kept)) = pick_free(std::mem::take(spare), device, |frame| {
-    (frame.size, frame.held)
+    let Ok(held) = frame.ownership.held();
+    (frame.size, held)
   });
 
   *spare = kept;
@@ -710,6 +736,68 @@ fn free(
   }
 }
 
+fn retained_frame(
+  spare: &mut Vec<Frame>,
+  shm: &wl_shm::WlShm,
+  hand: &QueueHandle<Bound>,
+  device: Size<u32>,
+) -> Result<Option<Frame>, SurfaceError> {
+  spare.retain(|frame| frame.size == device);
+
+  match spare
+    .iter()
+    .rposition(|frame| frame.ownership.held() == Ok(Buffer::Released))
+  {
+    Some(position) => {
+      #[cfg_attr(
+        dylint_lib = "explicit056_no_hidden_panic_api",
+        expect(
+          explicit056_no_hidden_panic_api,
+          reason = "The index comes from rposition on this same vector with no mutation in between."
+        )
+      )]
+      let frame = spare.swap_remove(position);
+      Ok(Some(frame))
+    }
+    None => match spare.len() {
+      0..=1 => Frame::new(shm, hand, device).map(Some),
+      _ => Ok(None),
+    },
+  }
+}
+
+fn submit_retained(
+  up: &Up,
+  frame: &Frame,
+  logical: Size<u32>,
+  change: Change,
+) -> Result<(), Never> {
+  let Ok(buffer) = frame.storage.buffer();
+  let Ok(across) = fitted::<_, i32>(logical.width);
+  let Ok(down) = fitted::<_, i32>(logical.height);
+
+  up.surface.attach(Some(buffer), 0, 0);
+  up.surface.set_buffer_scale(1);
+  up.viewport.set_destination(across, down);
+
+  let (left, top, width, height) = match change {
+    Change::Clean => return Ok(()),
+    Change::Partial(area) => {
+      let Ok(width) = area.width();
+      let Ok(height) = area.height();
+      (area.left, area.top, width, height)
+    }
+    Change::Full => (0, 0, frame.size.width, frame.size.height),
+  };
+  let Ok(x) = fitted::<_, i32>(left);
+  let Ok(y) = fitted::<_, i32>(top);
+  let Ok(wide) = fitted::<_, i32>(width);
+  let Ok(tall) = fitted::<_, i32>(height);
+  up.surface.damage_buffer(x, y, wide, tall);
+
+  Ok(())
+}
+
 fn region_frame<State>(
   layer: &mut RegionLayer,
   shm: &wl_shm::WlShm,
@@ -718,14 +806,15 @@ fn region_frame<State>(
   source: RegionPixels<'_>,
   state: &mut State,
   paint: impl FnOnce(&mut State, &mut [u8], Size<u32>, Scale) -> Result<(), Never>,
-) -> Result<Frame, SurfaceError> {
+) -> Result<Option<Frame>, SurfaceError> {
   let capture = match source {
     RegionPixels::Paint => None,
+    RegionPixels::Packed(patch) => return packed_frame(layer, shm, hand, device, patch),
     RegionPixels::Prepare(held) => {
       let Ok(imported) = import_prepared(shm, hand, device, held.as_ref());
 
       match imported {
-        Some(ready) => return Ok(ready),
+        Some(ready) => return Ok(Some(ready)),
         None => Some(held),
       }
     }
@@ -752,7 +841,33 @@ fn region_frame<State>(
     None => {}
   }
 
-  Ok(frame)
+  Ok(Some(frame))
+}
+
+fn packed_frame(
+  layer: &mut RegionLayer,
+  shm: &wl_shm::WlShm,
+  hand: &QueueHandle<Bound>,
+  device: Size<u32>,
+  patch: &Patch,
+) -> Result<Option<Frame>, SurfaceError> {
+  let Ok(size) = patch.tile_size();
+
+  match (size == device).then_some(()) {
+    Some(()) => {}
+    None => return Ok(None),
+  }
+
+  let candidate = retained_frame(&mut layer.spare, shm, hand, device)?;
+  let mut frame = match candidate {
+    Some(frame) => frame,
+    None => return Ok(None),
+  };
+
+  let Ok(memory) = frame.storage.retained_memory();
+  patch.write_tile(memory).map_err(SurfaceError::Memory)?;
+
+  Ok(Some(frame))
 }
 
 fn import_prepared(
@@ -770,7 +885,7 @@ fn import_prepared(
     Ok(storage) => Some(Frame {
       storage,
       size: device,
-      held: Buffer::Released,
+      ownership: Ownership::default(),
       reuse: Reuse::Retained,
     }),
     Err(fault) => {
@@ -904,7 +1019,7 @@ struct SeatKeys {
   device: Option<wl_keyboard::WlKeyboard>,
   typing: Option<Typing>,
   cadence: Option<Cadence>,
-  repeat: HeldKey<u32, u32>,
+  repeat: key_repeat::KeyRepeat<u32, u32>,
 }
 
 pub struct Bound {
@@ -931,6 +1046,8 @@ pub struct Bound {
   dmabuf: Option<dmabuf::Import>,
   shown: Option<Frame>,
   spare: Vec<Frame>,
+  retained: Retained,
+  retained_geometry: Option<(Size<u32>, Scale)>,
   logical: Option<Size<u32>>,
   asked: Option<Size<u32>>,
   given: Size<u32>,
@@ -939,8 +1056,7 @@ pub struct Bound {
   scale: Scale,
   closed: Closed,
   pointer_events: Vec<PointerEvent>,
-  pointer_at: (f64, f64),
-  pointer_serial: Option<u32>,
+  pointer: SeatPointer,
   fingers: Fingers,
   keys: SeatKeys,
   text_input: Option<Input>,
@@ -1064,6 +1180,18 @@ fn text_input_for(
   Ok(Some(input))
 }
 
+fn layer_shell_for(
+  globals: &GlobalList,
+  hand: &QueueHandle<Bound>,
+) -> Result<Option<zwlr_layer_shell_v1::ZwlrLayerShellV1>, Never> {
+  Ok(
+    match globals.bind::<zwlr_layer_shell_v1::ZwlrLayerShellV1, _, _>(hand, 1..=4, ()) {
+      Ok(shell) => Some(shell),
+      Err(_layer_shell_is_not_offered) => None,
+    },
+  )
+}
+
 impl Surface {
   pub fn connect() -> Result<Surface, SurfaceError> {
     let connection = crate::connect().map_err(SurfaceError::Compositor)?;
@@ -1076,17 +1204,14 @@ impl Surface {
     let Ok(subcompositor) = subcompositor_for(&globals, &hand);
     let shm =
       registry::shared_memory(&globals, &hand).map_err(|_| SurfaceError::Global("wl_shm"))?;
-    let shell =
-      match globals.bind::<zwlr_layer_shell_v1::ZwlrLayerShellV1, _, _>(&hand, 1..=4, ()) {
-        Ok(shell) => Some(shell),
-        Err(_layer_shell_is_not_offered) => None,
-      };
+    let Ok(shell) = layer_shell_for(&globals, &hand);
     let viewporter = globals
       .bind::<wp_viewporter::WpViewporter, _, _>(&hand, 1..=1, ())
       .map_err(|_| SurfaceError::Global("wp_viewporter, which is the whole of drawing at 2.5"))?;
     let Ok(extensions) = extensions(&globals, &hand);
     let Ok(text_input) = text_input_for(&globals, &hand, extensions.seat.as_ref());
     let Ok(dmabuf) = dmabuf::Import::bind(&globals, &hand);
+    let Ok(pointer) = SeatPointer::bind(&globals, &hand);
 
     let bound = Bound {
       compositor,
@@ -1112,6 +1237,8 @@ impl Surface {
       dmabuf,
       shown: None,
       spare: Vec::new(),
+      retained: Retained::default(),
+      retained_geometry: None,
       logical: None,
       asked: None,
       given: Size {
@@ -1123,8 +1250,7 @@ impl Surface {
       scale: Scale::ONE,
       closed: Closed::No,
       pointer_events: Vec::new(),
-      pointer_at: (0.0, 0.0),
-      pointer_serial: None,
+      pointer,
       fingers: Fingers::default(),
       keys: SeatKeys::default(),
       text_input,
@@ -1451,6 +1577,8 @@ impl Surface {
     let Ok(()) = self.clear_layer();
     let Ok(()) = self.bound.keys.repeat.stop();
     self.bound.animation = None;
+    self.bound.pointer_events.clear();
+    let Ok(()) = self.bound.pointer_left();
 
     match self.bound.text_input.as_mut() {
       Some(input) => {
@@ -1490,6 +1618,8 @@ impl Surface {
     self.bound.keyboard_events.clear();
     self.bound.shown = None;
     self.bound.spare = Vec::new();
+    self.bound.retained = Retained::default();
+    self.bound.retained_geometry = None;
 
     match self.bound.timing.take() {
       Some(timing) => {
@@ -1622,10 +1752,17 @@ impl Surface {
   }
 
   pub fn move_window(&mut self) -> Result<(), Never> {
+    let pressed = self
+      .bound
+      .pointer
+      .focus
+      .as_mut()
+      .and_then(|focus| focus.pressed.take());
+
     match (
       self.bound.up.as_ref().map(|up| &up.role),
       &self.bound.seat,
-      self.bound.pointer_serial.take(),
+      pressed,
     ) {
       (Some(Role::Window(_, toplevel)), Some(seat), Some(serial)) => toplevel._move(seat, serial),
       (None | Some(Role::Layer(_) | Role::Lock(_)), _, _)
@@ -1638,6 +1775,53 @@ impl Surface {
 
   pub fn keyboard_focus(&self) -> Result<KeyboardFocus, Never> {
     Ok(self.bound.focus)
+  }
+
+  pub fn pointer_position(&self) -> Result<Option<Point<f64>>, Never> {
+    Ok(
+      self
+        .bound
+        .pointer
+        .focus
+        .as_ref()
+        .map(|focus| Point::from(focus.at)),
+    )
+  }
+
+  pub fn pointer_pixel(&self) -> Result<Option<Point<i32>>, Never> {
+    let Ok(position) = self.pointer_position();
+
+    Ok(position.map(|point| {
+      let Ok(pixel) = point.map(|coordinate| {
+        let Ok(whole) = console_core_number_conversion::toward_zero_i32(coordinate.floor());
+        whole
+      });
+
+      pixel
+    }))
+  }
+
+  pub fn set_pointer_cursor(&mut self, cursor: PointerCursor) -> Result<(), Never> {
+    let (device, focus) = match (&self.bound.pointer.shape, &mut self.bound.pointer.focus) {
+      (Some(device), Some(focus)) => (device, focus),
+      (None, _) | (_, None) => return Ok(()),
+    };
+
+    match (focus.cursor == cursor).then_some(()) {
+      Some(()) => return Ok(()),
+      None => {}
+    }
+
+    let shape = match cursor {
+      PointerCursor::Default => wp_cursor_shape_device_v1::Shape::Default,
+      PointerCursor::Hand => wp_cursor_shape_device_v1::Shape::Pointer,
+      PointerCursor::Text => wp_cursor_shape_device_v1::Shape::Text,
+    };
+    device.set_shape(focus.serial, shape);
+    focus.cursor = cursor;
+    let _closed_if_the_flush_failed = self.flush();
+
+    Ok(())
   }
 
   pub fn pointer_events(&mut self) -> Result<Vec<PointerEvent>, Never> {
@@ -1750,6 +1934,23 @@ impl Surface {
     paint: impl FnOnce(&mut State, &mut [u8], Size<u32>, Scale) -> Result<(), Never>,
   ) -> Result<Visible, SurfaceError> {
     let drawn = self.draw_region_with(part, RegionPixels::Paint, state, paint)?;
+    self.commit_region(drawn)
+  }
+
+  #[doc = "Present a packed device-pixel tile in a reusable child buffer."]
+  pub fn draw_packed_layer(
+    &mut self,
+    part: Part,
+    patch: &Patch,
+  ) -> Result<Visible, SurfaceError> {
+    let drawn =
+      self.draw_region_with(part, RegionPixels::Packed(patch), &mut (), |(), _, _, _| {
+        Ok(())
+      })?;
+    self.commit_region(drawn)
+  }
+
+  fn commit_region(&mut self, drawn: Option<RegionUpdate>) -> Result<Visible, SurfaceError> {
     let update = match drawn {
       Some(update) => update,
       None => return Ok(Visible::NotYet),
@@ -1843,7 +2044,7 @@ impl Surface {
       );
       layer
     });
-    let mut frame = region_frame(
+    let painted = region_frame(
       layer,
       &self.bound.shm,
       &hand,
@@ -1852,6 +2053,10 @@ impl Surface {
       state,
       paint,
     )?;
+    let mut frame = match painted {
+      Some(frame) => frame,
+      None => return Ok(None),
+    };
     let Ok(buffer) = frame.storage.buffer();
     let Ok(wide) = fitted::<u32, i32>(device.width);
     let Ok(tall) = fitted::<u32, i32>(device.height);
@@ -1862,7 +2067,10 @@ impl Surface {
     layer.surface.attach(Some(buffer), 0, 0);
     layer.viewport.set_destination(across, down);
     layer.surface.damage_buffer(0, 0, wide, tall);
-    let held = std::mem::replace(&mut frame.held, Buffer::Acquired);
+    let Ok(held) = frame.ownership.held();
+    let Ok(()) = frame
+      .ownership
+      .request(BufferEvent::Submit(BufferRevision::default()));
     let previous = layer.shown.replace(frame);
     layer
       .spare
@@ -1967,10 +2175,11 @@ impl Surface {
         let Ok(buffer) = frame.storage.buffer();
         up.surface.attach(Some(buffer), 0, 0);
         up.surface.damage_buffer(0, 0, 1, 1);
-        let Ok(()) = self.bound.present(Frame {
-          held: Buffer::Acquired,
-          ..frame
-        });
+        let mut submitted = frame;
+        let Ok(()) = submitted
+          .ownership
+          .request(BufferEvent::Submit(BufferRevision::default()));
+        let Ok(()) = self.bound.present(submitted);
       }
     }
 
@@ -2036,7 +2245,10 @@ impl Surface {
     up.surface.set_buffer_scale(1);
     up.viewport.set_destination(across, down);
     up.surface.damage_buffer(0, 0, wide, tall);
-    let held = std::mem::replace(&mut frame.held, Buffer::Acquired);
+    let Ok(held) = frame.ownership.held();
+    let Ok(()) = frame
+      .ownership
+      .request(BufferEvent::Submit(BufferRevision::default()));
     let Ok(()) = self.bound.present(frame);
     let Ok(()) = record_frame(Timing {
       bound: &mut self.bound,
@@ -2056,74 +2268,67 @@ impl Surface {
     Ok(())
   }
 
-  pub fn draw_over(
+  #[doc = "Update the retained device pixels and submit them when a buffer is available."]
+  #[doc = "Call again after a release to submit any pending pixels."]
+  pub fn draw_retained(
     &mut self,
-    part: Part,
-    paint: impl FnOnce(&mut [u8], Size<u32>, Scale) -> Result<(), Never>,
+    update: impl FnOnce(&mut Retained, Size<u32>) -> io::Result<()>,
   ) -> Result<Visible, SurfaceError> {
-    let logical = match self.bound.logical {
-      Some(logical) => logical,
-      None => return Ok(Visible::NotYet),
+    let (logical, up) = match (self.bound.logical, self.bound.up.as_ref()) {
+      (Some(logical), Some(up)) => (logical, up),
+      (None, _) | (_, None) => return Ok(Visible::NotYet),
     };
-
-    let up = match self.bound.up.as_ref() {
-      Some(up) => up,
-      None => return Ok(Visible::NotYet),
-    };
-
-    let scale = self.bound.scale;
-    let Ok(device) = scale.device(logical);
-
-    let hand = self.queue.handle();
-    let under = match self.bound.shown.as_mut() {
-      Some(shown) => match ::core::primitive::bool::then_some(shown.size == device, ()) {
-        ::core::option::Option::Some(()) => shown,
-        ::core::option::Option::None => return Ok(Visible::NotYet),
-      },
-      None => return Ok(Visible::NotYet),
-    };
+    let Ok(device) = self.bound.scale.device(logical);
     let Ok(painting) = start_painting(self.bound.timing.as_ref());
-    let before = under.storage.pixels().map_err(SurfaceError::Memory)?;
-    let mut frame = free(&mut self.bound.spare, &self.bound.shm, &hand, device)?;
-    let pixels = frame.storage.pixels().map_err(SurfaceError::Memory)?;
+    update(&mut self.bound.retained, device).map_err(SurfaceError::Memory)?;
+    let Ok(retained_size) = self.bound.retained.size();
 
-    match ::core::primitive::bool::then_some(pixels.len() == before.len(), ()) {
-      ::core::option::Option::Some(()) => {}
-      ::core::option::Option::None => {
-        return Err(SurfaceError::Memory(io::Error::new(
-          io::ErrorKind::InvalidData,
-          "the previous frame and its replacement have different byte lengths",
-        )));
-      }
+    match (retained_size == device).then_some(()) {
+      Some(()) => {}
+      None => return Ok(Visible::NotYet),
     }
 
-    use std::io::Write;
+    let geometry = Some((logical, self.bound.scale));
 
-    let mut destination = &mut *pixels;
-    destination
-      .write_all(before)
+    match (geometry != self.bound.retained_geometry).then_some(()) {
+      Some(()) => {
+        let Ok(()) = self.bound.retained.invalidate(Change::Full);
+        self.bound.retained_geometry = geometry;
+      }
+      None => {}
+    }
+
+    let shown = match self.bound.shown.as_ref() {
+      Some(frame) => {
+        let Ok(revision) = frame.ownership.revision();
+        revision
+      }
+      None => BufferRevision::default(),
+    };
+    let Ok(pending_damage) = self.bound.retained.damage_since(shown);
+
+    match pending_damage {
+      Change::Clean => return Ok(Visible::Yes),
+      Change::Partial(_) | Change::Full => {}
+    }
+
+    let hand = self.queue.handle();
+    let available = retained_frame(&mut self.bound.spare, &self.bound.shm, &hand, device)?;
+    let mut frame = match available {
+      Some(released) => released,
+      None => return Ok(Visible::NotYet),
+    };
+    let Ok(mut revision) = frame.ownership.revision();
+    let Ok(memory) = frame.storage.retained_memory();
+    let damage = self
+      .bound
+      .retained
+      .prepare(memory, &mut revision, shown)
       .map_err(SurfaceError::Memory)?;
+    let Ok(()) = submit_retained(up, &frame, logical, damage);
 
-    let Ok(()) = paint(pixels, device, scale);
-    let buffer = frame
-      .storage
-      .painted_buffer()
-      .map_err(SurfaceError::Memory)?;
-
-    let Ok(across) = fitted::<u32, i32>(logical.width);
-    let Ok(down) = fitted::<u32, i32>(logical.height);
-    let Ok(damaged) = on_the_device(part, logical, device);
-
-    up.surface.attach(Some(buffer), 0, 0);
-    up.surface.set_buffer_scale(1);
-    up.viewport.set_destination(across, down);
-    up.surface.damage_buffer(
-      damaged.at.x,
-      damaged.at.y,
-      damaged.size.width,
-      damaged.size.height,
-    );
-    let held = std::mem::replace(&mut frame.held, Buffer::Acquired);
+    let Ok(held) = frame.ownership.held();
+    let Ok(()) = frame.ownership.request(BufferEvent::Submit(revision));
     let Ok(()) = self.bound.present(frame);
     let Ok(()) = record_frame(Timing {
       bound: &mut self.bound,
@@ -2132,15 +2337,81 @@ impl Surface {
       hand: &hand,
       region: None,
     });
-    let up_3 = match self.bound.up.as_ref() {
-      Some(up_2) => up_2,
-      None => return Ok(Visible::NotYet),
-    };
 
-    up_3.surface.commit();
+    match self.bound.up.as_ref() {
+      Some(active) => active.surface.commit(),
+      None => return Ok(Visible::NotYet),
+    }
+
     let _flushed = self.flush()?;
 
     Ok(Visible::Yes)
+  }
+
+  #[doc = "Update a logical region of the displayed frame in place before repairing a released buffer."]
+  #[doc = "The painter must confine writes to the supplied region."]
+  pub fn draw_over(
+    &mut self,
+    part: Part,
+    paint: impl FnOnce(&mut [u8], Size<u32>, Scale) -> Result<(), Never>,
+  ) -> Result<Visible, SurfaceError> {
+    let scale = self.bound.scale;
+    let geometry = self.retained_source()?;
+    let configured = match geometry {
+      Some(available) => available,
+      None => return Ok(Visible::NotYet),
+    };
+    let Ok(partial) = configured.area(part);
+    let area = match partial {
+      Some(area) => area,
+      None => return Ok(Visible::NotYet),
+    };
+
+    self.draw_retained(|retained, current| {
+      retained.paint(area, |pixels| paint(pixels, current, scale))
+    })
+  }
+
+  #[doc = "Apply prepared device pixels to an existing parent surface."]
+  pub fn draw_patch(&mut self, patch: &Patch) -> Result<Visible, SurfaceError> {
+    let geometry = self.retained_source()?;
+
+    match geometry {
+      Some(_) => self.draw_retained(|retained, _| retained.patch(patch)),
+      None => Ok(Visible::NotYet),
+    }
+  }
+
+  fn retained_source(&mut self) -> Result<Option<Geometry>, SurfaceError> {
+    let (logical, shown) = match (self.bound.logical, self.bound.shown.as_mut()) {
+      (Some(logical), Some(shown)) => (logical, shown),
+      (None, _) | (_, None) => return Ok(None),
+    };
+    let scale = self.bound.scale;
+    let Ok(device) = scale.device(logical);
+
+    match (shown.size == device).then_some(()) {
+      Some(()) => {}
+      None => return Ok(None),
+    }
+
+    let Ok(revision) = shown.ownership.revision();
+
+    match (revision == BufferRevision::default()).then_some(()) {
+      Some(()) => {
+        let pixels = shown.storage.take_pixels().map_err(SurfaceError::Memory)?;
+        let inherited = self
+          .bound
+          .retained
+          .inherit(device, pixels)
+          .map_err(SurfaceError::Memory)?;
+        let Ok(()) = shown.ownership.request(BufferEvent::Inherit(inherited));
+        self.bound.retained_geometry = Some((logical, scale));
+      }
+      None => {}
+    }
+
+    Ok(Some(Geometry { logical, device }))
   }
 
   fn flush(&mut self) -> Result<Flushed, SurfaceError> {
@@ -2501,17 +2772,12 @@ mod tests {
       layer.spare.len() < 12,
       "the compositor never released a child buffer"
     );
-    let Ok(scale) = surface.scale();
-    let Ok(main) = scale.device(logical);
-    let bytes = u64::from(main.width)
-      .saturating_mul(u64::from(main.height))
-      .saturating_mul(4);
     println!(
-      "partial redraw: {bytes} preserved bytes copied per frame, median {:?}, {baseline_late_frames} late frames",
+      "retained parent redraw: median {:?}, {baseline_late_frames} late frames",
       base.get(6)
     );
     println!(
-      "child surface: 0 preserved bytes copied per frame, median {:?}, {child_late_frames} late frames",
+      "child surface redraw: median {:?}, {child_late_frames} late frames",
       child.get(6)
     );
     let Ok(()) = surface.hide();
@@ -3165,12 +3431,7 @@ impl Dispatch<wl_seat::WlSeat, ()> for Bound {
       wl_seat::Event::Capabilities {
         capabilities: wayland_client::WEnum::Value(has),
       } => {
-        match ::core::primitive::bool::then_some(has.contains(wl_seat::Capability::Pointer), ()) {
-          ::core::option::Option::Some(()) => {
-            let _ = seat.get_pointer(hand, ());
-          }
-          ::core::option::Option::None => {}
-        }
+        let Ok(()) = bound.pointer_capability(seat, has, hand);
 
         match ::core::primitive::bool::then_some(has.contains(wl_seat::Capability::Touch), ()) {
           ::core::option::Option::Some(()) => {
@@ -3183,6 +3444,74 @@ impl Dispatch<wl_seat::WlSeat, ()> for Bound {
       }
       _ => {}
     }
+  }
+}
+
+impl Bound {
+  fn pointer_capability(
+    &mut self,
+    seat: &wl_seat::WlSeat,
+    has: wl_seat::Capability,
+    hand: &QueueHandle<Self>,
+  ) -> Result<(), Never> {
+    match (
+      has.contains(wl_seat::Capability::Pointer).then_some(()),
+      &self.pointer.proxy,
+    ) {
+      (Some(()), None) => {
+        let pointer = seat.get_pointer(hand, ());
+        self.pointer.shape = self
+          .pointer
+          .manager
+          .as_ref()
+          .map(|manager| manager.get_pointer(&pointer, hand, ()));
+        self.pointer.proxy = Some(pointer);
+      }
+      (None, Some(pointer)) => {
+        match self.pointer.shape.take() {
+          Some(device) => device.destroy(),
+          None => {}
+        }
+
+        match (pointer.version() >= 3).then_some(()) {
+          Some(()) => pointer.release(),
+          None => {}
+        }
+
+        self.pointer.proxy = None;
+        let Ok(()) = self.pointer_left();
+      }
+      (Some(()), Some(_)) | (None, None) => {}
+    }
+
+    Ok(())
+  }
+
+  fn pointer_left(&mut self) -> Result<(), Never> {
+    match self.pointer.focus.take() {
+      Some(_) => self.pointer_events.push(PointerEvent::Left),
+      None => {}
+    }
+
+    Ok(())
+  }
+
+  fn pointer_entered(&mut self, serial: u32, at: (f64, f64)) -> Result<(), Never> {
+    self.pointer.focus = Some(PointerFocus {
+      serial,
+      cursor: PointerCursor::Default,
+      at,
+      pressed: None,
+    });
+
+    match &self.pointer.shape {
+      Some(device) => device.set_shape(serial, wp_cursor_shape_device_v1::Shape::Default),
+      None => {}
+    }
+
+    self.pointer_events.push(PointerEvent::Moved { at });
+
+    Ok(())
   }
 }
 
@@ -3426,35 +3755,51 @@ impl Dispatch<wl_pointer::WlPointer, ()> for Bound {
   )]
   fn event(
     bound: &mut Self,
-    _pointer: &wl_pointer::WlPointer,
+    pointer: &wl_pointer::WlPointer,
     event: wl_pointer::Event,
     _held: &(),
     _connection: &Connection,
     _hand: &QueueHandle<Self>,
   ) {
+    match (bound.pointer.proxy.as_ref() == Some(pointer)).then_some(()) {
+      Some(()) => {}
+      None => return,
+    }
+
     match event {
       wl_pointer::Event::Enter {
+        serial,
+        surface,
         surface_x,
         surface_y,
-        ..
       } => {
-        bound.pointer_at = (surface_x, surface_y);
-        bound.pointer_events.push(PointerEvent::Moved {
-          at: (surface_x, surface_y),
-        });
+        match bound.up.as_ref().filter(|up| up.surface == surface) {
+          Some(_) => {}
+          None => return,
+        }
+
+        let Ok(()) = bound.pointer_entered(serial, (surface_x, surface_y));
       }
       wl_pointer::Event::Motion {
         surface_x,
         surface_y,
         ..
       } => {
-        let Ok(moved) = pointer_moved(&mut bound.pointer_at, (surface_x, surface_y));
+        let focus = match bound.pointer.focus.as_mut() {
+          Some(focus) => focus,
+          None => return,
+        };
+        let Ok(moved) = pointer_moved(&mut focus.at, (surface_x, surface_y));
 
         bound.pointer_events.extend(moved);
       }
-      wl_pointer::Event::Leave { .. } => {
-        bound.pointer_serial = None;
-        bound.pointer_events.push(PointerEvent::Left);
+      wl_pointer::Event::Leave { surface, .. } => {
+        match bound.up.as_ref().filter(|up| up.surface == surface) {
+          Some(_) => {
+            let Ok(()) = bound.pointer_left();
+          }
+          None => {}
+        }
       }
       wl_pointer::Event::Axis { axis, value, .. } => match axis {
         wayland_client::WEnum::Value(wl_pointer::Axis::VerticalScroll) => {
@@ -3471,20 +3816,27 @@ impl Dispatch<wl_pointer::WlPointer, ()> for Bound {
         serial,
         button,
         ..
-      } => match state {
-        wayland_client::WEnum::Value(wl_pointer::ButtonState::Pressed) => {
-          bound.pointer_serial = (button == 0x110).then_some(serial);
-          bound.pointer_events.push(PointerEvent::Down {
-            at: bound.pointer_at,
-          });
-        }
-        wayland_client::WEnum::Value(wl_pointer::ButtonState::Released)
-        | wayland_client::WEnum::Unknown(_)
-        | wayland_client::WEnum::Value(_) => {
-          bound.pointer_serial = None;
-          bound.pointer_events.push(PointerEvent::Up);
-        }
-      },
+      } => {
+        let focus = match bound.pointer.focus.as_mut() {
+          Some(focus) => focus,
+          None => return,
+        };
+        let input = match state {
+          wayland_client::WEnum::Value(wl_pointer::ButtonState::Pressed) => {
+            focus.pressed = (button == 0x110).then_some(serial);
+
+            PointerEvent::Down { at: focus.at }
+          }
+          wayland_client::WEnum::Value(wl_pointer::ButtonState::Released)
+          | wayland_client::WEnum::Unknown(_)
+          | wayland_client::WEnum::Value(_) => {
+            focus.pressed = None;
+
+            PointerEvent::Up
+          }
+        };
+        bound.pointer_events.push(input);
+      }
       _ => {}
     }
   }
@@ -3550,6 +3902,8 @@ delegate_noop!(Bound: ignore wl_surface::WlSurface);
 delegate_noop!(Bound: ignore wl_region::WlRegion);
 delegate_noop!(Bound: ignore wl_subcompositor::WlSubcompositor);
 delegate_noop!(Bound: ignore wl_subsurface::WlSubsurface);
+delegate_noop!(Bound: ignore wp_cursor_shape_manager_v1::WpCursorShapeManagerV1);
+delegate_noop!(Bound: ignore wp_cursor_shape_device_v1::WpCursorShapeDeviceV1);
 delegate_noop!(Bound: ignore zwp_text_input_manager_v3::ZwpTextInputManagerV3);
 delegate_noop!(Bound: ignore zwp_keyboard_shortcuts_inhibit_manager_v1::ZwpKeyboardShortcutsInhibitManagerV1);
 delegate_noop!(Bound: ignore wl_shm::WlShm);
@@ -3674,7 +4028,9 @@ impl Dispatch<wl_buffer::WlBuffer, ()> for Bound {
           let Ok(held) = frame.storage.buffer();
 
           match ::core::primitive::bool::then_some(held == buffer, ()) {
-            ::core::option::Option::Some(()) => frame.held = Buffer::Released,
+            ::core::option::Option::Some(()) => {
+              let Ok(()) = frame.ownership.request(BufferEvent::Release);
+            }
             ::core::option::Option::None => {}
           }
         }

@@ -9,6 +9,7 @@ license.workspace = true
 portable = true
 
 [dependencies]
+console-core-bytes.workspace = true
 console-core-picture-scaling.workspace = true
 console-core-pixel-buffers.workspace = true
 console-core-boolean-decoding.workspace = true

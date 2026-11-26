@@ -36,6 +36,7 @@ accesskit = "0.25.2"
 accesskit_unix = "0.24.1"
 console-core-arguments.workspace = true
 console-core-atomic-writes.workspace = true
+console-core-bounded-reads.workspace = true
 console-core-color.workspace = true
 console-concurrency.workspace = true
 console-core-fonts.workspace = true

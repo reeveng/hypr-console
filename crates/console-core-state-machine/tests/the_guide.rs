@@ -285,7 +285,8 @@ fn a_snapshot_cut_short_is_met_rather_than_guessed() {
 
 #[test]
 fn a_flipped_byte_is_met_as_corrupt() {
-  let Ok(mut saved) = snapshot::<ButtonGuide>(&Mode::Open(Row::Second));
+  let Ok(snapshot) = snapshot::<ButtonGuide>(&Mode::Open(Row::Second));
+  let Ok(mut saved) = snapshot.into_vec();
 
   match saved.get_mut(5) {
     Some(byte) => *byte = byte.wrapping_add(1),

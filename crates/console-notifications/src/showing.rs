@@ -84,7 +84,7 @@ fn worn(wearing: &Wearing, urgency: Urgency) -> Result<Worn, Never> {
       ink: wearing.soft,
     },
     Urgency::Critical => Worn {
-      edge: wearing.coral,
+      edge: wearing.pink,
       ink: wearing.text,
     },
   })
@@ -788,7 +788,7 @@ mod tests {
   }
 
   #[test]
-  fn a_critical_notification_wears_coral_on_its_edge_and_keeps_its_words_readable()
+  fn a_critical_notification_wears_the_theme_accent_and_keeps_its_words_readable()
   -> Result<(), PaletteError> {
     let wearing = wearing()?;
     let saying = CardContent {
@@ -797,8 +797,8 @@ mod tests {
     };
     let Ok(card) = card(&saying, &MEASURED, &wearing, Point { x: 0, y: 0 });
     let worn = &wearing;
-    let edge = card.shapes.iter().find_map(|shape| match shape {
-      Shape::Panel(panel) => Some(panel.edge),
+    let background = card.shapes.iter().find_map(|shape| match shape {
+      Shape::Panel(panel) => Some(*panel),
       Shape::Text(_)
       | Shape::Picture(_)
       | Shape::Cropped(_)
@@ -814,8 +814,9 @@ mod tests {
       | Shape::Clip(_) => None,
     });
 
+    assert_eq!(background.map(|panel| panel.fill), Some(worn.panel));
     assert!(
-      matches!(edge, Some(console_core_shapes::Edge::Of { color, .. }) if color == worn.coral)
+      matches!(background.map(|panel| panel.edge), Some(Edge::Of { color, .. }) if color == worn.pink)
     );
     assert_eq!(ink, Some(worn.text));
 

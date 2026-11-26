@@ -12,7 +12,7 @@ use console_core_fonts::{EM, LETTERS, MONOSPACED, SERIF};
 use console_core_geometry::{Bounds, Containment, CropMinimum, Point, Rectangle, Size};
 use console_core_never::Never;
 use console_core_shapes::{
-  Clip, Cropped, Edge, Font, Panel, Pixels, Round, Shape, Text, Weight, hover_indicator,
+  Clip, Cropped, Edge, Font, Panel, Picture, Pixels, Round, Shape, Text, Weight, hover_indicator,
 };
 use console_draw_painting::{Lines, Run, at_most, measure_text};
 use console_draw_surface::{PointerCursor, Surface, SurfaceError};
@@ -655,10 +655,9 @@ impl<A: Copy + PartialEq> Canvas<A> {
       height: pixels.height,
     };
     let Ok(crop) = Rectangle::centered_cover(source, destination, CropMinimum::Subpixel);
+    let Ok(picture) = Picture::rectangular(area.origin, size, pixels.clone());
     self.frame.shapes.push(Shape::Cropped(Cropped {
-      at: area.origin,
-      size,
-      pixels: pixels.clone(),
+      picture,
       from: crop.origin,
       seen: crop.size,
     }));

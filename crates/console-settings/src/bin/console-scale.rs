@@ -13,10 +13,8 @@
 //! leave the desktop at a density no one chose, and the screen is described
 //! whole or not at all.
 //!
-//! `apply` is the one the session runs. What a person chose is in a file of
-//! their own and this puts it back on at every login, because a desktop that
-//! forgot the size it was set to at every reboot would be a setting no one could
-//! rely on having made.
+//! `apply` restores each display's saved zoom and rotation at login and after
+//! the compositor reloads its configuration.
 //!
 //! The screen it is put on is the one the compositor says it is driving, and not
 //! the one the tree declares. Those were the same thing for as long as there was
@@ -393,11 +391,11 @@ fn remembers(
 }
 
 fn applied(home: &std::path::Path) -> Result<ExitCode, Never> {
-  let _editing = match display::edit() {
+  let _editing = match display::edit_for_restore() {
     Ok(_editing) => _editing,
     Err(fault) => {
-      console_core_logging::debug!(
-        "console-scale: applying saved display settings deferred: {fault}"
+      console_core_logging::warn!(
+        "console-scale: could not restore saved display settings: {fault}"
       );
       return Ok(ExitCode::SUCCESS);
     }

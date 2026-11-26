@@ -86,6 +86,7 @@ programs! {
     Cargo, "cargo", Origin::Package("rust");
     CargoNextest, "cargo-nextest", Origin::Developing;
     Cat, "cat", Origin::Arch;
+    Cc, "cc", Origin::Developing;
     Chmod, "chmod", Origin::Arch;
     Chromium, "chromium", Origin::Package("chromium");
     Cmake, "cmake", Origin::Package("cmake");
@@ -105,6 +106,7 @@ programs! {
     Getent, "getent", Origin::Arch;
     Gio, "gio", Origin::Package("glib2");
     Git, "git", Origin::Package("git");
+    GlslangValidator, "glslangValidator", Origin::Developing;
     Grim, "grim", Origin::Package("grim");
     Hostname, "hostname", Origin::Developing;
     Hostnamectl, "hostnamectl", Origin::Arch;
@@ -142,6 +144,7 @@ programs! {
     QemuX86_64, "qemu-system-x86_64", Origin::Developing;
     Rm, "rm", Origin::Arch;
     Runuser, "runuser", Origin::Arch;
+    Rustc, "rustc", Origin::Developing;
     Rustup, "rustup", Origin::Developing;
     Scp, "scp", Origin::Developing;
     SevenZip, "7z", Origin::Package("7zip");
@@ -150,6 +153,7 @@ programs! {
     Sleep, "sleep", Origin::Arch;
     Ss, "ss", Origin::Arch;
     Snapper, "snapper", Origin::Package("snapper");
+    SpirvVal, "spirv-val", Origin::Developing;
     Ssh, "ssh", Origin::Developing;
     StartHyprland, "start-hyprland", Origin::Package("hyprland");
     Stdbuf, "stdbuf", Origin::Arch;

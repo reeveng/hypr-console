@@ -1,0 +1,16 @@
+[package]
+name = "console-just-recipes"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+license = "AGPL-3.0-or-later"
+
+[workspace]
+
+[dependencies]
+console-core-arguments = { path = "../../crates/console-core-arguments" }
+console-core-atomic-writes = { path = "../../crates/console-core-atomic-writes" }
+console-core-external-programs = { path = "../../crates/console-core-external-programs" }
+console-core-never = { path = "../../crates/console-core-never" }
+console-core-temporary-directories = { path = "../../crates/console-core-temporary-directories" }
+console-repository = { path = "../../crates/console-repository" }

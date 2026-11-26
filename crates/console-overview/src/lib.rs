@@ -1227,11 +1227,8 @@ fn pictured(frame: Frame, pixels: &Pixels) -> Result<Shape, Never> {
   let Ok(width) = whole_u32(size.width);
   let Ok(height) = whole_u32(size.height);
 
-  Ok(Shape::Picture(Picture {
-    at: Point { x, y },
-    size: Size { width, height },
-    pixels: pixels.clone(),
-  }))
+  let Ok(picture) = Picture::rectangular(Point { x, y }, Size { width, height }, pixels.clone());
+  Ok(Shape::Picture(picture))
 }
 
 fn render_name(

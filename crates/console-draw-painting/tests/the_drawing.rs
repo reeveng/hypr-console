@@ -494,31 +494,23 @@ fn a_picture_lands_where_it_was_put_in_the_colors_it_was_handed() -> Result<(), 
   let red = [255u8, 0, 0, 255];
   let green = [0u8, 255, 0, 255];
   let bytes: Vec<u8> = [red, green, green, red].concat();
-  let picture = Picture {
-    at: Point { x: 4, y: 2 },
-    size: Size {
+  let Ok(picture) = Picture::rectangular(
+    Point { x: 4, y: 2 },
+    Size {
       width: 2,
       height: 2,
     },
-    pixels: Pixels {
+    Pixels {
       width: 2,
       height: 2,
       stride: 8,
       bytes,
     },
-  };
+  );
   let Ok(mut borrowed) = slab();
+  let Ok(borrowed_picture) = picture.borrow_pixels();
 
-  over_picture(
-    &mut borrowed,
-    WHOLE,
-    Picture {
-      at: picture.at,
-      size: picture.size,
-      pixels: &picture.pixels,
-    },
-    &[],
-  )?;
+  over_picture(&mut borrowed, WHOLE, borrowed_picture, &[])?;
   onto(&mut pixels, WHOLE, &[Shape::Picture(picture)])?;
 
   assert_eq!(borrowed, pixels);
@@ -543,6 +535,95 @@ fn a_picture_lands_where_it_was_put_in_the_colors_it_was_handed() -> Result<(), 
     "or past the size it was given"
   );
 
+  Ok(())
+}
+
+#[test]
+fn a_round_picture_preserves_the_background_outside_its_circle() -> Result<(), Box<dyn Error>> {
+  use console_core_geometry::Circle;
+  use console_core_shapes::PictureGeometry;
+
+  let background = [40, 50, 60, 255];
+  let mut pixels = background.repeat(800);
+  let frame = Frame {
+    device: WHOLE.device,
+    points: Size {
+      width: TALL,
+      height: TALL,
+    },
+  };
+  let source = Pixels {
+    width: 1,
+    height: 1,
+    stride: 4,
+    bytes: vec![255, 0, 0, 255],
+  };
+  let picture = Picture {
+    geometry: PictureGeometry::Circle(Circle {
+      center: Point { x: 10.0, y: 10.0 },
+      radius: 10.0,
+    }),
+    pixels: &source,
+  };
+
+  over_picture(&mut pixels, frame, picture, &[])?;
+
+  assert_eq!(at(&pixels, Point { x: 1, y: 1 }), Ok(Some(background)));
+  assert_eq!(
+    at(&pixels, Point { x: 20, y: 10 }),
+    Ok(Some([0, 0, 255, 255]))
+  );
+  Ok(())
+}
+
+#[test]
+fn a_cropped_triangular_picture_respects_its_outline_and_the_active_clip()
+-> Result<(), Box<dyn Error>> {
+  use console_core_geometry::Triangle;
+  use console_core_shapes::{Clip, Cropped, PictureGeometry};
+
+  let Ok(mut pixels) = slab();
+  let picture = Picture {
+    geometry: PictureGeometry::Triangle(Triangle {
+      vertices: [
+        Point { x: 4.0, y: 2.0 },
+        Point { x: 14.0, y: 2.0 },
+        Point { x: 4.0, y: 12.0 },
+      ],
+    }),
+    pixels: Pixels {
+      width: 2,
+      height: 1,
+      stride: 8,
+      bytes: vec![255, 0, 0, 255, 0, 255, 0, 255],
+    },
+  };
+  let shapes = [
+    Shape::Clip(Clip::To {
+      at: Point { x: 9, y: 2 },
+      size: Size {
+        width: 5,
+        height: 10,
+      },
+    }),
+    Shape::Cropped(Cropped {
+      picture,
+      from: Point { x: 1.0, y: 0.0 },
+      seen: Size {
+        width: 1.0,
+        height: 1.0,
+      },
+    }),
+  ];
+
+  onto(&mut pixels, WHOLE, &shapes)?;
+
+  assert_eq!(
+    at(&pixels, Point { x: 9, y: 3 }),
+    Ok(Some([0, 255, 0, 255]))
+  );
+  assert_eq!(at(&pixels, Point { x: 7, y: 3 }), Ok(Some(NOTHING)));
+  assert_eq!(at(&pixels, Point { x: 12, y: 9 }), Ok(Some(NOTHING)));
   Ok(())
 }
 
@@ -572,14 +653,12 @@ fn a_full_frame_picture_matches_the_rasterizer_before_drawing_the_overlay()
     let origin = Point { x: 0, y: 0 };
     let mut actual = [50_u8, 100, 200, 255].repeat(801);
     let mut expected = actual.clone();
+    let Ok(picture) = Picture::rectangular(origin, WHOLE.points, pixels);
+    let Ok(borrowed) = picture.borrow_pixels();
     over_picture(
       &mut actual,
       WHOLE,
-      Picture {
-        at: origin,
-        size: WHOLE.points,
-        pixels: &pixels,
-      },
+      borrowed,
       std::slice::from_ref(&overlay),
     )?;
     over(
@@ -587,9 +666,7 @@ fn a_full_frame_picture_matches_the_rasterizer_before_drawing_the_overlay()
       WHOLE,
       &[
         Shape::Cropped(Cropped {
-          at: origin,
-          size: WHOLE.points,
-          pixels,
+          picture,
           from: Point { x: 0.0, y: 0.0 },
           seen: Size {
             width: f64::from(WIDE),
@@ -672,23 +749,14 @@ fn compare_scaled_frame(from: Size<u32>, frame: Frame, alpha: u8) -> Result<(), 
   let Ok(pixels) = index(area);
   let mut actual = [20_u8, 30, 40, 255].repeat(pixels);
   let mut expected = actual.clone();
-  over_picture(
-    &mut actual,
-    frame,
-    Picture {
-      at: origin,
-      size: frame.points,
-      pixels: &source,
-    },
-    &[],
-  )?;
+  let Ok(picture) = Picture::rectangular(origin, frame.points, source);
+  let Ok(borrowed) = picture.borrow_pixels();
+  over_picture(&mut actual, frame, borrowed, &[])?;
   over(
     &mut expected,
     frame,
     &[Shape::Cropped(Cropped {
-      at: origin,
-      size: frame.points,
-      pixels: source,
+      picture,
       from: Point { x: 0.0, y: 0.0 },
       seen: Size {
         width: f64::from(from.width),
@@ -730,6 +798,19 @@ fn a_picture_that_is_partly_see_through_is_drawn_over_what_was_under_it()
 -> Result<(), Box<dyn Error>> {
   let white = color("ffffff")?;
   let Ok(mut pixels) = slab();
+  let Ok(picture) = Picture::rectangular(
+    Point::default(),
+    Size {
+      width: 2,
+      height: 2,
+    },
+    Pixels {
+      width: 2,
+      height: 2,
+      stride: 8,
+      bytes: [[0u8, 0, 0, 0]; 4].concat(),
+    },
+  );
   let shapes = vec![
     Shape::Panel(Panel {
       at: Point { x: 0, y: 0 },
@@ -741,19 +822,7 @@ fn a_picture_that_is_partly_see_through_is_drawn_over_what_was_under_it()
       fill: white,
       edge: Edge::None,
     }),
-    Shape::Picture(Picture {
-      at: Point { x: 0, y: 0 },
-      size: Size {
-        width: 2,
-        height: 2,
-      },
-      pixels: Pixels {
-        width: 2,
-        height: 2,
-        stride: 8,
-        bytes: [[0u8, 0, 0, 0]; 4].concat(),
-      },
-    }),
+    Shape::Picture(picture),
   ];
 
   onto(&mut pixels, WHOLE, &shapes)?;
@@ -774,19 +843,20 @@ fn a_picture_that_is_partly_see_through_is_drawn_over_what_was_under_it()
 fn a_picture_given_a_bigger_box_than_itself_fills_the_box() -> Result<(), Box<dyn Error>> {
   let Ok(mut pixels) = slab();
   let red = [255u8, 0, 0, 255];
-  let shapes = vec![Shape::Picture(Picture {
-    at: Point { x: 0, y: 0 },
-    size: Size {
+  let Ok(picture) = Picture::rectangular(
+    Point::default(),
+    Size {
       width: 8,
       height: 8,
     },
-    pixels: Pixels {
+    Pixels {
       width: 2,
       height: 2,
       stride: 8,
       bytes: [red; 4].concat(),
     },
-  })];
+  );
+  let shapes = [Shape::Picture(picture)];
 
   onto(&mut pixels, WHOLE, &shapes)?;
 
@@ -869,19 +939,20 @@ fn a_failed_picture_keeps_the_preserved_buffers_channel_order() {
   let pixel = [50_u8, 100, 200, 255];
   let mut pixels = pixel.repeat(800);
   let before = pixels.clone();
-  let shapes = [Shape::Picture(Picture {
-    at: Point { x: 0, y: 0 },
-    size: Size {
+  let Ok(picture) = Picture::rectangular(
+    Point::default(),
+    Size {
       width: 2,
       height: 2,
     },
-    pixels: Pixels {
+    Pixels {
       width: 2,
       height: 2,
       stride: 8,
       bytes: vec![0; 3],
     },
-  })];
+  );
+  let shapes = [Shape::Picture(picture)];
 
   assert!(matches!(
     over(&mut pixels, WHOLE, &shapes),
@@ -894,19 +965,20 @@ fn a_failed_picture_keeps_the_preserved_buffers_channel_order() {
 #[test]
 fn pictures_keep_partial_alpha_and_skip_row_padding() -> Result<(), Box<dyn Error>> {
   let Ok(mut pixels) = slab();
-  let shapes = [Shape::Picture(Picture {
-    at: Point { x: 3, y: 2 },
-    size: Size {
+  let Ok(picture) = Picture::rectangular(
+    Point { x: 3, y: 2 },
+    Size {
       width: 1,
       height: 2,
     },
-    pixels: Pixels {
+    Pixels {
       width: 1,
       height: 2,
       stride: 8,
       bytes: vec![200, 100, 50, 128, 255, 255, 255, 255, 0, 200, 0, 128],
     },
-  })];
+  );
+  let shapes = [Shape::Picture(picture)];
 
   onto(&mut pixels, WHOLE, &shapes)?;
 
@@ -929,18 +1001,21 @@ fn cropped_images_follow_the_clip_and_lifting_it_restores_the_frame() -> Result<
   use console_core_shapes::{Clip, Cropped};
 
   let Ok(mut pixels) = slab();
-  let image = Shape::Cropped(Cropped {
-    at: Point { x: 4, y: 2 },
-    size: Size {
+  let Ok(picture) = Picture::rectangular(
+    Point { x: 4, y: 2 },
+    Size {
       width: 4,
       height: 4,
     },
-    pixels: Pixels {
+    Pixels {
       width: 2,
       height: 1,
       stride: 8,
       bytes: vec![255, 0, 0, 255, 0, 255, 0, 255],
     },
+  );
+  let image = Shape::Cropped(Cropped {
+    picture,
     from: Point { x: 1.0, y: 0.0 },
     seen: Size {
       width: 1.0,

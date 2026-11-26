@@ -64,16 +64,10 @@ enum Layers<'a> {
 impl Layers<'_> {
   fn paint(self, surface: &mut [u8], frame: Frame) -> Result<(), Cannot> {
     match self {
-      Self::Opaque(pixels) => over_picture(
-        black_box(surface),
-        frame,
-        Picture {
-          at: Point { x: 0, y: 0 },
-          size: VIEWPORT,
-          pixels: black_box(pixels),
-        },
-        &[],
-      ),
+      Self::Opaque(pixels) => {
+        let Ok(picture) = Picture::rectangular(Point::default(), VIEWPORT, black_box(pixels));
+        over_picture(black_box(surface), frame, picture, &[])
+      }
       Self::Translucent(shapes) => onto(black_box(surface), frame, black_box(shapes)),
     }
   }
@@ -89,11 +83,8 @@ impl Layers<'_> {
 fn picture_painting(criterion: &mut Criterion) {
   let Ok(opaque) = picture_pixels(PictureFormat::Opaque);
   let Ok(translucent) = picture_pixels(PictureFormat::TranslucentPadded);
-  let shapes = [Shape::Picture(Picture {
-    at: Point { x: 0, y: 0 },
-    size: VIEWPORT,
-    pixels: translucent,
-  })];
+  let Ok(picture) = Picture::rectangular(Point::default(), VIEWPORT, translucent);
+  let shapes = [Shape::Picture(picture)];
   let mut group = criterion.benchmark_group("picture_painting");
 
   for (name, device, layers) in [

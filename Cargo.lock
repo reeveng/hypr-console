@@ -1933,6 +1933,7 @@ dependencies = [
 name = "console-core-geometry"
 version = "0.1.0"
 dependencies = [
+ "console-core-circle",
  "console-core-point",
  "console-core-rectangle",
  "console-core-size",
@@ -2597,6 +2598,7 @@ name = "console-core-rectangle"
 version = "0.1.0"
 dependencies = [
  "console-core-never",
+ "console-core-number-conversion",
  "console-core-point",
  "console-core-size",
 ]
@@ -2689,6 +2691,7 @@ dependencies = [
  "console-core-color",
  "console-core-fonts",
  "console-core-geometry",
+ "console-core-line",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-pixel-buffers",

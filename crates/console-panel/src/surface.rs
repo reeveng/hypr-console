@@ -59,7 +59,7 @@ use console_core_color::Oklch;
 use console_core_color::palette::{ThemeSettings, Wearing};
 use console_core_controls::{Choice, Lettering, Picker, Press, Slider, Switch};
 use console_core_fonts::{EM, TextStyle};
-use console_core_geometry::{Point, Rectangle, Size};
+use console_core_geometry::{Bounds, Containment, Point, Rectangle, Size};
 use console_core_highlight::Activation;
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index, toward_zero_i32};
@@ -838,10 +838,10 @@ fn inside_left(card: &Card) -> Result<i32, Never> {
 }
 
 fn inside_right(card: &Card) -> Result<i32, Never> {
+  let Ok(bounds) = card.bounds();
   Ok(
-    card
-      .x
-      .saturating_add(card.width)
+    bounds
+      .x1
       .saturating_sub(strip::EDGE)
       .saturating_sub(strip::MARGIN),
   )
@@ -1291,16 +1291,20 @@ fn zoomed_in(
   let Ok(wide) = console_core_number_conversion::toward_zero_u32(placed.size.width);
   let Ok(tall) = console_core_number_conversion::toward_zero_u32(placed.size.height);
 
-  Ok(console_core_shapes::Cropped {
-    at: Point {
+  let Ok(picture) = console_core_shapes::Picture::rectangular(
+    Point {
       x: moving.at.x.saturating_add(across),
       y: moving.at.y.saturating_add(down),
     },
-    size: Size {
+    Size {
       width: wide,
       height: tall,
     },
     pixels,
+  );
+
+  Ok(console_core_shapes::Cropped {
+    picture,
     from: placed.from,
     seen: placed.seen,
   })
@@ -1311,14 +1315,12 @@ fn place_picture<P: std::borrow::Borrow<Pixels>>(
   pixels: P,
 ) -> Result<console_core_shapes::Picture<P>, Never> {
   let source = pixels.borrow();
-  let Ok(Part { at, size }) = picture_part(
-    moving,
-    Size {
-      width: source.width,
-      height: source.height,
-    },
-  );
-  Ok(console_core_shapes::Picture { at, size, pixels })
+  let Ok(size) = source.size();
+  let Ok(Part {
+    at,
+    size: fitted_size,
+  }) = picture_part(moving, size);
+  console_core_shapes::Picture::rectangular(at, fitted_size, pixels)
 }
 
 fn picture_part(moving: &Moving, source: Size<u32>) -> Result<Part, Never> {
@@ -1347,7 +1349,8 @@ fn said_over<P>(
 
   let said_2 = said.join("\n");
   let Ok(face) = font(TextStyle::Body);
-  let wrap = picture.size.width.saturating_mul(9).saturating_div(10);
+  let Ok(size) = picture.pixel_size();
+  let wrap = size.width.saturating_mul(9).saturating_div(10);
   let Ok(measured) = console_draw_painting::measure_text(
     Run {
       said: &said_2,
@@ -1356,26 +1359,13 @@ fn said_over<P>(
     },
     &face,
   );
-  let Ok(wide) = fitted::<u32, i32>(measured.width);
-  let Ok(tall) = fitted::<u32, i32>(measured.height);
-  let Ok(picture_wide) = fitted::<u32, i32>(picture.size.width);
-  let Ok(picture_tall) = fitted::<u32, i32>(picture.size.height);
+  let Ok(at) = picture.bottom_centered(measured, INSIDE_A_ROW);
   let pad = INSIDE_A_ROW.saturating_div(3);
   let Ok(padding) = fitted::<i32, u32>(pad.saturating_mul(2));
-  let left = picture
-    .at
-    .x
-    .saturating_add(picture_wide.saturating_sub(wide).saturating_div(2));
-  let top = picture
-    .at
-    .y
-    .saturating_add(picture_tall)
-    .saturating_sub(tall)
-    .saturating_sub(INSIDE_A_ROW);
   let backing = console_core_shapes::Panel {
     at: Point {
-      x: left.saturating_sub(pad),
-      y: top.saturating_sub(pad),
+      x: at.x.saturating_sub(pad),
+      y: at.y.saturating_sub(pad),
     },
     size: Size {
       width: measured.width.saturating_add(padding),
@@ -1386,7 +1376,7 @@ fn said_over<P>(
     edge: Edge::None,
   };
   let words = Text {
-    at: Point { x: left, y: top },
+    at,
     width: measured.width.saturating_add(2),
     said: said_2,
     weight: Weight::Plain,
@@ -1517,16 +1507,14 @@ fn repainted(
     moving.room,
     surface,
     |surface_2, pixels, caption| {
-      let Ok(picture) = place_picture(moving, pixels);
-      let part = Part {
-        at: picture.at,
-        size: picture.size,
-      };
-      let local = console_core_shapes::Picture {
-        at: Point { x: 0, y: 0 },
-        size: picture.size,
+      let Ok(size) = pixels.size();
+      let Ok(part) = picture_part(moving, size);
+      let Ok(picture) = console_core_shapes::Picture::rectangular(part.at, part.size, pixels);
+      let Ok(local) = console_core_shapes::Picture::rectangular(
+        Point::default(),
+        part.size,
         pixels,
-      };
+      );
       let Ok(caption_here) = said_over(moving, &local, caption);
 
       match surface_2.draw_layer(part, |target, buffer_size, _scale| {
@@ -1892,12 +1880,10 @@ fn row_surface(
     (Opened::Expanded, None) | (Opened::No, _) => Bleeds::No,
   };
   let (left, right, top, tall) = match bleeds {
-    Bleeds::Yes => (
-      card.x,
-      card.x.saturating_add(card.width),
-      band.top,
-      band.height,
-    ),
+    Bleeds::Yes => {
+      let Ok(bounds) = card.bounds();
+      (bounds.x0, bounds.x1, band.top, band.height)
+    }
     Bleeds::No => {
       let Ok(left) = inside_left(card);
       let Ok(right) = inside_right(card);
@@ -1984,17 +1970,18 @@ fn row_surface(
     Some(pixels) => {
       let Ok(square) = fitted::<i32, u32>(strip::PICTURE);
 
-      shapes.push(Shape::Picture(console_core_shapes::Picture {
-        at: Point {
+      let Ok(picture) = console_core_shapes::Picture::rectangular(
+        Point {
           x: left.saturating_add(INSIDE_A_ROW).saturating_sub(strip::GAP),
           y: top.saturating_add(tall.saturating_sub(strip::PICTURE).saturating_div(2)),
         },
-        size: Size {
+        Size {
           width: square,
           height: square,
         },
         pixels,
-      }));
+      );
+      shapes.push(Shape::Picture(picture));
     }
     None => {
       let Ok(named) = named_shapes(&row.picture, Band { top, height: tall }, left, lit, wearing);
@@ -2423,13 +2410,10 @@ fn headline_shapes(
   let mut shapes = vec![Shape::Panel(within)];
   let Ok(box_wide) = fitted::<u32, i32>(within.size.width);
   let Ok(box_tall) = fitted::<u32, i32>(within.size.height);
-  let left_2 = within.at.x.saturating_add(INSIDE_A_ROW);
-  let top = within.at.y.saturating_add(INSIDE_A_ROW);
-  let bottom = within
-    .at
-    .y
-    .saturating_add(box_tall)
-    .saturating_sub(INSIDE_A_ROW);
+  let Ok(bounds) = within.bounds();
+  let left_2 = bounds.x0.saturating_add(INSIDE_A_ROW);
+  let top = bounds.y0.saturating_add(INSIDE_A_ROW);
+  let bottom = bounds.y1.saturating_sub(INSIDE_A_ROW);
 
   let Ok(()) = headline_titles(headline, Point { x: left_2, y: top }, wearing, &mut shapes);
   let Ok(()) = headline_summary(
@@ -2455,8 +2439,8 @@ fn headline_shapes(
           words: wearing.text,
         },
         at: Point {
-          x: within.at.x.saturating_add(box_wide).saturating_sub(wide_2),
-          y: within.at.y.saturating_add(inset),
+          x: bounds.x1.saturating_sub(wide_2),
+          y: bounds.y0.saturating_add(inset),
         },
         room: Size {
           width: room_wide,
@@ -3583,6 +3567,22 @@ pub(crate) struct Card {
   pub height: i32,
 }
 
+impl Card {
+  fn bounds(&self) -> Result<Bounds<i32>, Never> {
+    Rectangle {
+      origin: Point {
+        x: self.x,
+        y: self.y,
+      },
+      size: Size {
+        width: self.width,
+        height: self.height,
+      },
+    }
+    .bounds()
+  }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Leaving {
   Standing,
@@ -3743,19 +3743,15 @@ fn panning(
     Some(moving_2) => moving_2,
     None => return Ok(None),
   };
-  let Ok(wide) = fitted::<u32, i32>(moving_3.room.width);
-  let Ok(tall) = fitted::<u32, i32>(moving_3.room.height);
-  let inside = hit.x >= moving_3.at.x
-    && hit.x < moving_3.at.x.saturating_add(wide)
-    && hit.y >= moving_3.at.y
-    && hit.y < moving_3.at.y.saturating_add(tall);
+  let Ok(room) = Rectangle::from_pixels(moving_3.at, moving_3.room);
+  let Ok(inside) = room.contains(hit);
 
   Ok(match (inside, &state.zoom) {
-    (true, Some((still, zoom))) => match (still == &moving_3.of, zoom.zoomed()) {
+    (Containment::Inside, Some((still, zoom))) => match (still == &moving_3.of, zoom.zoomed()) {
       (true, Ok(crate::zoom::Zoomed::ZoomedIn)) => Some((still.clone(), *zoom, moving_3.room)),
       (true, Ok(crate::zoom::Zoomed::Whole)) | (false, _) => None,
     },
-    (true, None) | (false, _) => None,
+    (Containment::Inside, None) | (Containment::Outside, _) => None,
   })
 }
 
@@ -3786,9 +3782,7 @@ fn drawn_in(panelled: &Panelled, at: u32) -> Result<Vec<String>, Never> {
     None => return Ok(Vec::new()),
   };
 
-  let Ok(tall) = fitted::<u32, i32>(band_3.size.height);
-  let top = band_3.at.y;
-  let bottom = top.saturating_add(tall);
+  let Ok(bounds) = band_3.bounds();
 
   Ok(
     panelled
@@ -3802,7 +3796,7 @@ fn drawn_in(panelled: &Panelled, at: u32) -> Result<Vec<String>, Never> {
         | Shape::Line(_)
         | Shape::Clip(_) => None,
       })
-      .filter(|text| text.at.y >= top && text.at.y < bottom)
+      .filter(|text| text.at.y >= bounds.y0 && text.at.y < bounds.y1)
       .map(|text| text.said.clone())
       .collect(),
   )
@@ -4036,9 +4030,10 @@ pub(crate) fn shapes(
         Opened::Expanded => 0,
         Opened::No => fitting::BREATH,
       };
-      let bottom = card.y.saturating_add(card.height).saturating_sub(breath);
+      let Ok(card_bounds) = card.bounds();
+      let card_bottom = card_bounds.y1;
+      let bottom = card_bottom.saturating_sub(breath);
       let Ok(stage) = stage(rows, bottom.saturating_sub(rows_start), layout);
-      let card_bottom = card.y.saturating_add(card.height);
       let Ok(list_tall) = fitted::<i32, u32>(card_bottom.saturating_sub(rows_start));
 
       shapes.push(Shape::Clip(Clip::To {
@@ -6104,12 +6099,11 @@ fn finger_down(state: &State, panelled: &Panelled, at: (f64, f64)) -> Result<Dow
 }
 
 fn outside(card: &Card, hit: Point<i32>) -> Result<Covers, Never> {
-  let across_card = hit.x >= card.x && hit.x < card.x.saturating_add(card.width);
-  let down_card = hit.y >= card.y && hit.y < card.y.saturating_add(card.height);
-
-  Ok(match (across_card, down_card) {
-    (true, true) => Covers::No,
-    (false, _) | (true, false) => Covers::Yes,
+  let Ok(bounds) = card.bounds();
+  let Ok(inside) = bounds.contains(hit);
+  Ok(match inside {
+    Containment::Inside => Covers::No,
+    Containment::Outside => Covers::Yes,
   })
 }
 
@@ -8886,15 +8880,15 @@ mod tests {
     );
 
     let Ok(rows) = landing_on_rows(&panelled);
-    let card_bottom = card.y.saturating_add(card.height);
+    let Ok(card_bounds) = card.bounds();
 
     for row in &rows {
-      let top = row.panel.at.y;
-      let Ok(tall) = fitted::<u32, i32>(row.panel.size.height);
-      let bottom = top.saturating_add(tall);
+      let Ok(bounds) = row.panel.bounds();
+      let top = bounds.y0;
+      let bottom = bounds.y1;
 
       assert!(
-        top >= start && bottom <= card_bottom,
+        top >= start && bottom <= card_bounds.y1,
         "a row cut by the edge answers a finger: {top}..{bottom}"
       );
     }
@@ -9650,15 +9644,12 @@ mod tests {
     });
     let picture_drawn = picture.as_ref().ok_or("the frame was never drawn")?;
     let caption_drawn = words.as_ref().ok_or("what the film says was never drawn")?;
-    let Ok(picture_tall) = fitted::<u32, i32>(picture_drawn.size.height);
-    let middle = picture_drawn
-      .at
-      .y
-      .saturating_add(picture_tall.saturating_div(2));
+    let Ok(left) = picture_drawn.left();
+    let Ok(middle) = left.midpoint();
+    let caption_y = f64::from(caption_drawn.at.y);
 
     assert!(
-      caption_drawn.at.y > middle
-        && caption_drawn.at.y < picture_drawn.at.y.saturating_add(picture_tall),
+      caption_y > middle.y && caption_y < left.end.y,
       "the words are not over the foot of the picture: {words:?} on {picture:?}"
     );
 
@@ -9713,7 +9704,10 @@ mod tests {
       let Ok(panelled) = drawn(&state, &card, &wearing);
 
       Ok(panelled.shapes.iter().find_map(|shape| match shape {
-        Shape::Picture(picture) => Some(picture.size),
+        Shape::Picture(picture) => {
+          let Ok(size) = picture.pixel_size();
+          Some(size)
+        }
         Shape::Panel(_)
         | Shape::Text(_)
         | Shape::Cropped(_)
@@ -9741,7 +9735,7 @@ mod tests {
 
     let Ok(panelled) = drawn(&state, &card, &wearing);
     let Ok(rows) = landing_on_rows(&panelled);
-    let bottom = card.y.saturating_add(card.height);
+    let Ok(card_bounds) = card.bounds();
 
     assert_eq!(
       rows.len(),
@@ -9750,10 +9744,10 @@ mod tests {
     );
 
     for row in rows {
-      let Ok(tall) = fitted::<u32, i32>(row.panel.size.height);
+      let Ok(bounds) = row.panel.bounds();
 
       assert!(
-        row.panel.at.y.saturating_add(tall) <= bottom,
+        bounds.y1 <= card_bounds.y1,
         "a row fell off the card: {row:?}"
       );
     }
@@ -9791,30 +9785,29 @@ mod tests {
         bytes: Vec::new(),
       };
       let Ok(picture) = super::place_picture(&moving, pixels);
-      let Ok(room_right) = fitted::<u32, i32>(moving.room.width);
-      let Ok(room_bottom) = fitted::<u32, i32>(moving.room.height);
-      let Ok(right) = fitted::<u32, i32>(picture.size.width);
-      let Ok(bottom) = fitted::<u32, i32>(picture.size.height);
+      let Ok(room) = super::Rectangle::from_pixels(moving.at, moving.room);
+      let Ok(room_bounds) = room.bounds();
+      let Ok(bounds) = picture.bounds();
+      let Ok(size) = picture.pixel_size();
 
       assert!(
-        picture.at.x >= moving.at.x && picture.at.y >= moving.at.y,
+        bounds.x0 >= f64::from(room_bounds.x0) && bounds.y0 >= f64::from(room_bounds.y0),
         "{picture:?}"
       );
       assert!(
-        picture.at.x.saturating_add(right) <= moving.at.x.saturating_add(room_right),
+        bounds.x1 <= f64::from(room_bounds.x1),
         "{picture:?} spills out of {moving:?}"
       );
       assert!(
-        picture.at.y.saturating_add(bottom) <= moving.at.y.saturating_add(room_bottom),
+        bounds.y1 <= f64::from(room_bounds.y1),
         "{picture:?} spills out of {moving:?}"
       );
       assert!(
-        u64::from(picture.size.width)
+        u64::from(size.width)
           .saturating_mul(u64::from(tall))
-          .abs_diff(u64::from(picture.size.height).saturating_mul(u64::from(wide)))
+          .abs_diff(u64::from(size.height).saturating_mul(u64::from(wide)))
           <= u64::from(wide.max(tall)),
-        "{wide}x{tall} drawn {:?}",
-        picture.size
+        "{wide}x{tall} drawn {size:?}"
       );
     }
 
@@ -10339,9 +10332,8 @@ mod tests {
         .iter()
         .find(|region| region.lands == super::Lands::ButtonPress { row: 0, which })
         .map(|region| {
-          let Ok(wide) = fitted::<u32, i32>(region.panel.size.width);
-
-          region.panel.at.x.saturating_add(wide)
+          let Ok(bounds) = region.panel.bounds();
+          bounds.x1
         })
     };
 

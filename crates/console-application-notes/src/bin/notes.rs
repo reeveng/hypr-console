@@ -1871,11 +1871,8 @@ fn diagram_shapes(
         fill: Oklch::WHITE,
         edge: Edge::None,
       }));
-      shapes.push(Shape::Picture(Picture {
-        at,
-        size,
-        pixels: pixels.clone(),
-      }));
+      let Ok(picture) = Picture::rectangular(at, size, pixels.clone());
+      shapes.push(Shape::Picture(picture));
     }
     Err(fault) => {
       let said = match ::core::primitive::bool::then_some(preview.sources.is_empty(), ()) {

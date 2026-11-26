@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 console-core-never.workspace = true
+console-core-number-conversion = { path = "../console-core-number-conversion", default-features = false }
 console-core-point.workspace = true
 console-core-size.workspace = true
 

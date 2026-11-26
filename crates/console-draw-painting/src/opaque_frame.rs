@@ -3,7 +3,7 @@
 use console_core_geometry::Point;
 use console_core_never::Never;
 use console_core_picture_scaling::{ChannelOrder, resize_opaque};
-use console_core_shapes::{Picture, Pixels};
+use console_core_shapes::{Picture, PictureGeometry, Pixels};
 
 use crate::{Frame, raster::Canvas};
 
@@ -17,9 +17,16 @@ pub(super) fn paint(
   frame: Frame,
   picture: &Picture<&Pixels>,
 ) -> Result<OpaquePaint, Never> {
+  let rectangle = match picture.geometry {
+    PictureGeometry::Rectangle(rectangle) => rectangle,
+    PictureGeometry::Circle(_) | PictureGeometry::Triangle(_) => {
+      return Ok(OpaquePaint::Fallback);
+    }
+  };
   let source = picture.pixels;
-  let fits = picture.at == (Point { x: 0, y: 0 })
-    && picture.size == frame.points
+  let Ok(points) = frame.points.map(f64::from);
+  let fits = rectangle.origin == Point::default()
+    && rectangle.size == points
     && frame.points.width != 0
     && frame.points.height != 0
     && source.width.checked_mul(4) == Some(source.stride);

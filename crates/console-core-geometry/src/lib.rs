@@ -8,9 +8,10 @@
 
 #![no_std]
 
+pub use console_core_circle::Circle;
 pub use console_core_point::Point;
 pub use console_core_rectangle::{
-  Bounds, Containment, Coordinate, CropMinimum, Insets, Rectangle,
+  Bounds, Containment, Coordinate, CropMinimum, Insets, Rectangle, Side,
 };
 pub use console_core_size::Size;
 pub use console_core_triangle::Triangle;

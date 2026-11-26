@@ -828,17 +828,18 @@ fn overview_art(
     Some(pixels) => {
       let width = i32::wrapping_div(i32::wrapping_mul(hero.size.width, 3), 4).min(730);
       let Ok(hero_right) = hero.right();
-      scene.canvas.frame.shapes.push(Shape::Picture(Picture {
-        at: Point {
+      let Ok(picture) = Picture::rectangular(
+        Point {
           x: i32::wrapping_sub(i32::wrapping_sub(hero_right, width), 2),
           y: i32::wrapping_add(hero.origin.y, 1),
         },
-        size: Size {
+        Size {
           width: i32::cast_unsigned(width),
           height: i32::cast_unsigned(i32::wrapping_sub(hero.size.height, 3)),
         },
-        pixels: pixels.clone(),
-      }));
+        pixels.clone(),
+      );
+      scene.canvas.frame.shapes.push(Shape::Picture(picture));
     }
     None => {}
   }

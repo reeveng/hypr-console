@@ -24,5 +24,9 @@ RestartSec=2
 # ever asks the session a question is the whole of what it needs.
 RestrictAddressFamilies=AF_UNIX AF_NETLINK
 
+# Qt's render thread checks mapped pages with mincore. Allow it alongside the
+# inherited @system-service filter so opening the prompt does not kill it.
+SystemCallFilter=mincore
+
 [Install]
 WantedBy=console.target

@@ -8,13 +8,18 @@
 //! Barycentric weights follow vertex order. Their dot products and denominator
 //! can be prepared once for many samples. Weights of a degenerate triangle
 //! retain the IEEE results of dividing by zero.
+//!
+//! [`Triangle::side_center`] gives the outermost vertex in a direction or the
+//! midpoint of the outermost edge when two vertices share that coordinate.
 
 #![no_std]
 #![forbid(unsafe_code)]
 
+use core::cmp::Ordering;
+
 use console_core_never::Never;
 use console_core_point::Point;
-use console_core_rectangle::Bounds;
+use console_core_rectangle::{Bounds, Side};
 use console_core_vector::Vector2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -97,6 +102,36 @@ impl Triangle<f64> {
     })
   }
 
+  pub fn side_center(&self, side: Side) -> Result<Point<f64>, Never> {
+    let Ok(bounds) = self.bounds();
+    let (edge, vertices) = match side {
+      Side::Top => (bounds.y0, self.vertices),
+      Side::Bottom => (bounds.y1, self.vertices),
+      Side::Left => (
+        bounds.x0,
+        self.vertices.map(|Point { x, y }| Point { x: y, y: x }),
+      ),
+      Side::Right => (
+        bounds.x1,
+        self.vertices.map(|Point { x, y }| Point { x: y, y: x }),
+      ),
+    };
+    let span = vertices
+      .into_iter()
+      .filter(|point| point.y.partial_cmp(&edge) == Some(Ordering::Equal))
+      .map(|point| [point.x; 2])
+      .reduce(|[start, end], [first, last]| [start.min(first), end.max(last)]);
+    let center = match span {
+      Some([start, end]) => start.midpoint(end),
+      None => f64::NAN,
+    };
+
+    Ok(match side {
+      Side::Top | Side::Bottom => Point { x: center, y: edge },
+      Side::Left | Side::Right => Point { x: edge, y: center },
+    })
+  }
+
   #[inline]
   pub fn winding(&self, point: Point<f64>) -> Result<Winding, Never> {
     let [a, b, c] = self.vertices;
@@ -167,6 +202,27 @@ impl Barycentric {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn the_centers_of_a_collapsed_triangle_follow_its_outermost_span() {
+    let low = Point { x: 3.0, y: -1.0 };
+    let middle = Point { x: 3.0, y: 0.0 };
+    let high = Point { x: 3.0, y: 9.0 };
+
+    for vertices in [[low, middle, high], [high, low, middle]] {
+      let triangle = Triangle { vertices };
+      assert_eq!(triangle.side_center(Side::Top), Ok(low));
+      assert_eq!(triangle.side_center(Side::Bottom), Ok(high));
+      assert_eq!(
+        triangle.side_center(Side::Left),
+        Ok(Point { x: 3.0, y: 4.0 })
+      );
+      assert_eq!(
+        triangle.side_center(Side::Right),
+        Ok(Point { x: 3.0, y: 4.0 })
+      );
+    }
+  }
 
   #[test]
   fn winding_respects_order_and_preserves_edge_coverage() {

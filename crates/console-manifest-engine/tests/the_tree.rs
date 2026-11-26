@@ -14,6 +14,7 @@ use std::process::{Command, Output};
 use console_core_atomic_writes::Stored;
 use console_core_directory_listing::Descend;
 use console_core_external_programs::Program;
+use console_core_internal_programs::InternalProgram;
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
 use console_manifest_engine::manifest::{BuildName, LiveFile};
@@ -662,6 +663,7 @@ fn something_answers_when_a_password_is_asked_for() -> Result<(), Failure> {
     starts.iter().any(|at| at.contains("polkit")),
     "the polkit service starts {starts:?}"
   );
+  assert!(said.lines().any(|line| line == "SystemCallFilter=mincore"));
 
   Ok(())
 }
@@ -753,6 +755,20 @@ fn the_compositors_file_binds_nothing() -> Result<(), Failure> {
     bound.join("\n")
   );
 
+  Ok(())
+}
+
+#[test]
+fn reloading_the_compositor_restores_saved_display_settings() -> Result<(), Failure> {
+  let lua = read("files/home/@user@/.config/console/hypr/hyprland.lua")?;
+  let (_, hooked) = lua
+    .split_once("hl.on(\"config.reloaded\", function()")
+    .ok_or("the compositor does not handle a configuration reload")?;
+  let (callback, _) = hooked.split_once("\nend)").ok_or("unfinished reload hook")?;
+  let Ok(scale) = InternalProgram::Scale.path();
+  let restore = format!("hl.exec_cmd(\"{scale} apply\")");
+
+  assert!(callback.lines().any(|line| line.trim() == restore));
   Ok(())
 }
 

@@ -2,6 +2,7 @@
 //!
 //! A signed radius has the same geometric extent as its absolute value.
 //! Containment uses the open interior, excluding the circumference.
+//! [`Circle::side_center`] gives a cardinal point on the circumference.
 
 #![no_std]
 #![forbid(unsafe_code)]
@@ -10,7 +11,7 @@ use core::f64::consts::PI;
 
 use console_core_never::Never;
 use console_core_point::Point;
-use console_core_rectangle::{Bounds, Containment};
+use console_core_rectangle::{Bounds, Containment, Side};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct Circle<T> {
@@ -50,6 +51,29 @@ impl Circle<f64> {
       y0: y - radius,
       x1: x + radius,
       y1: y + radius,
+    })
+  }
+
+  pub const fn side_center(&self, side: Side) -> Result<Point<f64>, Never> {
+    let Ok(bounds) = self.bounds();
+
+    Ok(match side {
+      Side::Top => Point {
+        x: self.center.x,
+        y: bounds.y0,
+      },
+      Side::Bottom => Point {
+        x: self.center.x,
+        y: bounds.y1,
+      },
+      Side::Left => Point {
+        x: bounds.x0,
+        y: self.center.y,
+      },
+      Side::Right => Point {
+        x: bounds.x1,
+        y: self.center.y,
+      },
     })
   }
 }

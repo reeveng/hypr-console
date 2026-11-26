@@ -14,6 +14,7 @@ console-core-pixel-buffers.workspace = true
 console-core-color.workspace = true
 console-core-fonts.workspace = true
 console-core-geometry.workspace = true
+console-core-line.workspace = true
 console-core-never.workspace = true
 console-core-number-conversion.workspace = true
 

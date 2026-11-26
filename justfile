@@ -4,9 +4,8 @@
 # and `console-deploy` runs it itself, so what reaches the device has
 # passed it whether or not anyone thought to.
 
-# The device, which only someone with one can name. The tools read it too, and
-# say so if it is not set.
-HOST := env_var_or_default("CONSOLE_HOST", "")
+# Build the recipe runner with its own manifest and lockfile.
+runner := "cargo run --locked --quiet --manifest-path tools/just-recipes/Cargo.toml --target-dir target/just-recipes --"
 
 # what this can do, which is what `just` on its own says
 default:
@@ -63,10 +62,10 @@ format:
 # A machine with no user manager to ask runs the command as it always did, and
 # says so once rather than failing at something that is not the test.
 
-
+[positional-arguments]
 [private]
 alone +command:
-    @cargo x alone {{command}}
+    @cargo x alone "$@"
 
 # How the running desktop is connected, drawn again.
 #
@@ -132,7 +131,7 @@ test suite="quick" *arguments:
 
 # the words this tree writes furthest out of English's proportion
 words:
-    @result=$(just test vocabulary) && cat "$result/console.log"
+    @{{ runner }} words
 
 # The number literals that would take rustc's fallback, by crate.
 #
@@ -144,10 +143,7 @@ words:
 
 # the number literals whose type no one wrote
 literals:
-    cargo clippy --quiet --workspace --all-targets --all-features \
-        --message-format=short -- -W clippy::default_numeric_fallback 2>&1 \
-        | grep 'default numeric fallback' \
-        | awk -F/ '{print $2}' | sort | uniq -c | sort -rn
+    @{{ runner }} literals
 
 # Deployment requires the vocabulary check, test VMs, Clippy and Explicit Rust.
 # Clippy and Explicit Rust use the crates reached since the last recorded pass.
@@ -170,8 +166,9 @@ ready:
 # `at FILE:LINE OLD NEW` is the same rename for any one name, whatever it is
 # and whether or not the table knows the word: a function, a field, a local, a
 # parameter. Several triples in one call share one rust-analyzer start.
+[positional-arguments]
 rename *arguments:
-    @cargo run --quiet --release --manifest-path tools/rename-words/Cargo.toml -- {{arguments}}
+    @cargo run --quiet --release --manifest-path tools/rename-words/Cargo.toml -- "$@"
 
 # The EXPLICIT_* rules, counted rather than enforced.
 #
@@ -193,129 +190,82 @@ rename *arguments:
 
 # the EXPLICIT_* rules, by kind, by count
 explicit:
-    #!/usr/bin/env sh
-    set -eu
-    PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
-    export PATH
-    command -v rustup >/dev/null 2>&1 || {
-        echo "explicit: rustup is not on PATH; the lint suite cannot name its toolchain" >&2
-        exit 1
-    }
-    out=$(mktemp)
-    trap 'rm -f "$out"' EXIT
-    RUSTFLAGS="--cap-lints warn" cargo x rules >"$out" 2>&1 || {
-        echo "explicit: the lint run itself failed -- the counts below would be a lie" >&2
-        grep -E '^error' "$out" | head -20 >&2
-        exit 1
-    }
-    grep '^warning: ' "$out" | grep -v 'generated' \
-    | sed -E 's/`[^`]*`/X/g' | sort | uniq -c | sort -rn
+    @{{ runner }} explicit
 
 # Verify the Explicit Rust merge gate. Supply a pinned report with --baseline
 # while the backlog is open. A scoped audit without a baseline requires zero.
 [positional-arguments]
 explicit-gate *scope:
-    @just explicit-batch audit "$@"
+    @{{ runner }} explicit-batch audit "$@"
 
 # Verify that unsafe Rust is confined to the recorded sites outside the kernel.
 [positional-arguments]
 unsafe-rust *arguments:
-    @mkdir -p target/unsafe-rust
-    @sysroot=$(rustc +nightly-2026-05-28 --print sysroot) && \
-      rustc +nightly-2026-05-28 --edition=2024 -O -L "$sysroot/lib" -C "link-args=-Wl,-rpath,$sysroot/lib" tools/unsafe-rust.rs -o target/unsafe-rust/check
-    @target/unsafe-rust/check "$@"
+    @{{ runner }} unsafe-rust "$@"
 
 # Apply compiler-checked EXPLICIT suggestions to one package.
 [positional-arguments]
 explicit-fix package *flags:
-    @just _explicit-fix --all-targets -p "$@"
+    @{{ runner }} explicit-fix --all-targets -p "$@"
 
 # Rewrite supported if expressions and boolean matches as enum matches.
 [positional-arguments]
 explicit-fix-branches *flags:
-    DYLINT_TOML="${DYLINT_TOML-explicit019_structural_only = true}" DYLINT_RUSTFLAGS="${DYLINT_RUSTFLAGS:+$DYLINT_RUSTFLAGS }--cap-lints=warn" cargo dylint --fix --no-deps --lib explicit019_no_if -- "$@"
+    @{{ runner }} explicit-fix-branches "$@"
 
 # Apply and recheck all automatic Explicit Rust fixes.
 [positional-arguments]
 explicit-rust action *flags:
-    @test "$1" = fix-all || { printf 'Run just explicit-rust fix-all [OPTIONS].\n' >&2; exit 1; }
-    @shift && \
-        if [ "${DYLINT_TOML+x}" != x ] && [ ! -f dylint.toml ]; then \
-            DYLINT_TOML="$(printf '%s\n' 'explicit019_structural_only = true' && cat \
-                tools/explicit-rust/explicit007_no_bool_return/font-type1-outcomes.toml \
-                tools/explicit-rust/explicit008_no_bool_param/reviewed/av1-rectangular-scale.toml \
-                tools/explicit-rust/explicit008_no_bool_param/reviewed/av1-superblock-size.toml \
-                tools/explicit-rust/explicit008_no_bool_param/reviewed/av1-adst-row-order.toml \
-                tools/explicit-rust/explicit008_no_bool_param/reviewed/av1-dc-shortcut.toml)" || exit; \
-            export DYLINT_TOML; \
-        fi && exec just explicit-batch fix-all "$@"
+    @{{ runner }} explicit-rust "$@"
 
 # Apply wrapping arithmetic after choosing that policy for a package.
 [positional-arguments]
 explicit-wrap package *flags:
-    DYLINT_TOML='explicit015_wrapping = true' DYLINT_RUSTFLAGS="${DYLINT_RUSTFLAGS:+$DYLINT_RUSTFLAGS }--cap-lints=warn" cargo dylint --fix --no-deps --lib explicit015_no_bare_arithmetic -- --all-targets -p "$@"
+    @{{ runner }} explicit-wrap "$@"
 
 # Apply the same fixes across every host crate and the UEFI kernel.
 [positional-arguments]
 explicit-fix-all *flags:
-    @just _explicit-fix --workspace --all-targets --all-features "$@"
-    @just _explicit-fix -p console-kernel --target x86_64-unknown-uefi --lib --bins --all-features "$@"
+    @{{ runner }} explicit-fix-all "$@"
 
 # Apply the reviewed public-API, test, decoder, and local pipe fixes together.
 [positional-arguments]
 explicit-fix-reviewed *flags:
-    #!/usr/bin/env bash
-    set -eu
-    rules=tools/explicit-rust
-    export DYLINT_TOML="$(printf '%s\n' 'explicit051_public_compatibility = true' 'explicit024_typed_coordinates = true' 'explicit004_test_results = true' 'explicit004_fixed_array_bounds = true' 'explicit019_structural_only = true'; cat \
-        "$rules/explicit017_question_mark_alone/av1-first-slice.toml" \
-        "$rules/explicit073_no_shadowing/av1-macros.toml" \
-        "$rules/explicit091_closes_on_exec/local-pipes.toml" \
-        "$rules/explicit014_no_index_slice/decoder-bounds.toml" \
-        "$rules/explicit007_no_bool_return/font-type1-outcomes.toml" \
-        "$rules/explicit008_no_bool_param/reviewed/av1-rectangular-scale.toml" \
-        "$rules/explicit008_no_bool_param/reviewed/av1-superblock-size.toml" \
-        "$rules/explicit008_no_bool_param/reviewed/av1-adst-row-order.toml" \
-        "$rules/explicit008_no_bool_param/reviewed/av1-dc-shortcut.toml")"
-    just explicit-fix-all "$@"
+    @{{ runner }} explicit-fix-reviewed "$@"
 
 # Inventory all EXPLICIT rules and apply selected Dylint fixes in verified batches.
 [positional-arguments]
 explicit-batch *flags:
-    cargo +nightly-2026-05-28 run --offline --locked --manifest-path tools/explicit-rust/migration-collector/Cargo.toml --target-dir "${TMPDIR:-/var/tmp}/builds/explicit-migration-collector" --bin batch -- "$@"
+    @{{ runner }} explicit-batch "$@"
 
 # Preview or apply the source repairs that use the batch inventory's diagnostics.
 [positional-arguments]
 explicit-repair *flags:
-    cargo +nightly-2026-05-28 run --offline --locked --manifest-path tools/explicit-rust/migration-collector/Cargo.toml --target-dir "${TMPDIR:-/var/tmp}/builds/explicit-migration-collector" --bin repair -- "$@"
+    @{{ runner }} explicit-repair "$@"
 
 # Prepare compiler-guided migration edits from captured compiler facts.
 [positional-arguments]
 explicit-apis *flags:
-    cargo +nightly-2026-05-28 run --offline --locked --manifest-path tools/explicit-rust/migration-collector/Cargo.toml --target-dir "${TMPDIR:-/var/tmp}/builds/explicit-migration-collector" --bin apis -- "$@"
+    @{{ runner }} explicit-apis "$@"
 
 # Apply fixed-array patterns and checked codec lookups.
 [positional-arguments]
 explicit-index-bulk *flags:
-    DYLINT_TOML="$(cat tools/explicit-rust/explicit014_no_index_slice/decoder-bounds.toml)" DYLINT_RUSTFLAGS="${DYLINT_RUSTFLAGS:+$DYLINT_RUSTFLAGS }--cap-lints=warn" cargo dylint --fix --no-deps --lib explicit014_no_index_slice -- --all-targets --all-features \
-        -p console-core-video-decoding-av1 -p console-core-video-decoding-advanced-video-coding \
-        -p console-core-video-decoding-high-efficiency-video-coding -p console-core-video-decoding-vp9 \
-        -p console-core-paths -p console-core-path-rasterizer -p console-core-portable-document-syntax -p console-core-font-reading \
-        -p console-core-scalable-vector-graphics-values "$@"
+    @{{ runner }} explicit-index-bulk "$@"
 
 # Apply the checked indexing fixes enabled by AV1's typed transform errors.
 [positional-arguments]
 explicit-av1-transform-bounds *flags:
-    DYLINT_TOML="$(cat tools/explicit-rust/explicit014_no_index_slice/av1-transform-bounds.toml)" DYLINT_RUSTFLAGS="${DYLINT_RUSTFLAGS:+$DYLINT_RUSTFLAGS }--cap-lints=warn" cargo dylint --fix --no-deps --lib explicit014_no_index_slice -- -p console-core-video-decoding-av1 --lib --all-features "$@"
+    @{{ runner }} explicit-av1-transform-bounds "$@"
 
 # Rename AV1 bindings through reviewed macro expansions.
 [positional-arguments]
 explicit-shadow-av1 *flags:
-    DYLINT_TOML="$(cat tools/explicit-rust/explicit073_no_shadowing/av1-macros.toml)" DYLINT_RUSTFLAGS="${DYLINT_RUSTFLAGS:+$DYLINT_RUSTFLAGS }--cap-lints=warn" cargo dylint --fix --no-deps --lib explicit073_no_shadowing -- -p console-core-video-decoding-av1 --all-targets --all-features "$@"
+    @{{ runner }} explicit-shadow-av1 "$@"
 
 [positional-arguments]
 _explicit-fix +args:
-    DYLINT_RUSTFLAGS="${DYLINT_RUSTFLAGS:+$DYLINT_RUSTFLAGS }--cap-lints=warn" cargo dylint --fix --no-deps --all -- "$@"
+    @{{ runner }} explicit-fix "$@"
 
 # The kernel is a member of the workspace like any other crate, built here for
 # the firmware rather than for this machine. It runs in QEMU on OVMF with the
@@ -324,81 +274,43 @@ _explicit-fix +args:
 
 # the x86-64 UEFI kernel staged in a removable-media layout
 kernel-image:
-    cargo build --quiet --release -p console-kernel --target x86_64-unknown-uefi --target-dir "${CARGO_TARGET_DIR:-target}"
-    install -Dm644 "${CARGO_TARGET_DIR:-target}/x86_64-unknown-uefi/release/console-kernel.efi" target/kernel/esp/EFI/BOOT/BOOTX64.EFI
+    @{{ runner }} kernel-image
 
 # boot the removable-media tree with UEFI and check the serial and display milestones
 [positional-arguments]
 kernel cpu="qemu64" memory="256M": kernel-image
-    #!/usr/bin/env bash
-    set -euo pipefail
-    set +e
-    timeout 60 qemu-system-x86_64 -machine q35 -cpu "$1" -m "$2" -bios /usr/share/edk2/x64/OVMF.4m.fd \
-        -drive if=none,id=preview,format=raw,file=fat:target/kernel/esp,readonly=on \
-        -device qemu-xhci -device usb-storage,drive=preview,removable=on,bootindex=1 \
-        -nic none -display none -serial stdio \
-        -device isa-debug-exit,iobase=0xf4,iosize=0x04 -no-reboot \
-        | sed 's/\x1b\[[0-9;]*[A-Za-z]//g' | tr -d '\r' \
-        | awk '/^console-kernel/ { print; fflush() } \
-            /^console-kernel: every step held$/ { finished = 1 } \
-            /^console-kernel: the browser page is on the panel$/ { displayed = 1 } \
-            END { exit !(finished && displayed) }'
-    statuses=("${PIPESTATUS[@]}")
-    set -e
-    [ "${statuses[*]}" = "1 0 0 0" ] || { echo "kernel: QEMU exited ${statuses[0]}, and a complete transcript is required" >&2; exit 1; }
+    @{{ runner }} kernel "$@"
 
 # inject keys through a virtual xHCI keyboard and check the portrait screen
 kernel-input: kernel-image
-    TMPDIR="${TMPDIR:-/var/tmp}" cargo run --quiet -p console-tasks --example kernel-usb -- target/kernel/esp
+    @{{ runner }} kernel-input
 
 # check native USB input with AMD-Vi translation and revocation
 kernel-input-iommu: kernel-image
-    TMPDIR="${TMPDIR:-/var/tmp}" cargo run --quiet -p console-tasks --example kernel-usb -- target/kernel/esp amd-vi
+    @{{ runner }} kernel-input amd-vi
 
 # Scroll local HTML and recover the native renderer after a user page fault.
 kernel-browser: kernel-image
-    TMPDIR="${TMPDIR:-/var/tmp/$(id -un)}" cargo run --locked --quiet -p console-tasks --example kernel-usb -- target/kernel/esp browser
+    @{{ runner }} kernel-browser
 
 # Build the working tree's configuration into the Nix store and keep a link to it.
 [positional-arguments]
 native-build generation="target/kernel/current":
-    mkdir -p "$(dirname -- "$1")"
-    nix build --impure --file nix/native-generation.nix --out-link "$1"
+    @{{ runner }} native-build "$@"
 
 # Boot a native generation, with an optional previous generation in the firmware menu.
 [positional-arguments]
 native-boot generation previous="":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    drives=()
-    add_drive() {
-        local esp id="$2"
-        esp=$(realpath -e "$1/esp")
-        test -f "$esp/EFI/BOOT/BOOTX64.EFI"
-        drives+=(-drive "if=none,id=$id,format=raw,file=fat:${esp//,/,,},readonly=on"
-            -device "usb-storage,bus=xhci.0,drive=$id,serial=console-$id,removable=on,bootindex=$3")
-    }
-    add_drive "$1" current 1
-    if [ -n "$2" ]; then add_drive "$2" previous 2; fi
-    status=0
-    qemu-system-x86_64 -machine q35 -cpu qemu64 -m 256M -bios /usr/share/edk2/x64/OVMF.4m.fd \
-        -device qemu-xhci,id=xhci -device usb-kbd,bus=xhci.0 "${drives[@]}" \
-        -boot menu=on -nic none -serial stdio -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
-        -no-reboot || status=$?
-    if [ "$status" -ne 65 ]; then exit "$status"; fi
+    @{{ runner }} native-boot "$@"
 
 # Verify the Calculator or launcher in a built native generation over USB input.
 [positional-arguments]
 native-check generation expected:
-    TMPDIR="${TMPDIR:-/var/tmp}" cargo run --locked --quiet -p console-tasks --example kernel-usb -- "$1/esp" "$2"
+    @{{ runner }} native-check "$@"
 
 # Build the optional Linux compute worker.
 compute-worker:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    build="${CARGO_TARGET_DIR:-target}/kernel-compute"
-    mkdir -p "$build"
-    cc -std=c17 -O2 -Wall -Wextra -Werror crates/console-operating-system-linux/compute/vulkan.c -o "$build/vulkan" -lvulkan
+    @{{ runner }} compute-worker
 
 # compare batched checksums and their tree reduction on CPU and Vulkan
 kernel-gpu-checksums: (test "kernel-gpu-checksums")
@@ -409,32 +321,16 @@ system-gpu-compute: (test "system-gpu-compute")
 # Measure CPU and Vulkan wall times and show the route selected from recent history.
 [positional-arguments]
 compute-benchmark profile="standard": compute-worker
-    #!/usr/bin/env bash
-    set -euo pipefail
-    build="${CARGO_TARGET_DIR:-target}/kernel-compute"
-    for shader in checksum-bench wrapping-sum mandelbrot; do
-        cargo run --locked --quiet --release -p console-kernel --features hosted-compute --example compute-benchmark -- --emit-shader "$shader" > "$build/$shader.comp"
-        glslangValidator --target-env vulkan1.0 -V "$build/$shader.comp" -o "$build/$shader.spv"
-        spirv-val --target-env vulkan1.0 "$build/$shader.spv"
-    done
-    cargo run --locked --release -p console-kernel --features hosted-compute --example compute-benchmark -- "$build/vulkan" "$build/checksum-bench.spv" "$build/mandelbrot.spv" "$1"
+    @{{ runner }} compute-benchmark "$@"
 
 # Compare decoded-frame readiness and compositor presentation on a live Wayland display.
 [positional-arguments]
 video-presentation-benchmark clip: compute-worker
-    #!/usr/bin/env bash
-    set -euo pipefail
-    build="${CARGO_TARGET_DIR:-target}/kernel-compute"
-    cargo run --locked --quiet --release -p console-application-media-viewer --example video-presentation -- --emit-shader > "$build/video-colour.comp"
-    glslangValidator --target-env vulkan1.0 -V "$build/video-colour.comp" -o "$build/video-colour.spv"
-    spirv-val --target-env vulkan1.0 "$build/video-colour.spv"
-    cargo run --locked --release -p console-application-media-viewer --example video-presentation -- "$1" "$build/vulkan" "$build/video-colour.spv"
+    @{{ runner }} video-presentation-benchmark "$@"
 
 # Regenerate the browser extension's packaged WebAssembly with rustup's wasm32-unknown-unknown target.
 browser-pad-wasm:
-    mkdir -p target/browser-pad
-    rustc +1.98.0 --edition=2024 --crate-type=cdylib --target=wasm32-unknown-unknown -C opt-level=z -C lto -C panic=abort -C strip=symbols crates/console-browser-extension/wasm/pad.rs -o target/browser-pad/pad.wasm
-    install -m644 target/browser-pad/pad.wasm crates/console-browser-extension/web/pad.wasm
+    @{{ runner }} browser-pad-wasm
 
 # Exercise the controller through virtual input devices inside a VM.
 live: (test "e2e-live")
@@ -446,7 +342,7 @@ live: (test "e2e-live")
 
 # a Legion Go on this machine, to press
 emulate:
-    @just alone cargo run --quiet --features console-input-gamepad/read --bin console-emulate
+    @cargo x alone cargo run --quiet --features console-input-gamepad/read --bin console-emulate
 
 # Exercise component interactions and the controller emulator.
 checks: (test "integration")
@@ -460,8 +356,7 @@ panel-checks name="": (test "e2e-panels" name)
 # Measure the status bar, browser toolbar, drawing, launcher search, Files and Calculator.
 [positional-arguments]
 bench-ui *arguments:
-    cargo bench --locked -p console-status-bar -p console-application-browser -p console-draw-painting -p console-applications -p console-application-files -p console-application-calculator \
-        --bench status_bar --bench browser_ui --bench picture_painting --bench launcher_search --bench folder_listing --bench calculator_keypad -- "$@"
+    @{{ runner }} bench-ui "$@"
 
 # what those would do to the device
 device-checks:
@@ -474,47 +369,44 @@ device-checks-all:
 # open the experimental browser window on this desktop
 [positional-arguments]
 browser *arguments:
-    cargo build --quiet --locked -p console-application-browser -p console-browser-renderer-chromium
-    CONSOLE_BROWSER_SERVO_WORKER="${CONSOLE_SERVO_TARGET_DIR:-crates/console-browser-renderer-servo/target}/debug/console-browser-renderer-servo" "${CARGO_TARGET_DIR:-target}/debug/console-application-browser" "$@"
+    @{{ runner }} browser "$@"
 
 # Run the Chromium browser fixture inside a VM.
 browser-check: (test "browser-chromium")
 
 [private]
 browser-servo-build:
-    cargo build --locked --manifest-path crates/console-browser-renderer-servo/Cargo.toml --target-dir "${CONSOLE_SERVO_TARGET_DIR:-crates/console-browser-renderer-servo/target}"
+    @{{ runner }} browser-servo-build
 
 [positional-arguments]
 browser-servo *arguments: browser-servo-build
-    cargo run --quiet --locked -p console-application-browser -- --servo-worker "${CONSOLE_SERVO_TARGET_DIR:-crates/console-browser-renderer-servo/target}/debug/console-browser-renderer-servo" "$@"
+    @{{ runner }} browser-servo "$@"
 
 # Run the experimental Servo fixture inside a VM.
 browser-servo-check: (test "browser-servo")
 
 # Run the packaged Chromium and WPE renderers in the Console window.
+[positional-arguments]
 browser-webkit *arguments:
-    nix run .#browser -- "$@"
+    @nix run .#browser -- "$@"
 
 # Run the Chromium and WebKit renderer switch inside a VM.
 browser-webkit-check: (test "browser")
 
 # the device's desktop here, in a window
 desktop:
-    @just alone cargo run --quiet --bin console-desktop -- run
+    @cargo x alone cargo run --quiet --bin console-desktop -- run
 
 # a picture of it, at the device's size
 shot:
-    @just alone cargo run --quiet --bin console-desktop -- shot desktop.png
-    @echo "desktop.png"
+    @{{ runner }} shot
 
 # The device compiles it, out of the tree `just deploy` pushed there, so this
 # describes whatever was last deployed. Deploy first if that matters.
 
 # write down the real devices again
 capture:
-    ssh {{ HOST }} "cd /etc/console && cargo run --release --locked --quiet \
-      --bin capture-devices" > crates/console-input-gamepad/fixtures/devices.json
-    git diff --stat crates/console-input-gamepad/fixtures/devices.json
+    @{{ runner }} capture
 
 # What the device measured for itself in its last check run, carried back here
 # so a machine that has never been checked still gets a bar shaped like the run
@@ -523,9 +415,7 @@ capture:
 
 # take the check lengths off the device again
 lengths:
-    ssh {{ HOST }} "cat /home/*/.local/state/console/checked" \
-      | sort > crates/console-test-stages/fixtures/lengths
-    git diff --stat crates/console-test-stages/fixtures/lengths
+    @{{ runner }} lengths
 
 # what deploying would change, changing nothing
 check:
@@ -539,6 +429,16 @@ deploy:
 release:
     cargo run --quiet --bin console-deploy -- --untested
 
+# Push a new hypr-console release from VERSION [SOURCE-REVISION] (default HEAD).
+[positional-arguments]
+publish version *arguments:
+    @{{ runner }} publish "$@"
+
+# Tag a public commit with VERSION [PUBLIC-REVISION] (default origin/main).
+[positional-arguments]
+release-tag version *arguments:
+    @{{ runner }} release-tag "$@"
+
 # move a device still called legion over, once
 migrate:
     cargo run --quiet --bin console-migrate
@@ -548,4 +448,4 @@ pull:
     cargo run --quiet --bin console-pull
 
 clean:
-    rm -rf .stage target
+    @{{ runner }} clean

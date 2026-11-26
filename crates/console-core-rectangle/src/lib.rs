@@ -4,12 +4,15 @@
 //! Integer extents saturate at the limits of the type. Floating-point extents
 //! use ordinary addition, including infinity and NaN.
 //! Both containment methods include the lower edges and exclude the upper edges.
+//! [`Rectangle::from_pixels`] fits unsigned pixel dimensions to signed coordinates.
 //!
 //! [`Bounds::new`] stores the corners in input order and allows inverted bounds.
 //! `from_points` and `normalized` put the lower coordinate first on each axis.
+//! Named corner accessors use the stored coordinate order.
 //! `width` and `height` give the extents, which saturate for integer coordinates.
 //! `intersect` clamps a disjoint axis to zero extent. `union` encloses both
 //! rectangles when the input bounds are normalized.
+//! [`Rectangle::side_center`] gives the midpoint of a rectangle side.
 //!
 //! [`Rectangle::centered_cover`] takes positive source and destination sizes.
 //! It gives the source region that fills the destination without stretching.
@@ -23,6 +26,7 @@ mod insets;
 pub use insets::Insets;
 
 use console_core_never::Never;
+use console_core_number_conversion::fitted;
 use console_core_point::Point;
 use console_core_size::Size;
 
@@ -39,12 +43,55 @@ pub enum Containment {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Side {
+  Top,
+  Bottom,
+  Left,
+  Right,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CropMinimum {
   Subpixel,
   OnePixel,
 }
 
+impl Rectangle<i32> {
+  pub fn from_pixels(origin: Point<i32>, size: Size<u32>) -> Result<Self, Never> {
+    let Ok(width) = fitted::<u32, i32>(size.width);
+    let Ok(height) = fitted::<u32, i32>(size.height);
+
+    Ok(Self {
+      origin,
+      size: Size { width, height },
+    })
+  }
+}
+
 impl Rectangle<f64> {
+  pub fn side_center(&self, side: Side) -> Result<Point<f64>, Never> {
+    let Ok(bounds) = self.bounds();
+
+    Ok(match side {
+      Side::Top => Point {
+        x: bounds.x0.midpoint(bounds.x1),
+        y: bounds.y0,
+      },
+      Side::Bottom => Point {
+        x: bounds.x0.midpoint(bounds.x1),
+        y: bounds.y1,
+      },
+      Side::Left => Point {
+        x: bounds.x0,
+        y: bounds.y0.midpoint(bounds.y1),
+      },
+      Side::Right => Point {
+        x: bounds.x1,
+        y: bounds.y0.midpoint(bounds.y1),
+      },
+    })
+  }
+
   pub fn centered_cover(
     source: Size<u32>,
     destination: Size<f64>,
@@ -83,15 +130,18 @@ impl<T: Coordinate> Rectangle<T> {
     })
   }
 
-  pub fn contains(&self, point: Point<T>) -> Result<Containment, Never> {
+  pub fn bounds(&self) -> Result<Bounds<T>, Never> {
     let Ok(end) = self.end();
-    let bounds = Bounds {
+    Ok(Bounds {
       x0: self.origin.x,
       y0: self.origin.y,
       x1: end.x,
       y1: end.y,
-    };
+    })
+  }
 
+  pub fn contains(&self, point: Point<T>) -> Result<Containment, Never> {
+    let Ok(bounds) = self.bounds();
     bounds.contains(point)
   }
 }
@@ -107,6 +157,36 @@ pub struct Bounds<T> {
 impl<T> Bounds<T> {
   pub const fn new(x0: T, y0: T, x1: T, y1: T) -> Result<Self, Never> {
     Ok(Self { x0, y0, x1, y1 })
+  }
+}
+
+impl<T: Copy> Bounds<T> {
+  pub const fn top_left(&self) -> Result<Point<T>, Never> {
+    Ok(Point {
+      x: self.x0,
+      y: self.y0,
+    })
+  }
+
+  pub const fn top_right(&self) -> Result<Point<T>, Never> {
+    Ok(Point {
+      x: self.x1,
+      y: self.y0,
+    })
+  }
+
+  pub const fn bottom_left(&self) -> Result<Point<T>, Never> {
+    Ok(Point {
+      x: self.x0,
+      y: self.y1,
+    })
+  }
+
+  pub const fn bottom_right(&self) -> Result<Point<T>, Never> {
+    Ok(Point {
+      x: self.x1,
+      y: self.y1,
+    })
   }
 }
 

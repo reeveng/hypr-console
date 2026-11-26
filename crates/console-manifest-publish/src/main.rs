@@ -350,9 +350,10 @@ fn files_naming(
   names: &[Watched],
 ) -> Result<Vec<(PathBuf, &'static str)>, Unpublished> {
   let Ok(listing) = console_core_directory_listing::recursive(where_, |holding| {
-    let kept = holding
-      .file_name()
-      .is_some_and(|name| KEPT.iter().any(|keep| std::ffi::OsStr::new(keep) == name));
+    let kept = holding.parent() == Some(where_)
+      && holding
+        .file_name()
+        .is_some_and(|name| KEPT.iter().any(|keep| std::ffi::OsStr::new(keep) == name));
 
     match ::core::primitive::bool::then_some(kept, ()) {
       ::core::option::Option::Some(()) => Descend::Past,
@@ -415,7 +416,8 @@ fn read(path: &Path) -> Result<String, Unpublished> {
 }
 
 fn write(path: &Path, body: &str) -> Result<(), Unpublished> {
-  console_core_atomic_writes::whole(path, body.as_bytes()).map_err(Unpublished::Unwritten)
+  console_core_atomic_writes::whole_with_folders(path, body.as_bytes())
+    .map_err(Unpublished::Unwritten)
 }
 
 #[cfg(test)]

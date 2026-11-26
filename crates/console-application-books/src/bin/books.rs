@@ -2349,11 +2349,10 @@ fn cover_shapes(
   };
 
   match pixels {
-    Some(pixels_2) => shapes.push(Shape::Picture(Picture {
-      at: drawing.at,
-      size: grid.cover,
-      pixels: pixels_2,
-    })),
+    Some(pixels_2) => {
+      let Ok(picture) = Picture::rectangular(drawing.at, grid.cover, pixels_2);
+      shapes.push(Shape::Picture(picture));
+    }
     None => {
       let Ok(panel) = cover_panel(grid, drawing.at);
 
@@ -4155,11 +4154,8 @@ fn centered_picture(pixels: Pixels, area: Size<u32>) -> Result<Shape, Never> {
   let Ok(across) = fitted::<u32, i32>(area.width.saturating_sub(size.width).saturating_div(2));
   let Ok(down) = fitted::<u32, i32>(area.height.saturating_sub(size.height).saturating_div(2));
 
-  Ok(Shape::Picture(Picture {
-    at: Point { x: across, y: down },
-    size,
-    pixels,
-  }))
+  let Ok(picture) = Picture::rectangular(Point { x: across, y: down }, size, pixels);
+  Ok(Shape::Picture(picture))
 }
 
 fn text_page_shapes(

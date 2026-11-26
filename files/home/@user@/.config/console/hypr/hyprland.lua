@@ -357,6 +357,14 @@ hl.workspace_rule({ workspace = "special:console-quick", gaps_in = 8, gaps_out =
 
 ------------------------------------------------------------------ startup
 
+-- Reloading the monitor rules applies the hardware defaults again. Reapply
+-- each connected display's saved zoom and rotation once those rules are live.
+hl.on("config.reloaded", function()
+    if next(hl.get_monitors()) then
+        hl.exec_cmd("/usr/local/bin/console-scale apply")
+    end
+end)
+
 hl.on("hyprland.start", function()
     -- Everything this desktop is made of is a user service, started together
     -- by console.target: the controller daemon, the on-screen keyboard, the

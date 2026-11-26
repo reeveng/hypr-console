@@ -277,11 +277,8 @@ fn preview_picture(
         available,
       );
       let Ok(at) = centered(area, size);
-      Picture {
-        at,
-        size,
-        pixels: frame,
-      }
+      let Ok(picture) = Picture::rectangular(at, size, frame);
+      picture
     })
   });
   Ok(picture)

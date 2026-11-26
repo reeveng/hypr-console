@@ -68,6 +68,23 @@ pub(super) fn edit() -> Result<File, Fault> {
   edit.ok_or(Fault::Editing)
 }
 
+pub(super) fn edit_for_restore() -> Result<File, Fault> {
+  let deadline = KEEP_WAIT.saturating_add(APPLY_WAIT.saturating_mul(2));
+  let Ok(schedule) = Schedule::asking_every(deadline, POLL);
+  let Ok(available) = console_waiting::until_some(schedule, || {
+    Ok(match setup::try_edit() {
+      Ok(Some(editing)) => Some(Ok(editing)),
+      Ok(None) => None,
+      Err(fault) => Some(Err(Fault::Edit(fault))),
+    })
+  });
+
+  match available {
+    Some(result) => result,
+    None => Err(Fault::Editing),
+  }
+}
+
 #[must_use]
 pub(super) fn failed(fault: &str) -> core::result::Result<ExitCode, console_core_never::Never> {
   eprintln!("{fault}");

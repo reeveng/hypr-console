@@ -41,17 +41,14 @@ impl Backend<'_> {
         let mut painted = Ok(());
         let visible =
           surface.draw_layer_with(part, &mut painted, |result, bytes, device, _| {
+            let Ok(image) = ShapePicture::rectangular(Point::default(), part.size, &pixels);
             *result = over_picture(
               bytes,
               Frame {
                 points: part.size,
                 device,
               },
-              ShapePicture {
-                at: Point { x: 0, y: 0 },
-                size: part.size,
-                pixels: &pixels,
-              },
+              image,
               &[],
             );
             Ok(())

@@ -2589,11 +2589,7 @@ fn paint_page(
     ::core::option::Option::None => {}
   }
 
-  let image = Picture {
-    at: visible.at,
-    size: visible.size,
-    pixels: picture,
-  };
+  let Ok(image) = Picture::rectangular(visible.at, visible.size, picture);
 
   match painting::over_picture(pixels, frame, image, &[]) {
     Ok(()) => {}

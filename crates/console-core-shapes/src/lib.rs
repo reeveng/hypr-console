@@ -43,7 +43,7 @@
 //! 016 was written to ask about, and what it carries is the argument for it:
 //! not a path, which would make the thing holding the rasterizer open files and work out
 //! formats, and not a handle to a toolkit's image, which is the widget coming
-//! back in. It carries the pixels and the size they are drawn at, so what
+//! back in. It carries the pixels and the geometry they are drawn into, so what
 //! decodes is the program that was already decoding -- the panel's picture
 //! store, off the loop that draws -- and what is placed here can be asserted
 //! with no file and no screen.
@@ -65,9 +65,13 @@
 //! measurement kept in the state is the first thing that would undo that.
 
 use console_core_color::Oklch;
-use console_core_geometry::{Point, Size};
+use console_core_geometry::{Bounds, Containment, Point, Rectangle, Size};
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
+
+mod picture;
+
+pub use picture::{Cropped, Picture, PictureGeometry};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Round(pub u32);
@@ -100,22 +104,6 @@ pub struct Text {
 }
 
 pub type Pixels = console_core_pixel_buffers::StridedPixels;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Picture<P = Pixels> {
-  pub at: Point<i32>,
-  pub size: Size<u32>,
-  pub pixels: P,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Cropped<P = Pixels> {
-  pub at: Point<i32>,
-  pub size: Size<u32>,
-  pub pixels: P,
-  pub from: Point<f64>,
-  pub seen: Size<f64>,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Line {
@@ -191,13 +179,25 @@ impl From<bool> for Covers {
 }
 
 impl Panel {
+  pub fn bounds(&self) -> Result<Bounds<i32>, Never> {
+    let Ok(rectangle) = Rectangle::from_pixels(self.at, self.size);
+    rectangle.bounds()
+  }
+
   pub fn focus_outline(&self, color: Oklch) -> Result<[Line; 4], Never> {
-    let Ok(wide) = width(self.size.width);
-    let Ok(tall) = width(self.size.height);
+    let Ok(rectangle) = Rectangle::from_pixels(self.at, self.size);
+    let focus = Rectangle {
+      size: Size {
+        width: rectangle.size.width.saturating_sub(1),
+        height: rectangle.size.height.saturating_sub(1),
+      },
+      ..rectangle
+    };
+    let Ok(end) = focus.end();
     let left = self.at.x.saturating_add(1);
     let top = self.at.y.saturating_add(1);
-    let right = self.at.x.saturating_add(wide.saturating_sub(1)).max(left);
-    let bottom = self.at.y.saturating_add(tall.saturating_sub(1)).max(top);
+    let right = end.x.max(left);
+    let bottom = end.y.max(top);
     let corners = [
       Point { x: left, y: top },
       Point { x: right, y: top },
@@ -226,15 +226,12 @@ impl Panel {
   }
 
   pub fn covers(&self, at: Point<i32>) -> Result<Covers, Never> {
-    let Ok(wide) = width(self.size.width);
-    let Ok(tall) = width(self.size.height);
-
-    let inside = at.x >= self.at.x
-      && at.y >= self.at.y
-      && at.x < self.at.x.saturating_add(wide)
-      && at.y < self.at.y.saturating_add(tall);
-
-    Ok(Covers::from(inside))
+    let Ok(bounds) = self.bounds();
+    let Ok(inside) = bounds.contains(at);
+    Ok(match inside {
+      Containment::Inside => Covers::Yes,
+      Containment::Outside => Covers::No,
+    })
   }
 }
 

@@ -66,16 +66,16 @@
 //! are composited.
 
 use console_core_color::{Oklch, fit, oklch_to_rgb};
-use console_core_geometry::{Point, Size};
+use console_core_geometry::{Point, Size, Triangle};
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index, narrow_f32, whole_u8};
 use console_core_shapes::{
-  Cropped, Edge, Line, Panel, Picture, Pixels, Round, Shape, Text, Weight,
+  Cropped, Edge, Line, Panel, Picture, PictureGeometry, Pixels, Round, Shape, Text, Weight,
 };
 
 use console_core_path_rasterizer::{
-  Color, ColorU8, FillRule, FilterQuality, FloatRectangle, LineCap, Paint, PathBuilder, Pattern,
-  Pixmap, SpreadMode, Stroke, Transform,
+  Color, ColorU8, FillRule, FilterQuality, FloatRectangle, LineCap, Paint, Path, PathBuilder,
+  Pattern, Pixmap, SpreadMode, Stroke, Transform,
 };
 
 use raster::Canvas;
@@ -268,24 +268,21 @@ fn paint(
     match shape {
       Shape::Panel(panel) => draw_panel(&mut canvas, panel)?,
       Shape::Text(words) => draw_text(&mut canvas, words)?,
-      Shape::Picture(picture) => draw_picture(
-        &mut canvas,
-        Picture {
-          at: picture.at,
-          size: picture.size,
-          pixels: &picture.pixels,
-        },
-      )?,
-      Shape::Cropped(picture) => cropped(
-        &mut canvas,
-        Cropped {
-          at: picture.at,
-          size: picture.size,
-          pixels: &picture.pixels,
-          from: picture.from,
-          seen: picture.seen,
-        },
-      )?,
+      Shape::Picture(picture) => {
+        let Ok(borrowed) = picture.borrow_pixels();
+        draw_picture(&mut canvas, borrowed)?;
+      }
+      Shape::Cropped(crop) => {
+        let Ok(picture) = crop.picture.borrow_pixels();
+        cropped(
+          &mut canvas,
+          Cropped {
+            picture,
+            from: crop.from,
+            seen: crop.seen,
+          },
+        )?;
+      }
       Shape::Line(line) => {
         let Ok(()) = draw_line(&mut canvas, line);
       }
@@ -507,49 +504,63 @@ fn premultiplied(pixels: &Pixels) -> Result<Pixmap, Cannot> {
 }
 
 fn draw_picture(canvas: &mut Canvas<'_>, picture: Picture<&Pixels>) -> Result<(), Cannot> {
+  let Ok(seen) = picture.pixels.size();
+  let Ok(seen_2) = seen.map(f64::from);
   cropped(
     canvas,
     Cropped {
-      at: picture.at,
-      size: picture.size,
-      pixels: picture.pixels,
-      from: Point { x: 0.0, y: 0.0 },
-      seen: Size {
-        width: f64::from(picture.pixels.width),
-        height: f64::from(picture.pixels.height),
-      },
+      picture,
+      from: Point::default(),
+      seen: seen_2,
     },
   )
 }
 
-fn cropped(canvas: &mut Canvas<'_>, picture: Cropped<&Pixels>) -> Result<(), Cannot> {
+fn cropped(canvas: &mut Canvas<'_>, crop: Cropped<&Pixels>) -> Result<(), Cannot> {
+  let Cropped {
+    picture,
+    from,
+    seen,
+  } = crop;
+
   match ::core::primitive::bool::then_some(
     picture.pixels.width > 0
       && picture.pixels.height > 0
-      && picture.seen.width > 0.0
-      && picture.seen.height > 0.0,
+      && seen.width > 0.0
+      && seen.height > 0.0,
     (),
   ) {
     ::core::option::Option::Some(()) => {}
     ::core::option::Option::None => return Ok(()),
   }
 
-  let Ok(x) = narrow_f32(f64::from(picture.at.x));
-  let Ok(y) = narrow_f32(f64::from(picture.at.y));
-  let Ok(width) = narrow_f32(f64::from(picture.size.width));
-  let Ok(height) = narrow_f32(f64::from(picture.size.height));
-  let rect = match {
-    let Ok(explicit_value) = FloatRectangle::from_xywh(x, y, width, height);
-    explicit_value
-  } {
+  let Ok(bounds) = picture.bounds();
+  let Ok(size) = bounds.size();
+
+  match (bounds.x0.is_finite()
+    && bounds.y0.is_finite()
+    && size.width.is_finite()
+    && size.height.is_finite())
+  .then_some(())
+  {
+    Some(()) => {}
+    None => return Ok(()),
+  }
+
+  let Ok(x) = narrow_f32(bounds.x0);
+  let Ok(y) = narrow_f32(bounds.y0);
+  let Ok(width) = narrow_f32(size.width);
+  let Ok(height) = narrow_f32(size.height);
+  let Ok(destination) = FloatRectangle::from_xywh(x, y, width, height);
+  let rect = match destination {
     Some(rect) => rect,
     None => return Ok(()),
   };
   let image = premultiplied(picture.pixels)?;
-  let Ok(across) = narrow_f32(f64::from(picture.size.width) / picture.seen.width);
-  let Ok(down) = narrow_f32(f64::from(picture.size.height) / picture.seen.height);
-  let Ok(from_x) = narrow_f32(picture.from.x);
-  let Ok(from_y) = narrow_f32(picture.from.y);
+  let Ok(across) = narrow_f32(size.width / seen.width);
+  let Ok(down) = narrow_f32(size.height / seen.height);
+  let Ok(from_x) = narrow_f32(from.x);
+  let Ok(from_y) = narrow_f32(from.y);
   let Ok(translation) = Transform::from_translation(console_core_paths::Point { x, y });
   let Ok(scaled) =
     translation.pre_scale_by(console_core_paths::ScaleFactors { x: across, y: down });
@@ -572,16 +583,61 @@ fn cropped(canvas: &mut Canvas<'_>, picture: Cropped<&Pixels>) -> Result<(), Can
     ..Paint::default()
   };
 
-  let ::core::result::Result::Ok(()) =
-    canvas
-      .pixels
-      .fill_rect(rect, &paint, canvas.transform, canvas.clip.as_ref().map(|clip| {
-        let Ok(mask) = clip.mask();
-
-        mask
-      }));
-
+  let Ok(()) = fill_picture(canvas, picture.geometry, rect, &paint);
   Ok(())
+}
+
+fn fill_picture(
+  canvas: &mut Canvas<'_>,
+  geometry: PictureGeometry,
+  rect: FloatRectangle,
+  paint: &Paint<'_>,
+) -> Result<(), Never> {
+  let Ok(path) = match geometry {
+    PictureGeometry::Rectangle(_) => {
+      return canvas.pixels.fill_rect(
+        rect,
+        paint,
+        canvas.transform,
+        canvas.clip.as_ref().map(|clip| {
+          let Ok(mask) = clip.mask();
+
+          mask
+        }),
+      );
+    }
+    PictureGeometry::Circle(_) => PathBuilder::from_oval(rect),
+    PictureGeometry::Triangle(triangle) => triangle_path(triangle),
+  };
+
+  match path {
+    Some(path_2) => canvas.fill_path(&path_2, paint, FillRule::Winding),
+    None => Ok(()),
+  }
+}
+
+fn triangle_path(triangle: Triangle<f64>) -> Result<Option<Path>, Never> {
+  match triangle
+    .vertices
+    .iter()
+    .all(|point| point.x.is_finite() && point.y.is_finite())
+    .then_some(())
+  {
+    Some(()) => {}
+    None => return Ok(None),
+  }
+
+  let [start, second, third] = triangle.vertices.map(|point| {
+    let Ok(x) = narrow_f32(point.x);
+    let Ok(y) = narrow_f32(point.y);
+    console_core_paths::Point { x, y }
+  });
+  let Ok(mut builder) = PathBuilder::new();
+  let Ok(()) = builder.move_to_pt(start);
+  let Ok(()) = builder.line_to_pt(second);
+  let Ok(()) = builder.line_to_pt(third);
+  let Ok(()) = builder.close();
+  builder.finish()
 }
 
 fn color(color: Oklch) -> Result<Color, Never> {

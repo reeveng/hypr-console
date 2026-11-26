@@ -7,21 +7,35 @@ engine selects the profile that matches the host.
 
 ## Publish a release
 
-Export the intended commit into a checkout of the public repository with
-`console-manifest-publish --export-only`. Commit the verified export to the
-public repository and push a new tag such as `console-v0.1.8` on that commit.
-GitHub Actions builds and publishes the release.
+From the source checkout, run `just publish` with the new version. It exports
+the selected source commit, runs the privacy check, and pushes the resulting
+public commit and annotated tag together. GitHub Actions builds and publishes
+the release.
+
+```sh
+just publish 0.1.14                  # source HEAD
+just publish 0.1.14 HEAD~2           # a specific source commit
+just release-tag 0.1.14              # latest public main commit
+just release-tag 0.1.14 PUBLIC_SHA   # a specific public commit
+```
+
+Use a separate `hypr-console` checkout alongside the source checkout, or pass
+`--repository PATH`. The commands use that checkout's `origin` and configured
+Git identity for public commits and tags. Set `user.name` and `user.email` in
+the public checkout to the identity you want to publish. Versions accept
+`X.Y.Z` or `console-vX.Y.Z`. An existing tag is preserved. The tagged commit
+needs the Console release workflow to build a GitHub release.
 
 The exporter runs the privacy check locally. It scans exported paths and file
 contents for the build account, hostname, and configured Git name and email.
 Use `--private-identifiers FILE` to also check for other known identifiers,
 such as a personal name or a device nickname. Keep that file outside the source
-and export checkouts, with one identifier per line. Export-only mode exits with
-an error if it finds a match or cannot finish the check.
+and export checkouts, with one identifier per line. Publication stops if the
+check finds a match or cannot finish.
 
-During a staged rollout, add `Console-Latest: false` as a trailer on the
-annotated tag to keep the current release marked latest. The new release
-can be installed by tag as soon as it is published.
+During a staged rollout, append `--no-latest` to either recipe to keep the
+current release marked latest. The new release can be installed by tag as
+soon as it is published.
 
 The build uses an Arch Linux container. From `console-v0.1.13` it targets
 baseline x86-64. The `console-x86_64.tar.gz` archive contains the built binaries

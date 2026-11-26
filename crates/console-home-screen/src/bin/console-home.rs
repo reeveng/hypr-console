@@ -1096,11 +1096,10 @@ fn drawing(screen: &mut Screen, wears: &Wears, room: (i32, i32)) -> Result<Drawi
       };
 
       match pixels {
-        Some(pixels_2) => shapes.push(Shape::Picture(Picture {
-          at: laid.icon.at,
-          size: laid.icon.size,
-          pixels: pixels_2,
-        })),
+        Some(pixels_2) => {
+          let Ok(picture) = Picture::rectangular(laid.icon.at, laid.icon.size, pixels_2);
+          shapes.push(Shape::Picture(picture));
+        }
         None => {}
       }
 

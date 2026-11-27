@@ -34,7 +34,6 @@ console-response-times.workspace = true
 console-bus.workspace = true
 console-core-audio-metadata.workspace = true
 console-core-audio-decoding.workspace = true
-console-core-audio-decoding-opus.workspace = true
 console-core-checksums.workspace = true
 console-core-state-machine.workspace = true
 

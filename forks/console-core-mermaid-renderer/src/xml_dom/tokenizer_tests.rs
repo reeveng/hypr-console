@@ -1,5 +1,5 @@
 // Modified for Merman: module-relative imports; test macro stays local.
-// Original upstream tests are preserved; see UPSTREAM.md.
+// Original roxmltree tests from the revision noted in the xml_dom module.
 
 use std::str;
 use std::string::{String, ToString};

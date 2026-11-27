@@ -217,16 +217,29 @@ where
     let Ok(mut pixels) = crate::src::safe_simd::aligned_plane(source);
     let component = Rav1dPictureDataComponent::wrap_buf::<BD>(&mut pixels, stride);
     let at = component.with_offset::<BD>() + base;
-    crate::src::safe_simd::mc_arm::mct_prep_dispatch::<BD>(
-      filter,
-      neon,
-      at,
-      size.width,
-      size.height,
-      phase.x,
-      phase.y,
-      depth,
-    )
+    use crate::include::common::bitdepth::BPC;
+    use crate::src::mc::{Rav1dMCDSPContext, mct_prep_direct};
+    use console_core_video_av1_digital_signal_processing::MotionScratch;
+    use zerocopy::FromZeros;
+
+    match (BD::BPC, filter) {
+      (BPC::BPC8, filter) if filter != Filter2d::Bilinear => {
+        let Ok(flags) = crate::src::cpu::rav1d_get_cpu_flags();
+        let table = Rav1dMCDSPContext::init(flags);
+        let mut scratch = MotionScratch::new_zeroed();
+        mct_prep_direct::<BD>(table, &mut scratch, filter, neon, at, sampling, depth).is_ok()
+      }
+      _ => crate::src::safe_simd::mc_arm::mct_prep_dispatch::<BD>(
+        filter,
+        neon,
+        at,
+        size.width,
+        size.height,
+        phase.x,
+        phase.y,
+        depth,
+      ),
+    }
   };
 
   {

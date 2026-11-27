@@ -15,5 +15,7 @@ console-core-size.workspace = true
 console-core-never.workspace = true
 console-core-number-conversion.workspace = true
 
+console-core-words.workspace = true
+
 [lints]
 workspace = true

@@ -1,5 +1,6 @@
 // Modified for Merman: renderer-private module paths and fixed std + positions.
-// Upstream algorithms are preserved; see UPSTREAM.md for source and license provenance.
+// Based on roxmltree 0.21.1 with its iterative element parser from
+// https://github.com/RazrFalcon/roxmltree/commit/3f5c78dea57662b43a2f41961397b1f5ffe27166.
 
 /*!
 Represent an [XML](https://www.w3.org/TR/xml/) document as a read-only tree.

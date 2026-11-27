@@ -1,7 +1,7 @@
 //! USB HID boot-keyboard descriptors and report changes.
 //!
 //! The descriptor selection and fixed report decoding follow the nos USB
-//! driver. The events use Console's key edges. See xhci/NOS-LICENSE.
+//! driver. The events use Console's key edges. See `docs/third-party/nos.txt`.
 
 #![forbid(unsafe_code)]
 

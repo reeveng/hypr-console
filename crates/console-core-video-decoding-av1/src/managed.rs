@@ -492,8 +492,10 @@ impl Decoder {
       <crate::include::dav1d::dav1d::Rav1dSettings as ::core::convert::From<
         crate::src::managed::Settings,
       >>::from(settings);
+    let Ok(flags) = crate::src::cpu::flags_for_mask(mask);
     let (ctx, worker_handles) =
-      crate::src::lib::rav1d_open(&rav1d_settings, workers).map_err(|_| Error::InitFailed)?;
+      crate::src::lib::rav1d_open_with_flags(&rav1d_settings, workers, flags)
+        .map_err(|_| Error::InitFailed)?;
     Ok(Self {
       ctx,
       worker_handles,

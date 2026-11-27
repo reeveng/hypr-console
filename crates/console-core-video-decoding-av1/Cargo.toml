@@ -26,7 +26,6 @@ autoexamples = false
 autotests = false
 autobenches = false
 description = "Safe SIMD fork of rav1d - Rust AV1 decoder with archmage intrinsics"
-readme = "README.md"
 keywords = [
     "av1",
     "video",
@@ -92,6 +91,15 @@ workspace = true
 [target.'cfg(any(target_arch = "x86_64", target_arch = "aarch64"))'.dependencies.console-core-simd]
 workspace = true
 features = ["std"]
+
+[dependencies.console-core-video-av1-digital-signal-processing]
+workspace = true
+
+[target.'cfg(target_arch = "x86_64")'.dependencies.console-core-video-av1-digital-signal-processing-x86]
+workspace = true
+
+[target.'cfg(target_arch = "aarch64")'.dependencies.console-core-video-av1-digital-signal-processing-aarch64]
+workspace = true
 
 [dependencies.console-core-video-interpolation]
 workspace = true

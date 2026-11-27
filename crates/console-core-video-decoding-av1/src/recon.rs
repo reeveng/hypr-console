@@ -2892,31 +2892,44 @@ fn mc<BD: BitDepth>(
         x: mv.x & 15_i32.wrapping_shr(u32::from(subsample.x == 0)),
         y: mv.y & 15_i32.wrapping_shr(u32::from(subsample.y == 0)),
       };
-      let taps = Point {
-        x: i32::from(phase.x != 0),
-        y: i32::from(phase.y != 0),
-      };
-      let lower = Point {
-        x: taps.x.wrapping_mul(3),
-        y: taps.y.wrapping_mul(3),
-      };
+      let footprint = console_core_video_av1_digital_signal_processing::read_extent(
+        Size {
+          width: u64::try_from(block.width).map_err(|_| ())?,
+          height: u64::try_from(block.height).map_err(|_| ())?,
+        },
+        Point {
+          x: phase.x != 0,
+          y: phase.y != 0,
+        },
+      )
+      .map_err(|_| ())?;
+      let Ok(window_width) =
+        console_core_number_conversion::wrapped::<_, i32>(footprint.size.width);
+      let Ok(window_height) =
+        console_core_number_conversion::wrapped::<_, i32>(footprint.size.height);
+      let Ok(left) = console_core_number_conversion::wrapped::<_, i32>(footprint.before.x);
+      let Ok(top) = console_core_number_conversion::wrapped::<_, i32>(footprint.before.y);
+      let lower = Point { x: left, y: top };
       let upper = Point {
-        x: taps.x.wrapping_mul(4),
-        y: taps.y.wrapping_mul(4),
+        x: window_width.wrapping_sub(block.width).wrapping_sub(left),
+        y: window_height.wrapping_sub(block.height).wrapping_sub(top),
       };
       let outside = source.x < lower.x
         || source.y < lower.y
         || source.x.wrapping_add(block.width).wrapping_add(upper.x) > extent.width
         || source.y.wrapping_add(block.height).wrapping_add(upper.y) > extent.height;
+      let (motion_scratch, edge_pixels) = emu_edge
+        .motion_and_edges::<BD>()
+        .map_err(|_invalid_scratch| ())?;
       let edge_component;
       let input = match outside.then_some(()) {
         Some(()) => {
           const STRIDE: u32 = 192;
-          let buffer = emu_edge.buf_mut::<BD>().map_err(|_invalid_scratch| ())?;
+          let buffer = edge_pixels;
           let window = crate::src::mc::EdgeWindow {
             block: Size {
-              width: block.width.wrapping_add(taps.x.wrapping_mul(7)),
-              height: block.height.wrapping_add(taps.y.wrapping_mul(7)),
+              width: window_width,
+              height: window_height,
             },
             reference: extent,
             origin: Point {
@@ -2950,7 +2963,15 @@ fn mc<BD: BitDepth>(
             .mc
             .checked(filter)
             .map_err(|_invalid_dispatch| ())?;
-          mc.call::<BD>(filter, dst_2, input, sampling, bd)
+          mc.call::<BD>(
+            f.motion_compensation,
+            motion_scratch,
+            filter,
+            dst_2,
+            input,
+            sampling,
+            bd,
+          )
         }
         MaybeTempPixels::Temp { tmp, .. } => {
           let mct = f
@@ -2959,7 +2980,15 @@ fn mc<BD: BitDepth>(
             .mct
             .checked(filter)
             .map_err(|_invalid_dispatch| ())?;
-          mct.call::<BD>(filter, tmp, input, sampling, bd)
+          mct.call::<BD>(
+            f.motion_compensation,
+            motion_scratch,
+            filter,
+            tmp,
+            input,
+            sampling,
+            bd,
+          )
         }
       };
       result.map_err(|_invalid_motion| ())

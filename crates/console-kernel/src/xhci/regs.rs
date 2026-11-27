@@ -1,5 +1,5 @@
 //! xHCI capability, operational and interrupter offsets (chapter 5) and
-//! transfer ring encodings (chapter 6). Adapted from nos. See NOS-LICENSE.
+//! transfer ring encodings (chapter 6). Adapted from nos. See `docs/third-party/nos.txt`.
 
 use console_core_never::Never;
 

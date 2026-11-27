@@ -22,7 +22,6 @@ autotests = false
 autobenches = false
 description = "A tiny-skia Bezier path implementation"
 documentation = "https://docs.rs/tiny-skia-path/"
-readme = "README.md"
 keywords = [
     "graphics",
     "bezier",

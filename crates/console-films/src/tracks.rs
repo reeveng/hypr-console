@@ -17,6 +17,7 @@ use console_core_geometry::Size;
 use console_core_never::Never;
 use console_core_number_conversion::{Float, fitted, index, toward_zero_i64};
 use console_core_subtitle_files::{Cue, Seconds, Written};
+use console_core_video_decoding::Codec;
 use console_core_video_decoding_matroska_container as matroska;
 use console_core_video_decoding_mpeg_4_container as mpeg4;
 
@@ -60,14 +61,6 @@ impl std::error::Error for ContainerFault {}
 pub(crate) enum Container {
   Mpeg4(mpeg4::Mp4File),
   Matroska(Box<matroska::MkvFile>),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Codec {
-  Avc(Vec<u8>),
-  Hevc(Vec<u8>),
-  Vp9,
-  Av1,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

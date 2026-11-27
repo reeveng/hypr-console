@@ -22,7 +22,6 @@ autoexamples = false
 autotests = false
 autobenches = false
 description = "An SVG rendering library."
-readme = "README.md"
 keywords = [
     "svg",
     "render",
@@ -41,12 +40,12 @@ default = [
     "raster-images",
 ]
 memmap-fonts = ["console-core-scalable-vector-graphics/memmap-fonts"]
-gif = ["dep:console-core-gif-files"]
-image-webp = ["dep:console-core-webp-files"]
+gif = ["dep:console-core-raster-image-decoding"]
+image-webp = ["dep:console-core-raster-image-decoding"]
 raster-images = [
     "gif",
     "image-webp",
-    "dep:console-core-jpeg-files",
+    "dep:console-core-raster-image-decoding",
 ]
 svgz = ["console-core-scalable-vector-graphics/svgz"]
 system-fonts = ["console-core-scalable-vector-graphics/system-fonts"]
@@ -59,11 +58,7 @@ path = "src/lib.rs"
 [dependencies.bytemuck]
 version = "1.16"
 
-[dependencies.console-core-gif-files]
-workspace = true
-optional = true
-
-[dependencies.console-core-webp-files]
+[dependencies.console-core-raster-image-decoding]
 workspace = true
 optional = true
 
@@ -83,10 +78,6 @@ path = "../console-core-path-rasterizer"
 [dependencies.console-core-scalable-vector-graphics]
 path = "../console-core-scalable-vector-graphics"
 default-features = false
-
-[dependencies.console-core-jpeg-files]
-workspace = true
-optional = true
 
 [dependencies.console-core-paths]
 path = "../console-core-paths"

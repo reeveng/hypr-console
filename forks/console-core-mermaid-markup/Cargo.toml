@@ -9,7 +9,6 @@ repository = "https://github.com/Latias94/merman"
 rust-version = "1.95"
 description = "Shared Mermaid HTML safety, URL normalization, CSS structure, and color operations."
 documentation = "https://docs.rs/merman-markup"
-readme = "README.md"
 keywords = ["mermaid", "html", "sanitization", "css", "color"]
 categories = ["text-processing", "web-programming", "visualization"]
 

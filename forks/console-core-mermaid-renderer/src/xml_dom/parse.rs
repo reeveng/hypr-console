@@ -1,5 +1,5 @@
 // Modified for Merman: renderer-private module paths and fixed std + positions.
-// Upstream algorithms are preserved; see UPSTREAM.md for source and license provenance.
+// See the xml_dom module for the upstream revision.
 
 use super::alloc::string::{String, ToString};
 use super::alloc::{vec, vec::Vec};

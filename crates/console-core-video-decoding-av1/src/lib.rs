@@ -138,6 +138,15 @@ pub(crate) fn rav1d_get_frame_delay(
   Ok(n_fc)
 }
 
+#[cfg(any(test, feature = "c-ffi"))]
+pub(crate) fn rav1d_open(
+  s: &Rav1dSettings,
+  workers: &impl Workers,
+) -> Rav1dResult<(Arc<Rav1dContext>, Vec<Worker>)> {
+  let Ok(flags) = crate::src::cpu::rav1d_get_cpu_flags();
+  rav1d_open_with_flags(s, workers, flags)
+}
+
 #[cold]
 #[cfg_attr(
   dylint_lib = "explicit081_no_shared_ownership",
@@ -146,9 +155,10 @@ pub(crate) fn rav1d_get_frame_delay(
     reason = "the decoder handle and scheduler are retained while work runs, and C picture releases may outlive the decoder through their own pool references"
   )
 )]
-pub(crate) fn rav1d_open(
+pub(crate) fn rav1d_open_with_flags(
   s: &Rav1dSettings,
   workers: &impl Workers,
+  flags: crate::src::cpu::CpuFlags,
 ) -> Rav1dResult<(Arc<Rav1dContext>, Vec<Worker>)> {
   let Ok(()) = init_internal();
 
@@ -218,6 +228,7 @@ pub(crate) fn rav1d_open(
     c_workers: Default::default(),
     flush: Default::default(),
     dsp: Default::default(),
+    motion_compensation: crate::src::mc::Rav1dMCDSPContext::init(flags),
     stop: Default::default(),
   })?;
   let handles = start_decoder_workers(&context, workers)?;

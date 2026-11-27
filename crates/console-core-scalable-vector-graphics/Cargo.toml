@@ -23,7 +23,6 @@ autotests = false
 autobenches = false
 description = "An SVG simplification library."
 documentation = "https://docs.rs/usvg/"
-readme = "README.md"
 keywords = ["svg"]
 categories = ["multimedia::images"]
 license = "AGPL-3.0-or-later"

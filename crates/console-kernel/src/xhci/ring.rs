@@ -1,5 +1,5 @@
 //! Single-segment DMA rings adapted from the nos polling driver.
-//! See NOS-LICENSE for the copyright and license. The cycle bit publishes a
+//! See `docs/third-party/nos.txt` for the copyright and license. The cycle bit publishes a
 //! transfer after all of its payload and later entries are available.
 
 use core::ptr;

@@ -9,7 +9,6 @@ repository = "https://github.com/Latias94/merman"
 rust-version = "1.95"
 description = "Headless layout + SVG renderer for Mermaid (parity-focused; upstream SVG goldens)."
 documentation = "https://docs.rs/merman-render"
-readme = "README.md"
 keywords = ["mermaid", "diagrams", "svg", "layout", "headless"]
 categories = ["visualization"]
 exclude = [

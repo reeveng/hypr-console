@@ -23,7 +23,6 @@ autotests = false
 autobenches = false
 description = "A string interning library for Rust, developed as part of the Servo project."
 documentation = "https://docs.rs/string_cache"
-readme = "README.md"
 # The upstream copyright and permission notices remain with the source.
 license = "AGPL-3.0-or-later"
 repository = "https://github.com/servo/string-cache"

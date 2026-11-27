@@ -8,8 +8,8 @@
 //! library reached through bindings, which is a format read somewhere this
 //! tree cannot see and a fault that arrives as a null pointer.
 //!
-//! This is kbvm, by mahkoh (MIT or Apache-2.0, as `README.md` beside this
-//! says), brought into the tree and held to its rules. What it could do and
+//! This is kbvm, by mahkoh (MIT or Apache-2.0), brought into the tree and held
+//! to its rules. What it could do and
 //! nothing here asked was cut rather than kept: the key-press state machine,
 //! compose tables, the X11 keymap, the layout registry, the evdev names, and
 //! the RMLVO model and options. A keymap is compiled for `pc105` with no

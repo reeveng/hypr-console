@@ -126,6 +126,7 @@ fn decode(bytes: Vec<u8>) -> Result<Decoded, Failure> {
   let params = track.codec_params.clone();
   let options = DecoderOptions {
     verification: VerificationMode::Verify,
+    ..DecoderOptions::default()
   };
   let mut decoder = FlacDecoder::try_new(&params, &options)?;
   let mut survey = Decoded::default();

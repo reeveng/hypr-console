@@ -1,0 +1,19 @@
+[package]
+name = "console-core-video-av1-digital-signal-processing"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license = "AGPL-3.0-only"
+description = "Scalar AV1 motion compensation and shared kernel inputs."
+
+[lints]
+workspace = true
+
+[dependencies]
+console-core-api-compatibility.workspace = true
+console-core-geometry.workspace = true
+console-core-never.workspace = true
+console-core-number-conversion.workspace = true
+console-core-pixel-buffers.workspace = true
+console-core-video-interpolation.workspace = true
+zerocopy = { version = "0.8.56", features = ["derive"] }

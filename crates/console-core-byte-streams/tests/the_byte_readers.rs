@@ -882,8 +882,8 @@ fn a_slice_reader_scans_and_lends_what_it_holds() -> Result<(), Failure> {
 #[test]
 fn each_source_says_whether_it_can_seek_and_how_long_it_is() -> Result<(), Failure> {
   let bytes = noise(1000)?;
-  let licence = std::fs::File::open(concat!(env!("CARGO_MANIFEST_DIR"), "/LICENSE"))?;
-  let metadata = licence.metadata()?;
+  let file = std::fs::File::open(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml"))?;
+  let metadata = file.metadata()?;
   let measured = metadata.len();
   let Ok(sought) = seekable(bytes.clone());
   let Ok(read) = forward_only(bytes.clone());
@@ -899,7 +899,7 @@ fn each_source_says_whether_it_can_seek_and_how_long_it_is() -> Result<(), Failu
     (Seeking::ForwardOnly, None)
   );
   assert_eq!(
-    (licence.seeking(), licence.byte_len()),
+    (file.seeking(), file.byte_len()),
     (Seeking::Anywhere, Some(measured))
   );
   assert_eq!(

@@ -96,57 +96,25 @@ mod raster_images {
   use super::{ImageKind, Never, Pixmap, PixmapMut, Transform};
   use crate::OptionLog;
   use console_core_path_rasterizer::{FilterQuality, IntSize, Paint, Pattern, SpreadMode};
+  use console_core_raster_image_decoding::{self as raster, DecodeMode, Format};
   use console_core_scalable_vector_graphics::ImageRendering;
 
   fn decode_raster(image: &ImageKind) -> Result<Option<Pixmap>, Never> {
-    let (result, format) = match image {
+    let (format, data) = match image {
       ImageKind::SVG(_) => return Ok(None),
-      ImageKind::JPEG(data) => (decode_jpeg(data), "JPEG"),
-      ImageKind::PNG(data) => (decode_png(data), "PNG"),
-      ImageKind::GIF(data) => (decode_gif(data), "GIF"),
-      ImageKind::WEBP(data) => (decode_webp(data), "WebP"),
+      ImageKind::JPEG(data) => (Format::Jpeg, data),
+      ImageKind::PNG(data) => (Format::Png, data),
+      ImageKind::GIF(data) => (Format::Gif, data),
+      ImageKind::WEBP(data) => (Format::Webp, data),
     };
-    let Ok(decoded) = result;
-
-    Ok(decoded.log_none(|| console_core_logging::warn!("Failed to decode a {} image.", format)))
-  }
-
-  fn decode_png(data: &[u8]) -> Result<Option<Pixmap>, Never> {
-    Ok(match Pixmap::decode_png(data) {
-      Ok(pixmap) => Some(pixmap),
-      Err(_decode_failure) => None,
-    })
-  }
-
-  fn decode_jpeg(data: &[u8]) -> Result<Option<Pixmap>, Never> {
-    let picture = match console_core_jpeg_files::decoded_as_stored(data) {
-      Ok(picture) => picture,
-      Err(_decode_failure) => return Ok(None),
-    };
-    let Ok(dimensions) = IntSize::from_wh(picture.size.width, picture.size.height);
-    let size = match dimensions {
-      Some(size) => size,
+    let decoded = raster::decoded(format, data, DecodeMode::Embedded).ok();
+    let Ok(name) = format.says();
+    let picture = match decoded
+      .log_none(|| console_core_logging::warn!("Failed to decode a {} image.", name))
+    {
+      Some(picture) => picture,
       None => return Ok(None),
     };
-
-    Pixmap::from_vec(picture.bytes, size)
-  }
-
-  fn decode_gif(data: &[u8]) -> Result<Option<Pixmap>, Never> {
-    match console_core_gif_files::decoded_frame(data) {
-      Ok(picture) => rgba_pixmap(picture),
-      Err(_decode_failure) => Ok(None),
-    }
-  }
-
-  fn decode_webp(data: &[u8]) -> Result<Option<Pixmap>, Never> {
-    match console_core_webp_files::decoded(data) {
-      Ok(picture) => rgba_pixmap(picture),
-      Err(_decode_failure) => Ok(None),
-    }
-  }
-
-  fn rgba_pixmap(picture: console_core_gif_files::Picture) -> Result<Option<Pixmap>, Never> {
     let Ok(dimensions) = IntSize::from_wh(picture.size.width, picture.size.height);
     let size = match dimensions {
       Some(size) => size,
@@ -195,28 +163,32 @@ mod raster_images {
 
   #[cfg(test)]
   mod tests {
-    use super::{decode_gif, decode_jpeg, decode_webp};
+    use super::{ImageKind, decode_raster};
+    use std::sync::Arc;
 
     #[test]
     fn embedded_images_use_stored_dimensions_and_premultiplied_alpha() -> Result<(), &'static str>
     {
-      let Ok(decoded_gif) = decode_gif(include_bytes!(
-        "../../console-core-gif-files/tests/pictures/placed.gif"
+      let image = ImageKind::GIF(Arc::new(
+        include_bytes!("../../console-core-gif-files/tests/pictures/placed.gif").to_vec(),
       ));
+      let Ok(decoded_gif) = decode_raster(&image);
       let gif = decoded_gif.ok_or("GIF")?;
       assert_eq!(gif.width(), Ok(10));
       assert_eq!(gif.height(), Ok(6));
 
-      let Ok(decoded_jpeg) = decode_jpeg(include_bytes!(
-        "../../console-core-jpeg-files/tests/pictures/turned.jpg"
+      let image = ImageKind::JPEG(Arc::new(
+        include_bytes!("../../console-core-jpeg-files/tests/pictures/turned.jpg").to_vec(),
       ));
+      let Ok(decoded_jpeg) = decode_raster(&image);
       let jpeg = decoded_jpeg.ok_or("JPEG")?;
       assert_eq!(jpeg.width(), Ok(75));
       assert_eq!(jpeg.height(), Ok(53));
 
-      let Ok(decoded_webp) = decode_webp(include_bytes!(
-        "../../console-core-webp-files/tests/pictures/alpha.webp"
+      let image = ImageKind::WEBP(Arc::new(
+        include_bytes!("../../console-core-webp-files/tests/pictures/alpha.webp").to_vec(),
       ));
+      let Ok(decoded_webp) = decode_raster(&image);
       let webp = decoded_webp.ok_or("WEBP")?;
       let straight = include_bytes!("../../console-core-webp-files/tests/pictures/alpha.rgba");
       let Ok(pixels) = webp.data();

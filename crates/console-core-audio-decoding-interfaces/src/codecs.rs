@@ -274,9 +274,17 @@ pub enum VerificationMode {
   Verify,
 }
 
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub enum StreamStart {
+  #[default]
+  Beginning,
+  AfterSeek,
+}
+
 #[derive(Copy, Clone, Debug, Default)]
 pub struct DecoderOptions {
   pub verification: VerificationMode,
+  pub start: StreamStart,
 }
 
 pub trait Decoder: Send + Sync {

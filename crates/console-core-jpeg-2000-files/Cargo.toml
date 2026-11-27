@@ -27,7 +27,6 @@ autoexamples = false
 autotests = false
 autobenches = false
 description = "A memory-safe, pure-Rust JPEG 2000 decoder."
-readme = "README.md"
 license = "AGPL-3.0-or-later"
 repository = "https://github.com/LaurenzV/hayro"
 

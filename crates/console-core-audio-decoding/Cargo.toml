@@ -19,7 +19,9 @@ console-core-audio-decoding-tags = { path = "../console-core-audio-decoding-tags
 console-core-audio-decoding-uncompressed = { path = "../console-core-audio-decoding-uncompressed" }
 console-core-audio-decoding-vorbis = { path = "../console-core-audio-decoding-vorbis" }
 console-core-audio-decoding-wave-container = { path = "../console-core-audio-decoding-wave-container" }
+console-core-audio-decoding-opus.workspace = true
 console-core-never.workspace = true
+console-core-number-conversion.workspace = true
 
 [lints]
 workspace = true

@@ -92,6 +92,7 @@ use atomig::Atom;
 use atomig::Atomic;
 use console_core_geometry::{Point, Size};
 use console_core_synchronization::nonpoison::{Mutex, RwLock, RwLockReadGuard};
+use console_core_video_av1_digital_signal_processing::{MotionCompensation, MotionScratch};
 use std::ffi::c_int;
 use std::ffi::c_uint;
 use std::mem;
@@ -595,6 +596,7 @@ pub struct Rav1dContext {
   pub(crate) task_thread: TaskThreadData,
 
   pub dsp: &'static Rav1dDSPContext,
+  pub motion_compensation: MotionCompensation,
 
   pub(crate) allocator: Rav1dPicAllocator,
   pub(crate) grain_output: GrainOutputPolicy,
@@ -1152,6 +1154,7 @@ pub(crate) struct Rav1dFrameData {
 
   pub ts: Vec<Rav1dTileState>,
   pub dsp: &'static Rav1dBitDepthDSPContext,
+  pub motion_compensation: MotionCompensation,
 
   pub ipred_edge: DisjointMut<AlignedVec64<u8>>,
   pub ipred_edge_off: u64,
@@ -1559,13 +1562,23 @@ pub type EmulatedEdge<T> = [T; 320 * (256 + 7)];
 
 #[derive(FromBytes, IntoBytes, KnownLayout, Immutable)]
 #[repr(C, align(64))]
-pub struct ScratchEmuEdge([u8; mem::size_of::<EmulatedEdge<u16>>()]);
+pub struct ScratchEmuEdge {
+  pixels: [u8; mem::size_of::<EmulatedEdge<u16>>()],
+  motion: MotionScratch,
+}
 
 impl ScratchEmuEdge {
   pub fn buf_mut<BD: BitDepth>(
     &mut self,
   ) -> core::result::Result<&mut EmulatedEdge<BD::Pixel>, Rav1dError> {
-    scratch_prefix_mut(&mut self.0)
+    scratch_prefix_mut(&mut self.pixels)
+  }
+
+  pub fn motion_and_edges<BD: BitDepth>(
+    &mut self,
+  ) -> Rav1dResult<(&mut MotionScratch, &mut EmulatedEdge<BD::Pixel>)> {
+    let edges = scratch_prefix_mut(&mut self.pixels)?;
+    Ok((&mut self.motion, edges))
   }
 }
 

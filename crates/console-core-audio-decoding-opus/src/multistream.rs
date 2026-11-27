@@ -120,6 +120,18 @@ fn copied<'a>(channel: &mut [f32], heard: impl Iterator<Item = &'a f32>) -> Resu
 impl Decoder {
   pub fn new(opus_head: &[u8]) -> Result<Decoder, Error> {
     let head = OpusHead::parse(opus_head)?;
+    let Ok(streams) = Self::streams(&head);
+    let scratch = streams.iter().map(|_stream| Vec::new()).collect();
+
+    Ok(Decoder {
+      head,
+      streams,
+      skip_remaining: 0,
+      scratch,
+    })
+  }
+
+  fn streams(head: &OpusHead) -> Result<Vec<StreamDecoder>, Never> {
     let mut streams = Vec::new();
 
     for number in 0..head.streams {
@@ -132,14 +144,23 @@ impl Decoder {
       streams.push(stream);
     }
 
-    let scratch = streams.iter().map(|_stream| Vec::new()).collect();
+    Ok(streams)
+  }
 
-    Ok(Decoder {
-      head,
-      streams,
-      skip_remaining: 0,
-      scratch,
-    })
+  pub fn channel_count(&self) -> Result<u32, Never> {
+    Ok(self.head.channels)
+  }
+
+  pub fn reset(&mut self) -> Result<(), Never> {
+    let Ok(streams) = Self::streams(&self.head);
+    self.streams = streams;
+    self.skip_remaining = 0;
+
+    for lane in &mut self.scratch {
+      lane.clear();
+    }
+
+    Ok(())
   }
 
   pub fn trim_pre_skip(&mut self) -> Result<(), Never> {

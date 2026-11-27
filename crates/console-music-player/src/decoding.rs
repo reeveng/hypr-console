@@ -1,13 +1,9 @@
 //! A song read into samples here, rather than by an ffmpeg at the far end of a
 //! pipe.
 //!
-//! The readers and decoders are symphonia's, carried in `crates/` as
-//! `console-core-audio-decoding` and its family: every container the library
-//! and the films hold, and every codec in them but one. Opus is the one, and
-//! it is most of the library, because every download is kept as Opus. The
-//! containers find it and hand its packets over; the decoder that hears them
-//! is filmcraft's clean-room one, `console-core-audio-decoding-opus`, and the
-//! two meet here because a packet is the same packet whoever hears it.
+//! The container probe and codec registry come from
+//! `console-core-audio-decoding`. The player opens the selected track through
+//! that registry and passes the same packets to every decoder.
 //!
 //! What comes out is the song at its own rate and with its own channels, and
 //! the sink is told those rather than told forty-eight thousand and two.
@@ -31,7 +27,7 @@
 
 use console_core_audio_decoding::core::audio::{AudioBufferRef, SampleBuffer};
 use console_core_audio_decoding::core::codecs::{
-  CODEC_TYPE_NULL, CODEC_TYPE_OPUS, CodecParameters, Decoder, DecoderOptions,
+  CODEC_TYPE_NULL, CodecParameters, Decoder, DecoderOptions, StreamStart,
 };
 use console_core_audio_decoding::core::errors::Error as Fault;
 use console_core_audio_decoding::core::formats::{
@@ -42,25 +38,20 @@ use console_core_audio_decoding::core::meta::MetadataOptions;
 use console_core_audio_decoding::core::probe::Hint;
 use console_core_audio_decoding::core::units::{Time, TimeBase};
 use console_core_audio_decoding::{codec_registry, format_probe};
-use console_core_audio_decoding_opus as opus;
 use console_core_iteration::Step;
 use console_core_never::Never;
-use console_core_number_conversion::{Float, fitted, index, toward_zero_u64};
+use console_core_number_conversion::{Float, index, toward_zero_u64};
 use std::fmt;
 use std::fs::File;
 use std::io::ErrorKind;
 use std::path::Path;
-
-const OPUS_RATE: u32 = 48_000;
 
 #[derive(Debug)]
 pub enum Undecoded {
   Unopened(std::io::Error),
   Unrecognized(Fault),
   Silent,
-  Headless,
   Unsupported(Fault),
-  Unheard(opus::Error),
   Unseekable(Fault),
 }
 
@@ -72,15 +63,10 @@ impl fmt::Display for Undecoded {
         write!(formatter, "it is no container this player reads: {fault}")
       }
       Undecoded::Silent => write!(formatter, "it holds no sound"),
-      Undecoded::Headless => write!(
-        formatter,
-        "its Opus carries no header to say how it was made"
-      ),
       Undecoded::Unsupported(fault) => write!(
         formatter,
         "its sound is in no codec this player can hear: {fault}"
       ),
-      Undecoded::Unheard(fault) => write!(formatter, "its Opus header: {fault}"),
       Undecoded::Unseekable(fault) => write!(formatter, "going part of the way in: {fault}"),
     }
   }
@@ -106,40 +92,21 @@ enum Start {
   At(f64),
 }
 
-enum Voice {
-  Native(Box<dyn Decoder>),
-  Opus(opus::Decoder),
-}
-
 enum Audio {
   Block(Block),
   Empty,
-  Skipped(PacketFault),
+  Skipped(Fault),
   End,
-}
-
-enum PacketFault {
-  Native(Fault),
-  Opus(opus::Error),
-}
-
-impl fmt::Display for PacketFault {
-  fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-    match self {
-      Self::Native(fault) => fmt::Display::fmt(fault, formatter),
-      Self::Opus(fault) => fmt::Display::fmt(fault, formatter),
-    }
-  }
 }
 
 struct SkippedPackets {
   count: u64,
-  first: PacketFault,
+  first: Fault,
 }
 
 pub struct Decoding {
   reader: Box<dyn FormatReader>,
-  voice: Voice,
+  voice: Box<dyn Decoder>,
   track: u32,
   base: Option<TimeBase>,
   start: Start,
@@ -193,30 +160,22 @@ pub fn opened(song: &Path, crate::Seconds(from): crate::Seconds) -> Result<Decod
   })
 }
 
-fn voice(params: &CodecParameters, start: Start) -> Result<Voice, Undecoded> {
-  match ::core::primitive::bool::then_some(params.codec == CODEC_TYPE_OPUS, ()) {
-    ::core::option::Option::Some(()) => {
-      let head = params.extra_data.as_deref().ok_or(Undecoded::Headless)?;
-      let mut decoder = opus::Decoder::new(head).map_err(Undecoded::Unheard)?;
+fn voice(params: &CodecParameters, start: Start) -> Result<Box<dyn Decoder>, Undecoded> {
+  let Ok(registry) = codec_registry();
+  let start = match start {
+    Start::AtTheBeginning => StreamStart::Beginning,
+    Start::At(_) => StreamStart::AfterSeek,
+  };
 
-      match start {
-        Start::AtTheBeginning => {
-          let Ok(()) = decoder.trim_pre_skip();
-        }
-        Start::At(_) => {}
-      }
-
-      Ok(Voice::Opus(decoder))
-    }
-    ::core::option::Option::None => {
-      let Ok(registry) = codec_registry();
-      let decoder = registry
-        .make(params, &DecoderOptions::default())
-        .map_err(Undecoded::Unsupported)?;
-
-      Ok(Voice::Native(decoder))
-    }
-  }
+  registry
+    .make(
+      params,
+      &DecoderOptions {
+        start,
+        ..DecoderOptions::default()
+      },
+    )
+    .map_err(Undecoded::Unsupported)
 }
 
 fn sought(reader: &mut dyn FormatReader, track: u32, start: Start) -> Result<(), Fault> {
@@ -278,7 +237,10 @@ impl Decoding {
       ::core::option::Option::None => return Ok(Audio::Empty),
     }
 
-    let Ok(voiced) = voiced(&mut self.voice, &packet);
+    let Ok(voiced) = match self.voice.decode(&packet).and_then(native_audio) {
+      Ok(audio) => Ok(audio),
+      Err(fault) => refused(fault),
+    };
 
     let block = match voiced {
       Audio::Block(block) => block,
@@ -343,44 +305,16 @@ fn ended(fault: &Fault) -> Result<Audio, Never> {
   Ok(Audio::End)
 }
 
-fn voiced(voice: &mut Voice, packet: &Packet) -> Result<Audio, Never> {
-  match voice {
-    Voice::Opus(decoder) => {
-      let Ok(bytes) = packet.buf();
-
-      match decoder.decode(Some(bytes)) {
-        Ok(planar) => {
-          let Ok(samples) = interleaved(&planar);
-          let Ok(channels) = fitted::<_, u32>(planar.len());
-
-          Ok(Audio::Block(Block {
-            samples,
-            format: Format {
-              rate: OPUS_RATE,
-              channels,
-            },
-          }))
-        }
-        Err(fault) => Ok(Audio::Skipped(PacketFault::Opus(fault))),
-      }
-    }
-    Voice::Native(decoder) => match decoder.decode(packet).and_then(native_audio) {
-      Ok(audio) => Ok(audio),
-      Err(fault) => refused(fault),
-    },
-  }
-}
-
 fn native_audio(decoded: AudioBufferRef<'_>) -> Result<Audio, Fault> {
   let Ok(spec) = decoded.spec();
   let spec_2 = *spec;
-  let Ok(frames) = decoded.capacity();
+  let Ok(frames) = decoded.frames();
   let mut buffer = SampleBuffer::<f32>::new(u64::from(frames), spec_2)?;
 
   buffer.copy_interleaved_ref(decoded)?;
 
   let Ok(samples) = buffer.samples();
-  let Ok(channels) = spec_2.channels.count();
+  let Ok(channels) = spec_2.channel_count();
 
   Ok(Audio::Block(Block {
     samples: samples.to_vec(),
@@ -393,7 +327,7 @@ fn native_audio(decoded: AudioBufferRef<'_>) -> Result<Audio, Fault> {
 
 fn refused(fault: Fault) -> Result<Audio, Never> {
   match fault {
-    Fault::DecodeError(_) | Fault::IoError(_) => Ok(Audio::Skipped(PacketFault::Native(fault))),
+    Fault::DecodeError(_) | Fault::IoError(_) => Ok(Audio::Skipped(fault)),
     Fault::SeekError(_) | Fault::Unsupported(_) | Fault::LimitError(_) | Fault::ResetRequired => {
       ended(&fault)
     }
@@ -413,29 +347,10 @@ impl Drop for Decoding {
   }
 }
 
-fn interleaved(planar: &[Vec<f32>]) -> Result<Vec<f32>, Never> {
-  let first = match planar.first() {
-    Some(first) => first,
-    None => return Ok(Vec::new()),
-  };
-  let Ok(frames) = fitted::<_, u32>(first.len());
-
-  Ok(
-    (0..frames)
-      .flat_map(|frame| {
-        let Ok(at) = index(frame);
-
-        planar
-          .iter()
-          .filter_map(move |channel| channel.get(at).copied())
-      })
-      .collect(),
-  )
-}
-
 #[cfg(test)]
 mod tests {
   use super::*;
+  use console_core_number_conversion::fitted;
 
   const TONE_PEAK: f32 = 0.092;
 

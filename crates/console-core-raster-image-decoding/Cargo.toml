@@ -1,0 +1,19 @@
+[package]
+name = "console-core-raster-image-decoding"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Shared format selection and pixel decoding for raster images."
+
+[dependencies]
+console-core-gif-files.workspace = true
+console-core-jpeg-files.workspace = true
+console-core-picture-sizes.workspace = true
+console-core-pixel-buffers.workspace = true
+console-core-png-files.workspace = true
+console-core-size.workspace = true
+console-core-webp-files.workspace = true
+
+[lints]
+workspace = true

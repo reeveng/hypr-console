@@ -1,7 +1,7 @@
 //! A polled xHCI boot-keyboard driver for QEMU and AMD Phoenix.
 //!
 //! The ring setup, controller commands and USB enumeration are adapted from
-//! the nos USB driver. See xhci/NOS-LICENSE. AMD-Vi grants physical USB
+//! the nos USB driver. See `docs/third-party/nos.txt`. AMD-Vi grants physical USB
 //! controllers DMA access to the pages they were allocated at boot.
 //! Enumeration releases each rejected device before resetting the next port,
 //! so one slot is enough. Startup enables bus mastering before writing the

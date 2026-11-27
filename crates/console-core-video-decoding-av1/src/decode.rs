@@ -10698,6 +10698,7 @@ pub fn rav1d_submit_frame(c: &Rav1dContext, state: &mut Rav1dState) -> Rav1dResu
 
   let bpc = u8::wrapping_add(8, u8::wrapping_mul(2, seq_hdr.hbd));
   let Ok(get) = Rav1dBitDepthDSPContext::get(bpc);
+  f.motion_compensation = c.motion_compensation;
 
   match get {
     Some(dsp) => f.dsp = dsp,

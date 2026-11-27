@@ -20,7 +20,6 @@ autoexamples = false
 autotests = false
 autobenches = false
 description = "Polynomial root-finding"
-readme = "README.md"
 keywords = [
     "polynomial",
     "roots",

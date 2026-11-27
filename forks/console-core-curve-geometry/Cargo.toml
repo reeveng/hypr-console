@@ -21,7 +21,6 @@ autoexamples = false
 autotests = false
 autobenches = false
 description = "A 2D curves library"
-readme = "README.md"
 keywords = [
     "graphics",
     "curve",

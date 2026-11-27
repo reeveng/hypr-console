@@ -31,7 +31,6 @@
 //! decodes forward to it, handing back nothing before it.
 
 mod colour;
-mod decoders;
 mod tracks;
 
 use std::fs::File;
@@ -47,10 +46,10 @@ pub use console_core_subtitle_files::Seconds;
 pub use colour::{Bitmap, Picture};
 #[cfg(feature = "hosted-compute")]
 pub use colour::{DmaBufFrame, colour_glsl};
-pub use decoders::DecodeFault;
+pub use console_core_video_decoding::DecodeFault;
 pub use tracks::{ContainerFault, Language, Subtitles, Turn};
 
-use decoders::Decoder;
+use console_core_video_decoding::Decoder;
 use tracks::{Container, Video};
 
 #[derive(Debug)]
@@ -160,7 +159,7 @@ impl Film {
       None => return Ok(None),
     };
 
-    let decoder = Decoder::for_codec(&video.codec)
+    let decoder = Decoder::for_codec(&video.codec, &console_concurrency::HostWorkers)
       .map_err(|fault| FilmError::Undecoded(self.at.clone(), fault))?;
     let Ok(start) = video.start_for(from);
 
@@ -272,7 +271,7 @@ impl Pictures<'_> {
     let decoded_2 = decoded.map_err(|fault| FilmError::Undecoded(at.clone(), fault))?;
 
     for one in decoded_2 {
-      let Ok(picture) = one.placed(self.video);
+      let Ok(picture) = Picture::from_decoded(one, self.video);
 
       self.ready.push(picture);
     }

@@ -1,7 +1,6 @@
 //! Clean-room pure-Rust Opus decoder (RFC 6716, updated by RFC 8251).
 //!
-//! The music player is the one caller, and what it asks is one thing: an
-//! `OpusHead` packet from an Ogg or Matroska file makes a [`Decoder`], and
+//! An `OpusHead` packet from an Ogg or Matroska file makes a [`Decoder`], and
 //! each packet after it comes back as planar samples at 48 kHz. The decoder
 //! the crate was carried as also made decoders for other output rates, read
 //! `dOps` boxes, wrote headers back, decoded the in-band redundancy of a lost
@@ -38,9 +37,9 @@ pub enum Error {
   ProjectionFamily,
 }
 
-impl std::fmt::Display for Error {
-  fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    let sentence = match self {
+impl Error {
+  pub fn description(self) -> Result<&'static str, console_core_never::Never> {
+    Ok(match self {
       Error::EmptyPacket => "invalid packet: empty packet",
       Error::MalformedFraming => "invalid packet: malformed packet framing",
       Error::TruncatedMultistream => "invalid packet: truncated multistream packet",
@@ -58,9 +57,14 @@ impl std::fmt::Display for Error {
       Error::MappingOutOfRange => "invalid header: channel mapping out of range",
       Error::MajorVersion => "unsupported: OpusHead major version",
       Error::ProjectionFamily => "unsupported: channel mapping family 3 (projection)",
-    };
+    })
+  }
+}
 
-    write!(to, "{sentence}")
+impl std::fmt::Display for Error {
+  fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    let Ok(sentence) = self.description();
+    to.write_str(sentence)
   }
 }
 

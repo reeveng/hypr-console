@@ -25,7 +25,6 @@ autoexamples = false
 autotests = false
 autobenches = false
 description = "A complete HarfBuzz shaping algorithm port to Rust."
-readme = "README.md"
 keywords = [
     "text",
     "shaping",

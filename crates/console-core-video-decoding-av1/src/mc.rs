@@ -22,7 +22,6 @@ use crate::src::levels::{Filter2d, MaskPolarity};
 use crate::src::pic_or_buf::PicOrBuf;
 use crate::src::safe_simd::mc::BlendAxis;
 use crate::src::strided::Strided as _;
-use crate::src::tables::dav1d_mc_subpel_filters;
 use crate::src::tables::dav1d_mc_warp_filter;
 use crate::src::tables::dav1d_obmc_masks;
 use crate::src::tables::dav1d_resize_filter;
@@ -31,6 +30,9 @@ use crate::src::wrap_fn_ptr::wrap_fn_ptr;
 use console_core_geometry::{Point, Size};
 use console_core_never::Never;
 use console_core_pixel_buffers::RowLayout;
+use console_core_video_av1_digital_signal_processing::{
+  EightTap, MotionCompensation, MotionScratch, PlaneMut, Prediction, read_extent,
+};
 use console_core_video_interpolation::{convolve8, round_shift};
 use std::cmp;
 use std::iter;
@@ -90,28 +92,17 @@ pub(super) fn fractional_filter(
 ) -> Result<Option<&'static [i8; 8]>, Never> {
   use Rav1dFilterMode::{Bilinear, Regular8Tap, Sharp8Tap, Smooth8Tap, Switchable};
 
-  let index = match phase.checked_sub(1) {
-    Some(fraction) => fraction,
-    None => return Ok(None),
-  };
-  let [
-    regular,
-    smooth,
-    sharp,
-    narrow_regular,
-    narrow_smooth,
-    _unused,
-  ] = &*dav1d_mc_subpel_filters;
-  let table = match (samples, filter_type) {
-    (0..=4, Regular8Tap | Sharp8Tap | Switchable) | (5.., Bilinear) => narrow_regular,
-    (0..=4, Smooth8Tap | Bilinear) | (5.., Switchable) => narrow_smooth,
-    (5.., Regular8Tap) => regular,
-    (5.., Smooth8Tap) => smooth,
-    (5.., Sharp8Tap) => sharp,
-  };
-  let Ok(position) = console_core_number_conversion::index(index);
+  use console_core_video_av1_digital_signal_processing::{TapTable, taps};
 
-  Ok(table.get(position))
+  let table = match (samples, filter_type) {
+    (0..=4, Regular8Tap | Sharp8Tap | Switchable) | (5.., Bilinear) => TapTable::NarrowRegular,
+    (0..=4, Smooth8Tap | Bilinear) | (5.., Switchable) => TapTable::NarrowSmooth,
+    (5.., Regular8Tap) => TapTable::Regular,
+    (5.., Smooth8Tap) => TapTable::Smooth,
+    (5.., Sharp8Tap) => TapTable::Sharp,
+  };
+
+  taps(table, phase)
 }
 
 #[cfg(target_arch = "aarch64")]
@@ -290,7 +281,7 @@ impl SubpixelRounding {
   }
 }
 
-struct UnscaledBlock {
+pub(crate) struct UnscaledBlock {
   size: Size<u32>,
   horizontal: SubpixelKernel,
   vertical: SubpixelKernel,
@@ -298,7 +289,7 @@ struct UnscaledBlock {
 }
 
 impl UnscaledBlock {
-  fn new(filter: Filter2d, sampling: UnscaledSampling) -> Rav1dResult<Self> {
+  pub(crate) fn new(filter: Filter2d, sampling: UnscaledSampling) -> Rav1dResult<Self> {
     let width = u32::try_from(sampling.size.width).map_err(|_| EINVAL)?;
     let height = u32::try_from(sampling.size.height).map_err(|_| EINVAL)?;
     let phase_x = u8::try_from(sampling.phase.x).map_err(|_| EINVAL)?;
@@ -695,7 +686,85 @@ fn blend_predictors<BD: BitDepth>(
   }
 }
 
-fn mc_put_direct<BD: BitDepth>(
+impl UnscaledBlock {
+  pub(crate) fn resolved_eight_tap(&self) -> Result<EightTap, Never> {
+    let coefficients = |axis| match axis {
+      SubpixelKernel::EightTap(taps) => Some(taps),
+      SubpixelKernel::Identity | SubpixelKernel::Bilinear(_) => None,
+    };
+    Ok(EightTap {
+      horizontal: coefficients(self.horizontal),
+      vertical: coefficients(self.vertical),
+    })
+  }
+}
+
+fn put_eight_tap(
+  motion: MotionCompensation,
+  scratch: &mut MotionScratch,
+  block: &UnscaledBlock,
+  dst: PicOffset,
+  src: PicOffset,
+) -> Rav1dResult {
+  use crate::include::common::bitdepth::BitDepth8;
+  use crate::include::dav1d::picture::with_pixel_guard_mut;
+  use crate::src::safe_simd::mc::reference::footprint_guard;
+  use console_core_number_conversion::{fixed_index, fixed_offset, index};
+
+  match dst.data.ref_eq(src.data).then_some(()) {
+    Some(()) => return put_unscaled::<BitDepth8>(block, dst, src, BitDepth8::new(())),
+    None => {}
+  }
+
+  block.picture_layout::<BitDepth8>(dst, Point { x: 0..1, y: 0..1 })?;
+  let Ok(filter) = block.resolved_eight_tap();
+  let extent = Size {
+    width: u64::from(block.size.width),
+    height: u64::from(block.size.height),
+  };
+  let Ok(axes) = filter.filtered_axes();
+  let footprint = read_extent(extent, axes).map_err(|_| EINVAL)?;
+  let (input, origin) = footprint_guard::<BitDepth8>(src, footprint)?;
+  let Ok(stride) = src.data.fixed_pixel_stride::<BitDepth8>();
+  let Ok(width) = index(extent.width);
+  let Ok(height) = index(extent.height);
+  with_pixel_guard_mut::<BitDepth8, _>(&dst, width, height, |pixels, base, pitch| {
+    let Ok(first) = fixed_index(base);
+    let Ok(sample_stride) = fixed_offset(pitch);
+    let output = PlaneMut::new(pixels, extent, first, sample_stride).map_err(|_| EINVAL)?;
+    let request = Prediction::new(output, &input, origin, stride, filter).map_err(|_| EINVAL)?;
+    (motion.put)(request, scratch).map_err(|_| EINVAL)
+  })
+}
+
+fn prep_eight_tap(
+  motion: MotionCompensation,
+  scratch: &mut MotionScratch,
+  block: &UnscaledBlock,
+  predictors: &mut [i16],
+  src: PicOffset,
+) -> Rav1dResult {
+  use crate::include::common::bitdepth::BitDepth8;
+  use crate::src::safe_simd::mc::reference::footprint_guard;
+
+  let Ok(filter) = block.resolved_eight_tap();
+  let extent = Size {
+    width: u64::from(block.size.width),
+    height: u64::from(block.size.height),
+  };
+  let Ok(axes) = filter.filtered_axes();
+  let footprint = read_extent(extent, axes).map_err(|_| EINVAL)?;
+  let (input, origin) = footprint_guard::<BitDepth8>(src, footprint)?;
+  let Ok(stride) = src.data.fixed_pixel_stride::<BitDepth8>();
+  let output =
+    PlaneMut::new(predictors, extent, 0, i64::from(block.size.width)).map_err(|_| EINVAL)?;
+  let request = Prediction::new(output, &input, origin, stride, filter).map_err(|_| EINVAL)?;
+  (motion.prep)(request, scratch).map_err(|_| EINVAL)
+}
+
+pub(crate) fn mc_put_direct<BD: BitDepth>(
+  motion: MotionCompensation,
+  scratch: &mut MotionScratch,
   filter: Filter2d,
   dst: PicOffset,
   src: PicOffset,
@@ -703,6 +772,13 @@ fn mc_put_direct<BD: BitDepth>(
   bit_depth: BD,
 ) -> Rav1dResult {
   let block = UnscaledBlock::new(filter, sampling)?;
+
+  match (BD::BPC, filter) {
+    (crate::include::common::bitdepth::BPC::BPC8, mode) if mode != Filter2d::Bilinear => {
+      return put_eight_tap(motion, scratch, &block, dst, src);
+    }
+    _ => {}
+  }
 
   #[cfg(target_arch = "x86_64")]
   match crate::src::safe_simd::mc::mc_put_dispatch::<BD>(
@@ -742,7 +818,9 @@ fn mc_put_direct<BD: BitDepth>(
   }
 }
 
-fn mct_prep_direct<BD: BitDepth>(
+pub(crate) fn mct_prep_direct<BD: BitDepth>(
+  motion: MotionCompensation,
+  scratch: &mut MotionScratch,
   filter: Filter2d,
   tmp: &mut [i16],
   src: PicOffset,
@@ -753,6 +831,13 @@ fn mct_prep_direct<BD: BitDepth>(
   let Ok(required) =
     console_core_number_conversion::index(block.size.width.wrapping_mul(block.size.height));
   let predictors = tmp.get_mut(..required).ok_or(EINVAL)?;
+
+  match (BD::BPC, filter) {
+    (crate::include::common::bitdepth::BPC::BPC8, mode) if mode != Filter2d::Bilinear => {
+      return prep_eight_tap(motion, scratch, &block, predictors, src);
+    }
+    _ => {}
+  }
 
   #[cfg(target_arch = "x86_64")]
   match crate::src::safe_simd::mc::mct_prep_dispatch::<BD>(
@@ -2223,13 +2308,15 @@ wrap_fn_ptr!(pub mc);
 impl mc::Fn {
   pub fn call<BD: BitDepth>(
     &self,
+    motion: MotionCompensation,
+    scratch: &mut MotionScratch,
     filter: Filter2d,
     dst: PicOffset,
     src: PicOffset,
     sampling: UnscaledSampling,
     bd: BD,
   ) -> Rav1dResult {
-    mc_put_direct::<BD>(filter, dst, src, sampling, bd)
+    mc_put_direct::<BD>(motion, scratch, filter, dst, src, sampling, bd)
   }
 }
 
@@ -2267,13 +2354,15 @@ wrap_fn_ptr!(pub mct);
 impl mct::Fn {
   pub fn call<BD: BitDepth>(
     &self,
+    motion: MotionCompensation,
+    scratch: &mut MotionScratch,
     filter: Filter2d,
     tmp: &mut [i16],
     src: PicOffset,
     sampling: UnscaledSampling,
     bd: BD,
   ) -> Rav1dResult {
-    mct_prep_direct::<BD>(filter, tmp, src, sampling, bd)
+    mct_prep_direct::<BD>(motion, scratch, filter, tmp, src, sampling, bd)
   }
 }
 
@@ -2477,28 +2566,53 @@ impl Rav1dMCDSPContext {
     })
   }
 
-  #[inline(always)]
-  const fn init<BD: BitDepth>(
-    self,
-    flags: CpuFlags,
-  ) -> core::result::Result<Self, console_core_never::Never> {
-    Ok({
-      {
-        let _ = flags;
-        self
+  pub(crate) fn init(flags: CpuFlags) -> MotionCompensation {
+    let mut table = MotionCompensation::default();
+    #[cfg(target_arch = "x86_64")]
+    {
+      use console_core_video_av1_digital_signal_processing_x86::{install_avx2, install_avx512};
+
+      match flags.contains(CpuFlags::AVX2).then_some(()) {
+        Some(()) => install_avx2(&mut table),
+        None => {}
       }
-    })
+      match flags.contains(CpuFlags::AVX512ICL).then_some(()) {
+        Some(()) => install_avx512(&mut table),
+        None => {}
+      }
+    }
+    #[cfg(target_arch = "aarch64")]
+    {
+      match flags.contains(CpuFlags::NEON).then_some(()) {
+        Some(()) => {
+          console_core_video_av1_digital_signal_processing_aarch64::install_neon(&mut table)
+        }
+        None => {}
+      }
+      #[cfg(rav1d_arm_dotprod)]
+      match flags.contains(CpuFlags::DOTPROD).then_some(()) {
+        Some(()) => {
+          console_core_video_av1_digital_signal_processing_aarch64::install_dot_product(
+            &mut table,
+          )
+        }
+        None => {}
+      }
+      #[cfg(rav1d_arm_i8mm)]
+      match flags.contains(CpuFlags::I8MM).then_some(()) {
+        Some(()) => console_core_video_av1_digital_signal_processing_aarch64::install_integer_matrix_multiply(&mut table),
+        None => {}
+      }
+    }
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    let _ = (&mut table, flags);
+    table
   }
 
   pub const fn new<BD: BitDepth>(
-    flags: CpuFlags,
+    _flags: CpuFlags,
   ) -> core::result::Result<Self, console_core_never::Never> {
-    Ok({
-      let Ok(rav1d_mcdsp_context) = Self::default::<BD>();
-      let Ok(init) = rav1d_mcdsp_context.init::<BD>(flags);
-
-      init
-    })
+    Self::default::<BD>()
   }
 }
 
@@ -3173,3 +3287,7 @@ mod unscaled_sampling_tests {
     Ok(())
   }
 }
+
+#[cfg(test)]
+#[path = "mc_eight_tap_tests.rs"]
+mod eight_tap_tests;

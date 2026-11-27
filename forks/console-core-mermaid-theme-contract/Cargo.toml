@@ -9,7 +9,6 @@ repository = "https://github.com/Latias94/merman"
 rust-version = "1.95"
 description = "Versioned authoring and canonical JSON contracts for Merman themes."
 documentation = "https://docs.rs/merman-theme-contract"
-readme = "README.md"
 keywords = ["mermaid", "themes", "json", "contracts"]
 categories = ["encoding", "visualization"]
 

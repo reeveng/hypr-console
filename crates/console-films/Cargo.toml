@@ -11,7 +11,7 @@ hosted-compute = ["dep:console-operating-system-linux"]
 [dependencies]
 console-operating-system-linux = { workspace = true, optional = true }
 console-core-pixel-buffers.workspace = true
-console-core-video-planes.workspace = true
+console-core-video-decoding.workspace = true
 console-core-byte-sources.workspace = true
 console-concurrency.workspace = true
 console-core-geometry.workspace = true
@@ -20,12 +20,8 @@ console-core-never.workspace = true
 console-core-number-conversion.workspace = true
 console-core-picture-scaling.workspace = true
 console-core-subtitle-files.workspace = true
-console-core-video-decoding-advanced-video-coding.workspace = true
-console-core-video-decoding-av1.workspace = true
-console-core-video-decoding-high-efficiency-video-coding.workspace = true
 console-core-video-decoding-matroska-container.workspace = true
 console-core-video-decoding-mpeg-4-container.workspace = true
-console-core-video-decoding-vp9.workspace = true
 
 [dev-dependencies]
 console-core-checksums.workspace = true

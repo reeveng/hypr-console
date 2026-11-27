@@ -36,6 +36,8 @@ use console_core_audio_decoding_vorbis::VorbisDecoder;
 use console_core_audio_decoding_wave_container::{AiffReader, WavReader};
 use console_core_never::Never;
 
+mod opus;
+
 pub use console_core_audio_decoding_interfaces as core;
 
 pub fn codec_registry() -> Result<CodecRegistry, Never> {
@@ -53,6 +55,7 @@ pub fn codec_registry() -> Result<CodecRegistry, Never> {
     let Ok(()) = registry.register(descriptor);
   }
 
+  let Ok(()) = registry.register_all::<opus::OpusDecoder>();
   let Ok(()) = registry.register_all::<PcmDecoder>();
   let Ok(()) = registry.register_all::<VorbisDecoder>();
 

@@ -22,7 +22,6 @@ autoexamples = false
 autotests = false
 autobenches = false
 description = "A crate for interpreting PDF files."
-readme = "README.md"
 license = "AGPL-3.0-or-later"
 repository = "https://github.com/LaurenzV/hayro"
 

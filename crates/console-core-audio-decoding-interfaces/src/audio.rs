@@ -187,6 +187,7 @@ impl Layout {
 pub struct SignalSpec {
   pub rate: u32,
   pub channels: Channels,
+  discrete_channels: Option<core::num::NonZeroU32>,
 }
 
 impl SignalSpec {
@@ -195,7 +196,11 @@ impl SignalSpec {
     rate: u32,
     channels: Channels,
   ) -> std::result::Result<Self, console_core_never::Never> {
-    Ok(SignalSpec { rate, channels })
+    Ok(SignalSpec {
+      rate,
+      channels,
+      discrete_channels: None,
+    })
   }
 
   #[must_use]
@@ -205,10 +210,27 @@ impl SignalSpec {
   ) -> std::result::Result<Self, console_core_never::Never> {
     let Ok(value_1) = layout.into_channels();
 
-    Ok(SignalSpec {
+    Self::new(rate, value_1)
+  }
+
+  /// Describes ordered sample lanes without assigning speaker positions.
+  pub fn new_discrete(
+    rate: u32,
+    count: core::num::NonZeroU32,
+  ) -> std::result::Result<Self, Never> {
+    let Ok(channels) = Channels::empty();
+    Ok(Self {
       rate,
-      channels: value_1,
+      channels,
+      discrete_channels: Some(count),
     })
+  }
+
+  pub fn channel_count(&self) -> std::result::Result<u32, Never> {
+    match self.discrete_channels {
+      Some(count) => Ok(count.get()),
+      None => self.channels.count(),
+    }
   }
 }
 
@@ -278,7 +300,7 @@ impl<S: Sample> AudioBuffer<S> {
       Ok(capacity) => capacity,
       Err(_too_long) => return limit_error("duration too large"),
     };
-    let Ok(value_2) = spec.channels.count();
+    let Ok(value_2) = spec.channel_count();
 
     let samples = match capacity.checked_mul(value_2) {
       Some(samples) => samples,
@@ -379,7 +401,7 @@ impl<S: Sample> AudioBuffer<S> {
 
   #[must_use]
   pub fn planes(&self) -> std::result::Result<AudioPlanes<'_, S>, console_core_never::Never> {
-    let Ok(value_4) = self.spec.channels.count();
+    let Ok(value_4) = self.spec.channel_count();
 
     Ok(AudioPlanes {
       planes: (0..value_4)
@@ -425,7 +447,7 @@ impl<S: Sample> AudioBuffer<S> {
 
     dest.n_frames = self.n_frames;
 
-    let Ok(value_5) = self.spec.channels.count();
+    let Ok(value_5) = self.spec.channel_count();
 
     for channel in 0..value_5 {
       let Ok(from) = self.lane(channel);
@@ -677,7 +699,7 @@ impl<S: Sample> Signal<S> for AudioBuffer<S> {
 
     self.n_frames = end;
 
-    let Ok(value_6) = self.spec.channels.count();
+    let Ok(value_6) = self.spec.channel_count();
 
     for channel in 0..value_6 {
       let Ok(plane) = self.lane_mut(channel);
@@ -729,7 +751,7 @@ impl<S: Sample> Signal<S> for AudioBuffer<S> {
   where
     F: Fn(S) -> S,
   {
-    let Ok(value_7) = self.spec.channels.count();
+    let Ok(value_7) = self.spec.channel_count();
 
     for channel in 0..value_7 {
       let Ok(lane) = self.lane_mut(channel);
@@ -756,7 +778,7 @@ impl<S: Sample> Signal<S> for AudioBuffer<S> {
       (Ordering::Less, 1..) => {
         let Ok(from) = index(shift);
 
-        let Ok(value_8) = self.spec.channels.count();
+        let Ok(value_8) = self.spec.channel_count();
 
         for channel in 0..value_8 {
           let Ok(lane) = self.lane_mut(channel);
@@ -787,7 +809,7 @@ impl<S: Sample> SampleBuffer<S> {
       Ok(capacity) => capacity,
       Err(_too_long) => return limit_error("duration too large"),
     };
-    let Ok(value_9) = spec.channels.count();
+    let Ok(value_9) = spec.channel_count();
 
     let samples = match capacity.checked_mul(value_9) {
       Some(samples) => samples,
@@ -832,7 +854,7 @@ impl<S: Sample> SampleBuffer<S> {
   where
     F: Sample + IntoSample<S>,
   {
-    let Ok(channels) = src.spec.channels.count();
+    let Ok(channels) = src.spec.channel_count();
     let samples = src.n_frames.saturating_mul(channels);
     let Ok(stride) = index(channels);
     let Ok(wanted) = index(samples);

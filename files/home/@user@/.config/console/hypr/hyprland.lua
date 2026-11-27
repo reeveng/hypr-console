@@ -94,7 +94,8 @@ if pointer_speed < -100 or pointer_speed > 100 then
 end
 local pointer_profile = input_preference("pointer-acceleration")
 if pointer_profile ~= "adaptive" and pointer_profile ~= "flat" then
-    pointer_profile = ""
+    -- An omitted option uses libinput's default for the device.
+    pointer_profile = nil
 end
 
 -- Clipboard contents and window titles stay private in compositor captures.

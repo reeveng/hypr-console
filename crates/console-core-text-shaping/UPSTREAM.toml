@@ -1,7 +1,0 @@
-package = "harfrust"
-version = "0.12.0"
-repository = "https://github.com/harfbuzz/harfrust"
-license = "MIT"
-archive = "https://static.crates.io/crates/harfrust/harfrust-0.12.0.crate"
-sha256 = "c03d949a14aa089bbb282f7dd76a498a7f684428e4257202efc119ec010376f9"
-revision = "60b28ea22b5261710018d69c168a762bcb28794c"

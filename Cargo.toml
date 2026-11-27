@@ -45,7 +45,11 @@ console-core-audio-metadata = { path = "crates/console-core-audio-metadata" }
 console-core-mpeg-audio-frames = { path = "crates/console-core-mpeg-audio-frames" }
 console-core-audio-decoding = { path = "crates/console-core-audio-decoding" }
 console-core-audio-decoding-opus = { path = "crates/console-core-audio-decoding-opus" }
+console-core-video-decoding = { path = "crates/console-core-video-decoding" }
 console-core-video-decoding-advanced-video-coding = { path = "crates/console-core-video-decoding-advanced-video-coding" }
+console-core-video-av1-digital-signal-processing = { path = "crates/console-core-video-av1-digital-signal-processing" }
+console-core-video-av1-digital-signal-processing-x86 = { path = "crates/console-core-video-av1-digital-signal-processing-x86" }
+console-core-video-av1-digital-signal-processing-aarch64 = { path = "crates/console-core-video-av1-digital-signal-processing-aarch64" }
 console-core-video-decoding-av1 = { path = "crates/console-core-video-decoding-av1" }
 console-core-video-decoding-high-efficiency-video-coding = { path = "crates/console-core-video-decoding-high-efficiency-video-coding" }
 console-core-video-decoding-matroska-container = { path = "crates/console-core-video-decoding-matroska-container" }
@@ -146,6 +150,7 @@ console-core-size = { path = "crates/console-core-size" }
 console-core-transform = { path = "crates/console-core-transform" }
 console-core-triangle = { path = "crates/console-core-triangle" }
 console-core-vector = { path = "crates/console-core-vector" }
+console-core-raster-image-decoding = { path = "crates/console-core-raster-image-decoding" }
 console-core-picture-sizes = { path = "crates/console-core-picture-sizes" }
 console-core-highlight = { path = "crates/console-core-highlight" }
 console-core-controls = { path = "crates/console-core-controls" }
@@ -266,7 +271,7 @@ strip = true
 libraries = [{ path = "tools/explicit-rust", pattern = "explicit*" }]
 
 [workspace.lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(dylint_lib, values(any()))', 'cfg(kani)'] }
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(dylint_lib, values(any()))', 'cfg(kani)', 'cfg(rav1d_arm_dotprod)', 'cfg(rav1d_arm_i8mm)'] }
 unsafe_op_in_unsafe_fn = "deny"
 
 [workspace.lints.clippy]

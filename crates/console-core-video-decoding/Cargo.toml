@@ -1,0 +1,25 @@
+[package]
+name = "console-core-video-decoding"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Packet and frame interface for the video decoders."
+
+[dependencies]
+console-core-geometry.workspace = true
+console-core-iteration.workspace = true
+console-core-never.workspace = true
+console-core-number-conversion.workspace = true
+console-core-parallel-execution.workspace = true
+console-core-video-decoding-advanced-video-coding.workspace = true
+console-core-video-decoding-av1.workspace = true
+console-core-video-decoding-high-efficiency-video-coding.workspace = true
+console-core-video-decoding-vp9.workspace = true
+console-core-video-planes.workspace = true
+
+[dev-dependencies]
+console-core-pixel-buffers.workspace = true
+
+[lints]
+workspace = true

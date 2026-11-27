@@ -23,7 +23,6 @@ autotests = false
 autobenches = false
 description = "Represent an XML as a read-only tree."
 documentation = "https://docs.rs/roxmltree/"
-readme = "README.md"
 keywords = [
     "xml",
     "parser",

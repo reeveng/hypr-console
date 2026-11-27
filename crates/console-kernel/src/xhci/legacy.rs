@@ -1,4 +1,4 @@
-//! xHCI USB Legacy Support handoff, adapted from nos. See NOS-LICENSE.
+//! xHCI USB Legacy Support handoff, adapted from nos. See `docs/third-party/nos.txt`.
 //! Only the firmware can clear the BIOS-owned semaphore. On timeout this
 //! driver leaves the controller to firmware.
 

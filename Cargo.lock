@@ -1341,11 +1341,13 @@ dependencies = [
  "console-core-audio-decoding-mp3",
  "console-core-audio-decoding-mpeg-4-container",
  "console-core-audio-decoding-ogg-container",
+ "console-core-audio-decoding-opus",
  "console-core-audio-decoding-tags",
  "console-core-audio-decoding-uncompressed",
  "console-core-audio-decoding-vorbis",
  "console-core-audio-decoding-wave-container",
  "console-core-never",
+ "console-core-number-conversion",
 ]
 
 [[package]]
@@ -2410,6 +2412,7 @@ dependencies = [
  "console-core-never",
  "console-core-number-conversion",
  "console-core-size",
+ "console-core-words",
 ]
 
 [[package]]
@@ -2587,6 +2590,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "console-core-raster-image-decoding"
+version = "0.1.0"
+dependencies = [
+ "console-core-gif-files",
+ "console-core-jpeg-files",
+ "console-core-picture-sizes",
+ "console-core-pixel-buffers",
+ "console-core-png-files",
+ "console-core-size",
+ "console-core-webp-files",
+]
+
+[[package]]
 name = "console-core-reconnect"
 version = "0.1.0"
 dependencies = [
@@ -2639,8 +2655,6 @@ name = "console-core-scalable-vector-graphics-rasterizer"
 version = "0.48.1"
 dependencies = [
  "bytemuck",
- "console-core-gif-files",
- "console-core-jpeg-files",
  "console-core-logging",
  "console-core-never",
  "console-core-number-conversion",
@@ -2648,10 +2662,10 @@ dependencies = [
  "console-core-paths",
  "console-core-pixel-buffers",
  "console-core-point",
+ "console-core-raster-image-decoding",
  "console-core-scalable-vector-graphics",
  "console-core-scalable-vector-graphics-values",
  "console-core-size",
- "console-core-webp-files",
  "console-operating-system-linux",
 ]
 
@@ -2894,6 +2908,59 @@ dependencies = [
 ]
 
 [[package]]
+name = "console-core-video-av1-digital-signal-processing"
+version = "0.1.0"
+dependencies = [
+ "console-core-api-compatibility",
+ "console-core-geometry",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-core-pixel-buffers",
+ "console-core-video-interpolation",
+ "zerocopy",
+]
+
+[[package]]
+name = "console-core-video-av1-digital-signal-processing-aarch64"
+version = "0.1.0"
+dependencies = [
+ "archmage",
+ "console-core-number-conversion",
+ "console-core-pixel-buffers",
+ "console-core-video-av1-digital-signal-processing",
+ "console-core-video-interpolation",
+]
+
+[[package]]
+name = "console-core-video-av1-digital-signal-processing-x86"
+version = "0.1.0"
+dependencies = [
+ "archmage",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-core-pixel-buffers",
+ "console-core-video-av1-digital-signal-processing",
+ "console-core-video-interpolation",
+]
+
+[[package]]
+name = "console-core-video-decoding"
+version = "0.1.0"
+dependencies = [
+ "console-core-geometry",
+ "console-core-iteration",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-core-parallel-execution",
+ "console-core-pixel-buffers",
+ "console-core-video-decoding-advanced-video-coding",
+ "console-core-video-decoding-av1",
+ "console-core-video-decoding-high-efficiency-video-coding",
+ "console-core-video-decoding-vp9",
+ "console-core-video-planes",
+]
+
+[[package]]
 name = "console-core-video-decoding-advanced-video-coding"
 version = "0.4.0"
 dependencies = [
@@ -2926,6 +2993,9 @@ dependencies = [
  "console-core-pixel-buffers",
  "console-core-simd",
  "console-core-synchronization",
+ "console-core-video-av1-digital-signal-processing",
+ "console-core-video-av1-digital-signal-processing-aarch64",
+ "console-core-video-av1-digital-signal-processing-x86",
  "console-core-video-interpolation",
  "console-core-video-inverse-transforms",
  "enough",
@@ -3243,13 +3313,9 @@ dependencies = [
  "console-core-picture-scaling",
  "console-core-pixel-buffers",
  "console-core-subtitle-files",
- "console-core-video-decoding-advanced-video-coding",
- "console-core-video-decoding-av1",
- "console-core-video-decoding-high-efficiency-video-coding",
+ "console-core-video-decoding",
  "console-core-video-decoding-matroska-container",
  "console-core-video-decoding-mpeg-4-container",
- "console-core-video-decoding-vp9",
- "console-core-video-planes",
  "console-operating-system-linux",
 ]
 
@@ -3891,7 +3957,6 @@ dependencies = [
  "console-core-arguments",
  "console-core-atomic-writes",
  "console-core-audio-decoding",
- "console-core-audio-decoding-opus",
  "console-core-audio-metadata",
  "console-core-bytes",
  "console-core-checksums",
@@ -4222,7 +4287,6 @@ dependencies = [
  "console-core-atomic-writes",
  "console-core-external-programs",
  "console-core-geometry",
- "console-core-gif-files",
  "console-core-jpeg-files",
  "console-core-never",
  "console-core-number-conversion",
@@ -4230,12 +4294,12 @@ dependencies = [
  "console-core-picture-scaling",
  "console-core-pixel-buffers",
  "console-core-png-files",
+ "console-core-raster-image-decoding",
  "console-core-scalable-vector-graphics",
  "console-core-scalable-vector-graphics-rasterizer",
  "console-core-shapes",
  "console-core-temporary-directories",
  "console-core-webp-files",
- "console-core-words",
  "console-films",
 ]
 

@@ -1,5 +1,5 @@
 // Modified for Merman: module-relative imports and always-enabled positions tests.
-// Includes the exact upstream 200,000-level regression; see UPSTREAM.md.
+// Includes roxmltree's 200,000-level regression test.
 
 #![allow(clippy::bool_assert_comparison)]
 

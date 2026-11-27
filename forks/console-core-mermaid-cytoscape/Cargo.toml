@@ -9,7 +9,6 @@ repository = "https://github.com/Latias94/merman"
 rust-version = "1.95"
 description = "Headless compound graph layout algorithms (COSE/FCoSE ports)."
 documentation = "https://docs.rs/manatee"
-readme = "README.md"
 keywords = ["graph", "layout", "cose", "fcose"]
 categories = ["visualization"]
 

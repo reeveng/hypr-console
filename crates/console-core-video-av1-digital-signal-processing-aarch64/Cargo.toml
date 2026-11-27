@@ -1,0 +1,17 @@
+[package]
+name = "console-core-video-av1-digital-signal-processing-aarch64"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license = "AGPL-3.0-only"
+description = "AV1 motion compensation kernels for aarch64."
+
+[lints]
+workspace = true
+
+[target.'cfg(target_arch = "aarch64")'.dependencies]
+archmage = { version = "0.9.29", features = ["macros"] }
+console-core-video-av1-digital-signal-processing.workspace = true
+console-core-number-conversion.workspace = true
+console-core-video-interpolation.workspace = true
+console-core-pixel-buffers.workspace = true

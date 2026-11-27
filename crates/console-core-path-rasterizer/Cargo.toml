@@ -22,7 +22,6 @@ autotests = false
 autobenches = false
 description = "A tiny Skia subset ported to Rust."
 documentation = "https://docs.rs/tiny-skia/"
-readme = "README.md"
 keywords = [
     "2d",
     "rendering",

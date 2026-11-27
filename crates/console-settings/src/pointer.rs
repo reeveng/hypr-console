@@ -102,7 +102,7 @@ fn speed_row(at: &Path) -> Result<Row, Never> {
           &at_3,
           Preference {
             value: &next.0.to_string(),
-            option: &format!("sensitivity = {sensitivity:.2}"),
+            apply: Apply::Input(format!("sensitivity = {sensitivity:.2}")),
           },
         );
       }
@@ -142,14 +142,11 @@ fn profile_row(at: &Path) -> Result<Row, Never> {
     match Profile::ALL.get(index) {
       Some(profile) => {
         let Ok(value) = profile.value();
-        let Ok(()) = save(
-          showing,
-          &at_2,
-          Preference {
-            value,
-            option: &format!("accel_profile = {value:?}"),
-          },
-        );
+        let apply = match profile {
+          Profile::Default => Apply::Reload,
+          Profile::Adaptive | Profile::Flat => Apply::Input(format!("accel_profile = {value:?}")),
+        };
+        let Ok(()) = save(showing, &at_2, Preference { value, apply });
       }
       None => {}
     }
@@ -160,20 +157,28 @@ fn profile_row(at: &Path) -> Result<Row, Never> {
 
 struct Preference<'a> {
   value: &'a str,
-  option: &'a str,
+  apply: Apply,
+}
+
+enum Apply {
+  Input(String),
+  Reload,
 }
 
 fn save(
   showing: &dyn Showing,
   at: &Path,
-  Preference { value, option }: Preference<'_>,
+  Preference { value, apply }: Preference<'_>,
 ) -> Result<(), Never> {
   match console_core_atomic_writes::whole_with_folders(at, value.as_bytes()) {
     Ok(()) => {
-      let Ok(result) = console_compositor::request(
-        Request::Script,
-        &format!("hl.config({{ input = {{ {option} }} }})"),
-      );
+      let Ok(result) = match apply {
+        Apply::Input(option) => console_compositor::request(
+          Request::Script,
+          &format!("hl.config({{ input = {{ {option} }} }})"),
+        ),
+        Apply::Reload => console_compositor::reload_configuration(),
+      };
 
       match result {
         DispatchResult::Success => {}

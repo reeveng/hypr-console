@@ -21,7 +21,6 @@ autoexamples = false
 autotests = false
 autobenches = false
 description = "Metadata reader and glyph scaler for OpenType fonts."
-readme = "README.md"
 categories = [
     "text-processing",
     "parsing",

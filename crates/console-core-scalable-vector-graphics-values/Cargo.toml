@@ -30,7 +30,6 @@ autoexamples = false
 autotests = false
 autobenches = false
 description = "SVG types parser."
-readme = "README.md"
 keywords = [
     "svg",
     "parser",

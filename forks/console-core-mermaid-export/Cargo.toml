@@ -9,7 +9,6 @@ repository = "https://github.com/Latias94/merman"
 rust-version = "1.95"
 description = "Bounded PNG, JPEG, and PDF export for terminally validated Merman SVG."
 documentation = "https://docs.rs/merman-export"
-readme = "README.md"
 keywords = ["mermaid", "svg", "png", "jpeg", "pdf"]
 categories = ["encoding", "graphics"]
 

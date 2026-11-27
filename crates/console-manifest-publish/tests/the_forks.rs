@@ -159,28 +159,16 @@ fn every_vendored_crate_the_list_names_is_a_directory_with_something_in_it()
 #[test]
 fn a_vendored_fork_keeps_the_licence_it_came_with() -> Result<(), Box<dyn Error>> {
   for source in VENDORED {
-    let relative = RelativePath::new(Path::new(source))?;
-    let Ok(held) = console_core_directory_listing::files(&Path::new(ROOT).join(relative));
-    let licenses: Vec<&PathBuf> = held
-      .iter()
-      .filter(|path| {
-        path
-          .file_name()
-          .and_then(std::ffi::OsStr::to_str)
-          .is_some_and(|name| matches!(name, "COPYING" | "LICENSE" | "LICENCE"))
-      })
-      .collect();
+    let crate_name = Path::new(source)
+      .file_name()
+      .ok_or("vendored source path has no crate name")?;
+    let license = Path::new(ROOT)
+      .join("docs/third-party")
+      .join(crate_name)
+      .with_extension("txt");
+    let terms = std::fs::read_to_string(&license)?;
 
-    assert!(
-      !licenses.is_empty(),
-      "{source} is someone else's source and carries no COPYING or LICENSE"
-    );
-
-    for license in licenses {
-      let terms = std::fs::read_to_string(license)?;
-
-      assert!(!terms.trim().is_empty(), "{} is empty", license.display());
-    }
+    assert!(!terms.trim().is_empty(), "{} is empty", license.display());
   }
 
   Ok(())

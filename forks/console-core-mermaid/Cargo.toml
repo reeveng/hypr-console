@@ -9,7 +9,6 @@ repository = "https://github.com/Latias94/merman"
 rust-version = "1.95"
 description = "Parity-focused, headless Rust implementation of Mermaid for parsing, layout, and rendering."
 documentation = "https://docs.rs/merman"
-readme = "../README.md"
 keywords = ["mermaid", "diagrams", "svg", "parser", "headless"]
 categories = ["parser-implementations", "visualization"]
 exclude = [

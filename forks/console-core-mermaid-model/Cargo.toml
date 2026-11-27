@@ -9,7 +9,6 @@ repository = "https://github.com/Latias94/merman"
 rust-version = "1.95"
 description = "Canonical Mermaid data and shared controlled execution contracts."
 documentation = "https://docs.rs/merman-model"
-readme = "README.md"
 keywords = ["mermaid", "diagrams", "model"]
 categories = ["data-structures", "visualization"]
 

@@ -9,7 +9,6 @@ repository = "https://github.com/Latias94/merman"
 rust-version = "1.95"
 description = "Mermaid parser + semantic model (headless; parity-focused)."
 documentation = "https://docs.rs/merman-core"
-readme = "README.md"
 keywords = ["mermaid", "diagrams", "parser", "ast"]
 categories = ["parser-implementations", "visualization"]
 

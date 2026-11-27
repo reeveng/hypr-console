@@ -89,6 +89,12 @@ impl RowLayout {
     })
   }
 
+  /// The contiguous span containing the first through last sample.
+  #[inline]
+  pub fn span(&self) -> Range<u64> {
+    self.hull.clone()
+  }
+
   #[inline]
   pub fn validate_len(&self, available: NativeSize) -> Result<(), RowLayoutError> {
     let Ok(available_samples) = fixed_index(available);

@@ -18,10 +18,8 @@
 //! build. Nothing published between the crate landing and the exclusion going,
 //! so that never happened to anyone.
 //!
-//! `VENDORED` is what stayed behind, and it asks a different question. Not
-//! "is this published" -- it is -- but "does the license it came with travel
-//! with it", which is the one thing GPL-3.0 actually asks of a copy. It is the
-//! list `the_forks.rs` walks to check that.
+//! The vendored source listed in `VENDORED` ships with its upstream terms in
+//! `docs/third-party`. `the_forks.rs` checks both paths.
 //!
 //! An empty list is a rule nothing presses, so the list is handed in rather
 //! than read: [`is_fork`], [`carried`] and [`manifest`] each pass [`FORKS`] to
@@ -160,16 +158,11 @@ mod tests {
   fn a_fork_the_workspace_builds_from_source_is_carried_like_any_other_crate() {
     let Ok(manifest) = is_fork("crates/console-resume/Cargo.toml");
     let Ok(source) = is_fork("crates/console-resume/src/session.rs");
-    let Ok(license) = is_fork("crates/console-resume/LICENSE");
+    let Ok(license) = is_fork("docs/third-party/console-resume.txt");
 
     assert_eq!(manifest, Fork::No);
     assert_eq!(source, Fork::No);
-    assert_eq!(
-      license,
-      Fork::No,
-      "the license most of all: a GPL crate published without it is the one thing that \
-             would be someone else's to complain about"
-    );
+    assert_eq!(license, Fork::No);
   }
 
   #[test]

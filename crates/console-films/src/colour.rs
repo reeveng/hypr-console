@@ -40,6 +40,7 @@ use console_core_never::Never;
 use console_core_number_conversion::{fitted, index, whole_i32};
 use console_core_picture_scaling::{Plane, scaled_plane};
 use console_core_pixel_buffers::RowLayout;
+use console_core_video_decoding::{Colour, Decoded, Matrix, Planes, Range, Strides};
 
 use crate::Seconds;
 use crate::tracks::{Turn, Video};
@@ -56,39 +57,6 @@ const STUDIO_BLACK: i32 = 16;
 
 const NEUTRAL: u8 = 128;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Matrix {
-  Bt601,
-  Bt709,
-  Bt2020,
-  Rgb,
-  Unsaid,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Range {
-  Studio,
-  Full,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Colour {
-  pub(crate) matrix: Matrix,
-  pub(crate) range: Range,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Planes {
-  Eight([Vec<u8>; 3]),
-  Deep([Vec<u16>; 3], u32),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Strides {
-  pub(crate) luma: u32,
-  pub(crate) chroma: u32,
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct Picture {
   at: Seconds,
@@ -102,26 +70,17 @@ pub struct Picture {
 
 pub use console_core_pixel_buffers::PackedPixels as Bitmap;
 
-pub(crate) struct Decoded {
-  pub(crate) pts: i64,
-  pub(crate) stored: Size<u32>,
-  pub(crate) chroma: Size<u32>,
-  pub(crate) planes: Planes,
-  pub(crate) strides: Strides,
-  pub(crate) colour: Colour,
-}
-
-impl Decoded {
-  pub(crate) fn placed(self, video: &Video) -> Result<Picture, Never> {
-    let Ok(at) = video.seconds(self.pts);
+impl Picture {
+  pub(crate) fn from_decoded(decoded: Decoded, video: &Video) -> Result<Picture, Never> {
+    let Ok(at) = video.seconds(decoded.pts);
 
     Ok(Picture {
       at,
-      stored: self.stored,
-      chroma: self.chroma,
-      planes: self.planes,
-      strides: self.strides,
-      colour: self.colour,
+      stored: decoded.stored,
+      chroma: decoded.chroma,
+      planes: decoded.planes,
+      strides: decoded.strides,
+      colour: decoded.colour,
       turn: video.turn,
     })
   }

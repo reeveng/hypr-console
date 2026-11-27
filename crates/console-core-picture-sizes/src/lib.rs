@@ -29,13 +29,18 @@ mod webp;
 
 use console_core_never::Never;
 use console_core_size::Size;
+use console_core_words::Words;
 use std::fmt;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
 pub enum PictureFormat {
+  #[words(says = "PNG")]
   Png,
+  #[words(says = "JPEG")]
   Jpeg,
+  #[words(says = "GIF")]
   Gif,
+  #[words(says = "WebP")]
   Webp,
 }
 

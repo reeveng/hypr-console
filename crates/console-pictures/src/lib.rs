@@ -89,9 +89,10 @@ use console_core_jpeg_files::{JpegError, Task};
 use console_core_never::Never;
 use console_core_number_conversion::whole_u32;
 use console_core_picture_scaling::{Scaling, Source, scaled};
+pub use console_core_raster_image_decoding::Format;
+use console_core_raster_image_decoding::{self as raster, DecodeMode};
 use console_core_shapes::Pixels;
 use console_core_webp_files::WebpError;
-use console_core_words::Words;
 use console_films::FilmError;
 
 pub const SVG: &str = "svg";
@@ -135,25 +136,6 @@ impl std::error::Error for PictureError {}
 enum Shape {
   Fitted(Size<u32>),
   Squared(Size<u32>),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
-pub enum Format {
-  #[words(says = "JPEG")]
-  Jpeg,
-  #[words(says = "PNG")]
-  Png,
-  #[words(says = "GIF")]
-  Gif,
-  #[words(says = "WebP")]
-  Webp,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Whole {
-  Jpeg,
-  Png,
-  Gif,
 }
 
 struct Opened {
@@ -210,12 +192,9 @@ fn opened(at: &Path) -> Result<Option<Opened>, Never> {
     Err(_unreadable_so_ffmpeg_will_say_why) => return Ok(None),
   };
 
-  let format = match opening {
-    [0xFF, 0xD8, 0xFF, ..] => Format::Jpeg,
-    [0x89, b'P', b'N', b'G', b'\r', b'\n', 0x1A, b'\n', ..] => Format::Png,
-    [b'G', b'I', b'F', b'8', b'7' | b'9', b'a', ..] => Format::Gif,
-    [b'R', b'I', b'F', b'F', _, _, _, _, b'W', b'E', b'B', b'P'] => Format::Webp,
-    _ => return Ok(None),
+  let format = match raster::format(&opening) {
+    Ok(format) => format,
+    Err(_unrecognized) => return Ok(None),
   };
 
   Ok(match std::fs::read(at) {
@@ -225,61 +204,50 @@ fn opened(at: &Path) -> Result<Option<Opened>, Never> {
 }
 
 fn measured(opened: &Opened) -> Result<Option<Size<u32>>, Never> {
-  let bytes = opened.bytes.as_slice();
-
-  Ok(match opened.format {
-    Format::Jpeg => match console_core_jpeg_files::measured(bytes) {
-      Ok(upright) => Some(upright),
-      Err(_unread) => None,
-    },
-    Format::Png => match console_core_png_files::measured(bytes) {
-      Ok(size) => Some(size),
-      Err(_unread) => None,
-    },
-    Format::Gif => match console_core_gif_files::measured(bytes) {
-      Ok(size) => Some(size),
-      Err(_unread) => None,
-    },
-    Format::Webp => match console_core_webp_files::measured(bytes) {
-      Ok(size) => Some(size),
-      Err(_unread) => None,
-    },
-  })
+  Ok(raster::measured(opened.format, &opened.bytes).ok())
 }
 
-fn drawn(opened: (Whole, &[u8]), covering: Size<u32>) -> Result<Option<Bitmap>, Never> {
+fn drawn(opened: (Format, &[u8]), covering: Size<u32>) -> Result<Option<Bitmap>, Never> {
   let (format, bytes) = opened;
-
-  Ok(match format {
-    Whole::Jpeg => {
-      let decoded = match ::core::primitive::bool::then_some(
-        covering.width.max(covering.height) >= SPREAD_FROM,
-        (),
-      ) {
-        ::core::option::Option::Some(()) => {
-          let Ok(cores) = Cores::counted();
-
-          console_core_jpeg_files::decoded_spread(bytes, covering, &|tasks| {
-            on_every_core(cores, tasks)
-          })
-        }
-        ::core::option::Option::None => console_core_jpeg_files::decoded(bytes, covering),
-      };
-
-      match decoded {
-        Ok(picture) => Some(picture),
-        Err(_unread) => None,
-      }
+  let spread = match format {
+    Format::Jpeg => (covering.width.max(covering.height) >= SPREAD_FROM).then_some(()),
+    Format::Webp => Some(()),
+    Format::Png | Format::Gif => None,
+  };
+  let cores = match spread {
+    Some(()) => {
+      let Ok(cores) = Cores::counted();
+      Some(cores)
     }
-    Whole::Png => match console_core_png_files::decoded(bytes) {
-      Ok(picture) => Some(picture),
-      Err(_unread) => None,
-    },
-    Whole::Gif => match console_core_gif_files::decoded(bytes) {
-      Ok(picture) => Some(picture),
-      Err(_unread) => None,
-    },
-  })
+    None => None,
+  };
+  let jpeg = |tasks: &[Task<'_>]| match cores {
+    Some(cores) => on_every_core(cores, tasks),
+    None => tasks.iter().try_for_each(Task::done),
+  };
+  let webp = |tasks: &[console_core_webp_files::Task<'_>]| match cores {
+    Some(cores) => webp_on_every_core(cores, tasks),
+    None => tasks
+      .iter()
+      .try_for_each(console_core_webp_files::Task::done),
+  };
+  let jpeg_spread: Option<console_core_jpeg_files::Spread<'_>> =
+    (format == Format::Jpeg && cores.is_some()).then_some(&jpeg);
+  let webp_spread: Option<console_core_webp_files::Spread<'_>> =
+    (format == Format::Webp && cores.is_some()).then_some(&webp);
+
+  Ok(
+    raster::decoded(
+      format,
+      bytes,
+      DecodeMode::Standalone {
+        covering,
+        jpeg_spread,
+        webp_spread,
+      },
+    )
+    .ok(),
+  )
 }
 
 fn from_opened(opened: Option<&Opened>, shape: Shape) -> Result<Option<Pixels>, Never> {
@@ -314,9 +282,7 @@ fn from_opened(opened: Option<&Opened>, shape: Shape) -> Result<Option<Pixels>, 
   let wanted = (covering, shape, made);
 
   let shrunk = match opened_3.format {
-    Format::Jpeg => whole_shrunk((Whole::Jpeg, bytes), wanted),
-    Format::Png => whole_shrunk((Whole::Png, bytes), wanted),
-    Format::Gif => whole_shrunk((Whole::Gif, bytes), wanted),
+    format @ (Format::Jpeg | Format::Png | Format::Gif) => whole_shrunk((format, bytes), wanted),
     Format::Webp => webp_shrunk(bytes, wanted),
   };
 
@@ -350,7 +316,7 @@ fn region(had: Size<u32>, shape: Shape) -> Result<Rectangle<u32>, Never> {
 }
 
 fn whole_shrunk(
-  opened: (Whole, &[u8]),
+  opened: (Format, &[u8]),
   wanted: (Size<u32>, Shape, Size<u32>),
 ) -> Result<Option<Vec<u8>>, Never> {
   let (covering, shape, made) = wanted;
@@ -889,30 +855,12 @@ pub fn full_size(at: &Path) -> Result<FullSize, Never> {
 
   let bytes = opened_3.bytes.as_slice();
 
-  let drawn = match format {
-    Format::Jpeg => drawn((Whole::Jpeg, bytes), upright),
-    Format::Png => drawn((Whole::Png, bytes), upright),
-    Format::Gif => drawn((Whole::Gif, bytes), upright),
-    Format::Webp => webp_whole(bytes),
-  };
+  let drawn = drawn((format, bytes), upright);
 
   Ok(match drawn {
     Ok(Some(bitmap)) => FullSize::Decoded(format, bitmap),
     Ok(None) => FullSize::Rejected(format),
   })
-}
-
-fn webp_whole(bytes: &[u8]) -> Result<Option<Bitmap>, Never> {
-  let Ok(cores) = Cores::counted();
-
-  Ok(
-    match console_core_webp_files::decoded_spread(bytes, &|tasks| {
-      webp_on_every_core(cores, tasks)
-    }) {
-      Ok(picture) => Some(picture),
-      Err(_unread) => None,
-    },
-  )
 }
 
 #[cfg(test)]

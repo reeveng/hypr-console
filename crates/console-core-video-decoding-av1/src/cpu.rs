@@ -218,29 +218,24 @@ static rav1d_cpu_flags_mask: AtomicU32 = AtomicU32::new(!0);
 
 #[inline(always)]
 pub(crate) fn rav1d_get_cpu_flags() -> core::result::Result<CpuFlags, console_core_never::Never> {
-  Ok({
-    let Ok(detected) = detected_cpu_flags();
-    let Ok(compiled) = CpuFlags::compile_time_detect();
-    let flags = detected.bits() | compiled.bits();
-    let mask = rav1d_cpu_flags_mask.load(Ordering::SeqCst);
-
-    CpuFlags::from_bits_truncate(flags & mask)
-  })
+  let mask = rav1d_cpu_flags_mask.load(Ordering::SeqCst);
+  flags_for_mask(mask)
 }
 
-#[cfg(any(
-  target_arch = "x86_64",
-  all(target_arch = "aarch64", any(rav1d_arm_dotprod, rav1d_arm_i8mm))
-))]
+pub(crate) fn flags_for_mask(mask: u32) -> Result<CpuFlags, console_core_never::Never> {
+  let Ok(detected) = detected_cpu_flags();
+  let Ok(compiled) = CpuFlags::compile_time_detect();
+  let flags = detected.bits() | compiled.bits();
+  Ok(CpuFlags::from_bits_truncate(flags & mask))
+}
+
+#[cfg(target_arch = "x86_64")]
 enum SimdAvailability {
   Available,
   Unavailable,
 }
 
-#[cfg(any(
-  target_arch = "x86_64",
-  all(target_arch = "aarch64", any(rav1d_arm_dotprod, rav1d_arm_i8mm))
-))]
+#[cfg(target_arch = "x86_64")]
 #[inline(always)]
 fn simd_availability(flag: CpuFlags) -> Result<SimdAvailability, console_core_never::Never> {
   let Ok(flags) = rav1d_get_cpu_flags();
@@ -289,32 +284,6 @@ pub(crate) fn summon_avx512x() -> Result<Option<archmage::X64V4xToken>, console_
 
   Ok(match availability {
     SimdAvailability::Available => archmage::X64V4xToken::summon(),
-    SimdAvailability::Unavailable => None,
-  })
-}
-
-#[cfg(all(target_arch = "aarch64", rav1d_arm_dotprod))]
-#[inline(always)]
-pub(crate) fn summon_arm64v2() -> Result<Option<archmage::Arm64V2Token>, console_core_never::Never>
-{
-  use archmage::SimdToken as _;
-  let Ok(availability) = simd_availability(CpuFlags::DOTPROD);
-
-  Ok(match availability {
-    SimdAvailability::Available => archmage::Arm64V2Token::summon(),
-    SimdAvailability::Unavailable => None,
-  })
-}
-
-#[cfg(all(target_arch = "aarch64", rav1d_arm_i8mm))]
-#[inline(always)]
-pub(crate) fn summon_arm64v3() -> Result<Option<archmage::Arm64V3Token>, console_core_never::Never>
-{
-  use archmage::SimdToken as _;
-  let Ok(availability) = simd_availability(CpuFlags::I8MM);
-
-  Ok(match availability {
-    SimdAvailability::Available => archmage::Arm64V3Token::summon(),
     SimdAvailability::Unavailable => None,
   })
 }

@@ -2,8 +2,6 @@
 //!
 //! This crate contains a Rust implementation of a public domain 8-bit by 8-bit font.
 //!
-//! See '../README.md`.
-//!
 //! # On the miscellanous characters included
 //! These characters are provided as-is, and some don't have a proper unicode point.
 //! They are provided in the `MISC` and `SGA` contants. For a description, please

@@ -10,22 +10,30 @@
 use crate::include::common::bitdepth::BitDepth;
 use crate::include::dav1d::picture::{PicOffset, Rav1dPictureDataComponentInner};
 use crate::src::disjoint_mut::DisjointImmutGuard;
+#[cfg(target_arch = "x86_64")]
 use crate::src::levels::Filter2d;
 use crate::src::strided::Strided as _;
+#[cfg(target_arch = "x86_64")]
+use console_core_geometry::Point;
 
 type SourceGuard<'a, BD> =
   DisjointImmutGuard<'a, Rav1dPictureDataComponentInner, [<BD as BitDepth>::Pixel]>;
 
 use crate::src::error::{Rav1dError, Rav1dResult};
-use console_core_geometry::{Point, Size};
+#[cfg(target_arch = "x86_64")]
+use console_core_geometry::Size;
 use console_core_number_conversion::{checked_offset, fixed_index, fixed_offset, index, indices};
+use console_core_pixel_buffers::RowLayout;
+use console_core_video_av1_digital_signal_processing::FilterFootprint;
 
+#[cfg(target_arch = "x86_64")]
 #[derive(Clone, Copy)]
 pub(super) struct Sampling {
   pub size: Size<i32>,
   pub phase: Point<i32>,
 }
 
+#[cfg(target_arch = "x86_64")]
 impl Sampling {
   pub(super) fn checked_size(self) -> Rav1dResult<Size<u64>> {
     match (
@@ -43,16 +51,19 @@ impl Sampling {
   }
 }
 
+#[cfg(target_arch = "x86_64")]
 struct AxisPadding {
   before: u64,
   after: u64,
 }
 
+#[cfg(target_arch = "x86_64")]
 const WARP_PADDING: AxisPadding = AxisPadding {
   before: 3,
   after: 4,
 };
 
+#[cfg(target_arch = "x86_64")]
 #[inline]
 #[track_caller]
 fn read_guard<BD: BitDepth>(
@@ -61,62 +72,56 @@ fn read_guard<BD: BitDepth>(
   padding: [AxisPadding; 2],
 ) -> Rav1dResult<(SourceGuard<'_, BD>, u64)> {
   let [horizontal, vertical] = padding;
+  footprint_guard::<BD>(
+    src,
+    FilterFootprint {
+      before: Point {
+        x: horizontal.before,
+        y: vertical.before,
+      },
+      size: Size {
+        width: size
+          .width
+          .wrapping_add(horizontal.before)
+          .wrapping_add(horizontal.after),
+        height: size
+          .height
+          .wrapping_add(vertical.before)
+          .wrapping_add(vertical.after),
+      },
+    },
+  )
+}
+
+#[inline]
+#[track_caller]
+pub(crate) fn footprint_guard<BD: BitDepth>(
+  src: PicOffset<'_>,
+  footprint: FilterFootprint,
+) -> Rav1dResult<(SourceGuard<'_, BD>, u64)> {
   let Ok(origin) = fixed_index(src.offset);
   let Ok(stride) = fixed_offset(match src.data.pixel_stride::<BD>() {
     Ok(pixel_stride) => pixel_stride,
   });
-
-  match (size.width, size.height) {
-    (1..=128, 1..=128) => {}
-    _ => return Err(Rav1dError::EINVAL),
-  }
-
-  let above = i64::try_from(vertical.before).map_err(|_too_many_rows| Rav1dError::EINVAL)?;
-  let top_shift = above
-    .wrapping_neg()
-    .checked_mul(stride)
-    .ok_or(Rav1dError::EINVAL)?;
-  let top_left = origin
-    .checked_add_signed(top_shift)
-    .and_then(|start| start.checked_sub(horizontal.before))
-    .ok_or(Rav1dError::EINVAL)?;
-  let rows = size
-    .height
-    .wrapping_add(vertical.before)
-    .wrapping_add(vertical.after);
-  let width = size
-    .width
-    .wrapping_add(horizontal.before)
-    .wrapping_add(horizontal.after);
-  let separation = rows
-    .wrapping_sub(1)
-    .checked_mul(stride.unsigned_abs())
-    .ok_or(Rav1dError::EINVAL)?;
-  let (start, last) = match stride {
-    i64::MIN..=-1 => {
-      let low = top_left.checked_sub(separation).ok_or(Rav1dError::EINVAL)?;
-      (low, top_left)
-    }
-    0.. => {
-      let high = top_left.checked_add(separation).ok_or(Rav1dError::EINVAL)?;
-      (top_left, high)
-    }
-  };
-
-  let end = last.checked_add(width).ok_or(Rav1dError::EINVAL)?;
-  let Ok(available) = fixed_index(src.data.pixel_len::<BD>());
-
-  match end.cmp(&available) {
-    core::cmp::Ordering::Greater => return Err(Rav1dError::EINVAL),
-    core::cmp::Ordering::Less | core::cmp::Ordering::Equal => {}
-  }
+  let top_left = footprint
+    .start(origin, stride)
+    .map_err(|_| Rav1dError::EINVAL)?;
+  let layout =
+    RowLayout::new(footprint.size, top_left, stride).map_err(|_| Rav1dError::EINVAL)?;
+  layout
+    .validate_len(src.data.pixel_len::<BD>())
+    .map_err(|_| Rav1dError::EINVAL)?;
+  let span = layout.span();
+  let start = span.start;
+  let width = footprint.size.width;
+  let rows = footprint.size.height;
 
   let Ok(pixel_size) = fixed_index(core::mem::size_of::<BD::Pixel>());
   let pixel_bytes = i64::try_from(pixel_size).map_err(|_too_wide| Rav1dError::EINVAL)?;
   let byte_stride = stride.checked_mul(pixel_bytes).ok_or(Rav1dError::EINVAL)?;
   let first_byte = top_left.checked_mul(pixel_size).ok_or(Rav1dError::EINVAL)?;
   let visible_bytes = width.checked_mul(pixel_size).ok_or(Rav1dError::EINVAL)?;
-  let Ok(range) = indices(start..end);
+  let Ok(range) = indices(span);
   let guard = src.data.dm().slice_as::<_, BD::Pixel>(range);
   guard.probe_declare_rows(
     match index(first_byte) {
@@ -137,6 +142,7 @@ fn read_guard<BD: BitDepth>(
   Ok((guard, origin.wrapping_sub(start)))
 }
 
+#[cfg(target_arch = "x86_64")]
 #[inline]
 #[track_caller]
 pub(super) fn warp_guard<BD: BitDepth>(
@@ -152,6 +158,7 @@ pub(super) fn warp_guard<BD: BitDepth>(
   )
 }
 
+#[cfg(target_arch = "x86_64")]
 #[inline]
 #[track_caller]
 pub(super) fn filter_guard<BD: BitDepth>(
@@ -178,7 +185,7 @@ pub(super) fn filter_guard<BD: BitDepth>(
   )
 }
 
-#[cfg(all(test, not(feature = "c-ffi")))]
+#[cfg(all(test, target_arch = "x86_64", not(feature = "c-ffi")))]
 mod tests {
   use super::*;
   use crate::include::common::bitdepth::{BitDepth8, BitDepth16};
@@ -670,37 +677,27 @@ mod tests {
         )
       }
       (BPC::BPC8, _) => {
-        kernels::put_8tap_8bpc_dispatch_inner(
-          token,
-          put,
-          dst_pitch,
-          kernels::PixelSource {
-            samples: source.bytes,
-            origin: source.base,
-            stride_bytes: i64::from(FIXTURE_PIXEL_STRIDE),
-          },
-          size,
-          phase,
-          Point {
-            x: horizontal,
-            y: vertical,
-          },
-        )?;
-        kernels::prep_8tap_8bpc_dispatch_inner(
-          token,
-          prep,
-          kernels::PixelSource {
-            samples: source.bytes,
-            origin: source.base,
-            stride_bytes: i64::from(FIXTURE_PIXEL_STRIDE),
-          },
-          size,
-          phase,
-          Point {
-            x: horizontal,
-            y: vertical,
-          },
-        )
+        use crate::src::mc::{Rav1dMCDSPContext, UnscaledBlock, UnscaledSampling};
+        use console_core_video_av1_digital_signal_processing::{
+          MotionScratch, PlaneMut, Prediction,
+        };
+        use zerocopy::FromZeros;
+
+        let Ok(flags) = crate::src::cpu::rav1d_get_cpu_flags();
+        let table = Rav1dMCDSPContext::init(flags);
+        let block = UnscaledBlock::new(filter, UnscaledSampling { size, phase })?;
+        let Ok(taps) = block.resolved_eight_tap();
+        let mut scratch = MotionScratch::new_zeroed();
+        let extent = sampling.checked_size()?;
+        let pitch = i64::from(FIXTURE_PIXEL_STRIDE);
+        let put = PlaneMut::new(put, extent, 0, dst_pitch).map_err(|_| Rav1dError::EINVAL)?;
+        let put = Prediction::new(put, source.bytes, source.base, pitch, taps)
+          .map_err(|_| Rav1dError::EINVAL)?;
+        (table.put)(put, &mut scratch).map_err(|_| Rav1dError::EINVAL)?;
+        let prep = PlaneMut::new(prep, extent, 0, dst_pitch).map_err(|_| Rav1dError::EINVAL)?;
+        let prep = Prediction::new(prep, source.bytes, source.base, pitch, taps)
+          .map_err(|_| Rav1dError::EINVAL)?;
+        (table.prep)(prep, &mut scratch).map_err(|_| Rav1dError::EINVAL)
       }
       (BPC::BPC16, filter_2) => {
         let pixel_input = <[u16] as zerocopy::FromBytes>::ref_from_bytes(source.bytes)
